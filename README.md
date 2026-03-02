@@ -1,0 +1,1132 @@
+# react-klinecharts-ui — Library Reference
+
+**react-klinecharts-ui** is a headless React library for building financial trading terminals on top of [klinecharts](https://github.com/liihuu/KLineChart). It provides a state provider, a set of hooks, and overlay templates. No UI components are included — use any UI framework you prefer.
+
+---
+
+## Table of Contents
+
+1. [Installation](#installation)
+2. [Concept](#concept)
+3. [KlinechartsUIProvider](#klinechartsui-provider)
+4. [Types](#types)
+   - [Datafeed](#datafeed)
+   - [PartialSymbolInfo](#partialsymbolinfo)
+   - [KlinechartsUIState](#klinechartsuistate)
+   - [KlinechartsUIAction](#klinechartsuiaction)
+5. [Hooks](#hooks)
+   - [useKlinechartsUI](#useklinechartsui)
+   - [useKlinechartsUITheme](#useklinechartsui-theme)
+   - [useKlinechartsUILoading](#useklinechartsui-loading)
+   - [usePeriods](#useperiods)
+   - [useTimezone](#usetimezone)
+   - [useSymbolSearch](#usesymbolsearch)
+   - [useIndicators](#useindicators)
+   - [useDrawingTools](#usedrawingtools)
+   - [useKlinechartsUISettings](#useklinechartsuisettings)
+   - [useScreenshot](#usescreenshot)
+   - [useFullscreen](#usefullscreen)
+   - [useOrderLines](#useorderlines)
+6. [Utilities](#utilities)
+   - [createDataLoader](#createdataloader)
+7. [Data & Constants](#data--constants)
+8. [Drawing Overlays](#drawing-overlays)
+9. [Extensions](#extensions)
+10. [State Callbacks](#state-callbacks)
+11. [Full Export List](#full-export-list)
+
+---
+
+## Installation
+
+> **Note:** `react-klinecharts` is not yet published to the npm registry. Install it directly from GitHub:
+
+```bash
+npm install react-klinecharts-ui github:NemeZZiZZ/react-klinecharts
+# or with pnpm
+pnpm add react-klinecharts-ui github:NemeZZiZZ/react-klinecharts
+# or with yarn
+yarn add react-klinecharts-ui github:NemeZZiZZ/react-klinecharts
+```
+
+---
+
+## Concept
+
+The library follows a **headless** pattern — all UI is written by the consumer. The library is responsible for:
+
+- **State management** — current symbol, period, theme, indicators, timezone, screenshots
+- **Datafeed integration** — abstract interface for loading historical data and subscribing to real-time updates
+- **klinecharts overlay management** — indicators, drawing tools, order lines
+- **Utilities** — `createDataLoader`, overlay templates
+
+All hooks must be called inside `<KlinechartsUIProvider>`.
+
+---
+
+## KlinechartsUIProvider
+
+The root provider. Wraps the application and supplies the context.
+
+```tsx
+import { KlinechartsUIProvider } from "react-klinecharts-ui";
+
+<KlinechartsUIProvider
+  datafeed={myDatafeed}
+  defaultSymbol={{ ticker: "BTCUSDT", pricePrecision: 2 }}
+  defaultTheme="dark"
+  overlays={[orderLine]}
+  onSymbolChange={(symbol) => saveToStorage("symbol", symbol)}
+>
+  <App />
+</KlinechartsUIProvider>;
+```
+
+### Props
+
+| Prop                     | Type                                           | Default            | Description                                                      |
+| ------------------------ | ---------------------------------------------- | ------------------ | ---------------------------------------------------------------- |
+| `datafeed`               | `Datafeed`                                     | —                  | **Required.** Datafeed interface implementation                  |
+| `defaultSymbol`          | `PartialSymbolInfo`                            | `null`             | Initial trading instrument                                       |
+| `defaultPeriod`          | `TerminalPeriod`                               | First in `periods` | Initial timeframe                                                |
+| `defaultTheme`           | `string`                                       | `"light"`          | Initial theme (`"light"` or `"dark"`)                            |
+| `defaultTimezone`        | `string`                                       | `"Asia/Shanghai"`  | Initial timezone (IANA)                                          |
+| `defaultMainIndicators`  | `string[]`                                     | `["MA"]`           | Indicators on the main chart at startup                          |
+| `defaultSubIndicators`   | `string[]`                                     | `["VOL"]`          | Indicators on sub-panels at startup                              |
+| `defaultLocale`          | `string`                                       | `"en-US"`          | Locale passed to klinecharts                                     |
+| `periods`                | `TerminalPeriod[]`                             | `DEFAULT_PERIODS`  | List of available timeframes                                     |
+| `styles`                 | `DeepPartial<Styles>`                          | —                  | Custom klinecharts styles (applied when the chart is ready)      |
+| `registerExtensions`     | `boolean`                                      | `true`             | Whether to register built-in drawing overlays                    |
+| `overlays`               | `OverlayTemplate[]`                            | —                  | Additional overlay templates (e.g. `orderLine`, custom overlays) |
+| `onStateChange`          | `(action, nextState, prevState) => void`       | —                  | Called synchronously on every dispatched action                  |
+| `onSymbolChange`         | `(symbol) => void`                             | —                  | Called when the symbol changes                                   |
+| `onPeriodChange`         | `(period) => void`                             | —                  | Called when the period changes                                   |
+| `onThemeChange`          | `(theme) => void`                              | —                  | Called when the theme changes                                    |
+| `onTimezoneChange`       | `(timezone) => void`                           | —                  | Called when the timezone changes                                 |
+| `onMainIndicatorsChange` | `(indicators: string[]) => void`               | —                  | Called when main indicators change                               |
+| `onSubIndicatorsChange`  | `(indicators: Record<string, string>) => void` | —                  | Called when sub-indicators change                                |
+| `onSettingsChange`       | `(settings: Record<string, unknown>) => void`  | —                  | Called when settings change via `useKlinechartsUISettings`       |
+
+### Overlay registration
+
+The provider registers overlays once on mount via `useRef` — passing an inline array is safe and does not cause re-registration:
+
+```tsx
+// Safe — does not re-register on every render
+<KlinechartsUIProvider overlays={[orderLine, myCustomOverlay]}>
+```
+
+---
+
+## Types
+
+### Datafeed
+
+Data interface implemented by the consumer.
+
+```typescript
+interface Datafeed {
+  /**
+   * Search symbols by a query string.
+   * signal — AbortSignal to cancel the request when a newer query is typed.
+   */
+  searchSymbols(
+    search: string,
+    signal?: AbortSignal,
+  ): Promise<PartialSymbolInfo[]>;
+
+  /**
+   * Load historical bars.
+   * from/to — timestamps in milliseconds.
+   * When from=0, load the most recent available data.
+   */
+  getHistoryKLineData(
+    symbol: SymbolInfo,
+    period: TerminalPeriod,
+    from: number,
+    to: number,
+  ): Promise<KLineData[]>;
+
+  /**
+   * Subscribe to real-time updates.
+   * callback is called for every new bar.
+   */
+  subscribe(
+    symbol: SymbolInfo,
+    period: TerminalPeriod,
+    callback: (data: KLineData) => void,
+  ): void;
+
+  /** Unsubscribe from real-time updates. */
+  unsubscribe(symbol: SymbolInfo, period: TerminalPeriod): void;
+}
+```
+
+### PartialSymbolInfo
+
+Minimal description of a trading instrument.
+
+```typescript
+interface PartialSymbolInfo {
+  ticker: string; // e.g. "BTCUSDT", "AAPL", "EUR/USD"
+  pricePrecision?: number; // Decimal places for price display
+  volumePrecision?: number; // Decimal places for volume display
+  [key: string]: unknown; // Any additional fields
+}
+```
+
+### KlinechartsUIState
+
+Complete provider state. Accessible via `useKlinechartsUI().state`.
+
+```typescript
+interface KlinechartsUIState {
+  chart: Chart | null; // klinecharts Chart instance (null before onReady)
+  datafeed: Datafeed; // The datafeed passed to the provider
+  symbol: PartialSymbolInfo | null; // Current symbol
+  period: TerminalPeriod; // Current timeframe
+  theme: string; // Current theme: "light" | "dark"
+  timezone: string; // Current timezone (IANA)
+  isLoading: boolean; // true while data is loading
+  locale: string; // klinecharts locale ("en-US")
+  periods: TerminalPeriod[]; // List of available timeframes
+  mainIndicators: string[]; // Active main chart indicators
+  subIndicators: Record<string, string>; // Active sub-indicators: { name → paneId }
+  styles: DeepPartial<Styles> | undefined; // Custom klinecharts styles
+  screenshotUrl: string | null; // URL of the last screenshot
+}
+```
+
+### KlinechartsUIAction
+
+Union type of all possible actions for `dispatch`.
+
+```typescript
+type KlinechartsUIAction =
+  | { type: "SET_CHART"; chart: Chart }
+  | { type: "SET_SYMBOL"; symbol: PartialSymbolInfo }
+  | { type: "SET_PERIOD"; period: TerminalPeriod }
+  | { type: "SET_THEME"; theme: string }
+  | { type: "SET_TIMEZONE"; timezone: string }
+  | { type: "SET_LOADING"; isLoading: boolean }
+  | { type: "SET_MAIN_INDICATORS"; indicators: string[] }
+  | { type: "SET_SUB_INDICATORS"; indicators: Record<string, string> }
+  | { type: "SET_STYLES"; styles: DeepPartial<Styles> | undefined }
+  | { type: "SET_LOCALE"; locale: string }
+  | { type: "SET_SCREENSHOT_URL"; url: string | null };
+```
+
+---
+
+## Hooks
+
+### useKlinechartsUI
+
+The primary hook — returns the full context: state, dispatch, datafeed, and fullscreen ref.
+
+```typescript
+const { state, dispatch, datafeed, onSettingsChange, fullscreenContainerRef } =
+  useKlinechartsUI();
+```
+
+Return value:
+
+```typescript
+interface KlinechartsUIContextValue {
+  state: KlinechartsUIState;
+  dispatch: Dispatch<KlinechartsUIAction>; // enhancedDispatch with synchronous callbacks
+  datafeed: Datafeed;
+  onSettingsChange?: (settings: Record<string, unknown>) => void;
+  fullscreenContainerRef: RefObject<HTMLElement | null>;
+}
+```
+
+> **Note:** `dispatch` is `enhancedDispatch`. It synchronously computes the new state by calling the pure reducer directly and immediately invokes `onStateChange` / individual callbacks — without waiting for a React re-render.
+
+---
+
+### useKlinechartsUITheme
+
+Manage the chart theme.
+
+```typescript
+const { theme, setTheme, toggleTheme } = useKlinechartsUITheme();
+```
+
+| Field         | Type                      | Description                           |
+| ------------- | ------------------------- | ------------------------------------- |
+| `theme`       | `string`                  | Current theme: `"light"` or `"dark"`  |
+| `setTheme`    | `(theme: string) => void` | Set a specific theme                  |
+| `toggleTheme` | `() => void`              | Toggle between `"light"` and `"dark"` |
+
+```tsx
+const { theme, toggleTheme } = useKlinechartsUITheme();
+
+<button onClick={toggleTheme}>
+  {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+</button>;
+```
+
+---
+
+### useKlinechartsUILoading
+
+Loading state of chart data.
+
+```typescript
+const { isLoading } = useKlinechartsUILoading();
+```
+
+| Field       | Type      | Description                                      |
+| ----------- | --------- | ------------------------------------------------ |
+| `isLoading` | `boolean` | `true` while `createDataLoader` is fetching bars |
+
+```tsx
+const { isLoading } = useKlinechartsUILoading();
+
+{
+  isLoading && <div className="spinner" />;
+}
+```
+
+---
+
+### usePeriods
+
+Manage timeframes.
+
+```typescript
+const { periods, activePeriod, setPeriod } = usePeriods();
+```
+
+| Field          | Type                               | Description                       |
+| -------------- | ---------------------------------- | --------------------------------- |
+| `periods`      | `TerminalPeriod[]`                 | Full list of available timeframes |
+| `activePeriod` | `TerminalPeriod`                   | Currently selected timeframe      |
+| `setPeriod`    | `(period: TerminalPeriod) => void` | Change the timeframe              |
+
+`TerminalPeriod` extends `KlinechartsPeriod` with a `label: string` field.
+
+**Default timeframes:** 1m, 5m, 15m, 1H, 2H, 4H, D, W, M, Y
+
+```tsx
+const { periods, activePeriod, setPeriod } = usePeriods();
+
+<div className="flex gap-1">
+  {periods.map((p) => (
+    <button
+      key={p.label}
+      onClick={() => setPeriod(p)}
+      className={activePeriod.label === p.label ? "active" : ""}
+    >
+      {p.label}
+    </button>
+  ))}
+</div>;
+```
+
+---
+
+### useTimezone
+
+Manage the chart timezone.
+
+```typescript
+const { timezones, activeTimezone, setTimezone } = useTimezone();
+```
+
+| Field            | Type                         | Description               |
+| ---------------- | ---------------------------- | ------------------------- |
+| `timezones`      | `TimezoneItem[]`             | Full list of timezones    |
+| `activeTimezone` | `string`                     | Current IANA timezone key |
+| `setTimezone`    | `(timezone: string) => void` | Change the timezone       |
+
+```typescript
+interface TimezoneItem {
+  key: string; // IANA: "Europe/London", "America/New_York", "UTC"
+  localeKey: string; // Short name: "london", "new_york", "utc"
+}
+```
+
+**Available timezones:**
+`UTC`, `Pacific/Honolulu`, `America/Juneau`, `America/Los_Angeles`, `America/Chicago`, `America/Toronto`, `America/Sao_Paulo`, `Europe/London`, `Europe/Berlin`, `Asia/Bahrain`, `Asia/Dubai`, `Asia/Ashkhabad`, `Asia/Almaty`, `Asia/Bangkok`, `Asia/Shanghai`, `Asia/Tokyo`, `Australia/Sydney`, `Pacific/Norfolk`
+
+```tsx
+const { timezones, activeTimezone, setTimezone } = useTimezone();
+
+<select value={activeTimezone} onChange={(e) => setTimezone(e.target.value)}>
+  {timezones.map((tz) => (
+    <option key={tz.key} value={tz.key}>
+      {tz.key}
+    </option>
+  ))}
+</select>;
+```
+
+---
+
+### useSymbolSearch
+
+Search and select a trading instrument.
+
+```typescript
+const {
+  query,
+  results,
+  isSearching,
+  activeSymbol,
+  setQuery,
+  selectSymbol,
+  clearResults,
+} = useSymbolSearch(debounceMs);
+```
+
+| Parameter    | Type     | Default | Description                                   |
+| ------------ | -------- | ------- | --------------------------------------------- |
+| `debounceMs` | `number` | `300`   | Delay before calling `datafeed.searchSymbols` |
+
+| Field          | Type                                  | Description                                   |
+| -------------- | ------------------------------------- | --------------------------------------------- |
+| `query`        | `string`                              | Current search query                          |
+| `results`      | `PartialSymbolInfo[]`                 | Results from the last search                  |
+| `isSearching`  | `boolean`                             | `true` while the request is in flight         |
+| `activeSymbol` | `PartialSymbolInfo \| null`           | Currently selected symbol from `state.symbol` |
+| `setQuery`     | `(q: string) => void`                 | Update the query (triggers debounced search)  |
+| `selectSymbol` | `(symbol: PartialSymbolInfo) => void` | Select a symbol — dispatches `SET_SYMBOL`     |
+| `clearResults` | `() => void`                          | Clear search results                          |
+
+The hook automatically cancels in-flight requests via `AbortController` on every new keystroke and on unmount.
+
+```tsx
+const { query, results, isSearching, selectSymbol, setQuery } =
+  useSymbolSearch(300);
+
+<input
+  value={query}
+  onChange={(e) => setQuery(e.target.value)}
+  placeholder="Search..."
+/>;
+{
+  isSearching && <Spinner />;
+}
+{
+  results.map((sym) => (
+    <button key={sym.ticker} onClick={() => selectSymbol(sym)}>
+      {sym.ticker}
+    </button>
+  ));
+}
+```
+
+---
+
+### useIndicators
+
+Full indicator management: add/remove, visibility, parameters, move between panes.
+
+```typescript
+const {
+  mainIndicators,
+  subIndicators,
+  activeMainIndicators,
+  activeSubIndicators,
+  availableMainIndicators,
+  availableSubIndicators,
+  addMainIndicator,
+  removeMainIndicator,
+  addSubIndicator,
+  removeSubIndicator,
+  toggleMainIndicator,
+  toggleSubIndicator,
+  moveToMain,
+  moveToSub,
+  setIndicatorVisible,
+  updateIndicatorParams,
+  getIndicatorParams,
+  isMainIndicatorActive,
+  isSubIndicatorActive,
+} = useIndicators();
+```
+
+#### Fields
+
+| Field                     | Type                     | Description                                |
+| ------------------------- | ------------------------ | ------------------------------------------ |
+| `mainIndicators`          | `IndicatorInfo[]`        | All main indicators with `isActive` flag   |
+| `subIndicators`           | `IndicatorInfo[]`        | All sub-indicators with `isActive` flag    |
+| `activeMainIndicators`    | `string[]`               | Active main indicator names only           |
+| `activeSubIndicators`     | `Record<string, string>` | Active sub-indicators: `{ name → paneId }` |
+| `availableMainIndicators` | `string[]`               | Full list from `MAIN_INDICATORS`           |
+| `availableSubIndicators`  | `string[]`               | Full list from `SUB_INDICATORS`            |
+
+```typescript
+interface IndicatorInfo {
+  name: string; // "MA", "MACD", "RSI", etc.
+  isActive: boolean; // Whether it is currently on the chart
+}
+```
+
+#### Methods
+
+| Method                                        | Description                                                   |
+| --------------------------------------------- | ------------------------------------------------------------- |
+| `addMainIndicator(name)`                      | Creates the indicator on `candle_pane` with id `main_${name}` |
+| `removeMainIndicator(name)`                   | Removes the indicator and updates state                       |
+| `addSubIndicator(name)`                       | Creates the indicator on a new sub-pane with id `sub_${name}` |
+| `removeSubIndicator(name)`                    | Removes the sub-indicator and its pane                        |
+| `toggleMainIndicator(name)`                   | `add` if inactive, `remove` if active                         |
+| `toggleSubIndicator(name)`                    | Same for sub-indicators                                       |
+| `moveToMain(name)`                            | Moves from sub-pane to `candle_pane`                          |
+| `moveToSub(name)`                             | Moves from `candle_pane` to a new sub-pane                    |
+| `setIndicatorVisible(name, isMain, visible)`  | Show/hide indicator via `chart.overrideIndicator`             |
+| `updateIndicatorParams(name, paneId, params)` | Update `calcParams` via `chart.overrideIndicator`             |
+| `getIndicatorParams(name)`                    | Returns `[{ label, defaultValue }]` or `[]` if no parameters  |
+| `isMainIndicatorActive(name)`                 | Quick active check                                            |
+| `isSubIndicatorActive(name)`                  | Quick active check                                            |
+
+#### Available indicators
+
+**Main chart (`MAIN_INDICATORS`):** MA, EMA, SMA, BOLL, SAR, BBI
+
+**Sub-panes (`SUB_INDICATORS`):** MA, EMA, VOL, MACD, BOLL, KDJ, RSI, BIAS, BRAR, CCI, DMI, CR, PSY, DMA, TRIX, OBV, VR, WR, MTM, EMV, SAR, SMA, ROC, PVT, BBI, AO
+
+**Indicators with configurable parameters:** SMA, BOLL, SAR, BBI, MACD, KDJ, BRAR, CCI, DMI, CR, PSY, DMA, TRIX, OBV, VR, MTM, EMV, ROC, AO and others.
+
+---
+
+### useDrawingTools
+
+Manage drawing tools (chart overlays).
+
+```typescript
+const {
+  categories,
+  activeTool,
+  magnetMode,
+  isLocked,
+  isVisible,
+  selectTool,
+  clearActiveTool,
+  setMagnetMode,
+  toggleLock,
+  toggleVisibility,
+  removeAllDrawings,
+} = useDrawingTools();
+```
+
+| Field/Method          | Type                             | Description                                             |
+| --------------------- | -------------------------------- | ------------------------------------------------------- |
+| `categories`          | `DrawingCategoryItem[]`          | Tool categories with nested tools                       |
+| `activeTool`          | `string \| null`                 | Name of the last selected tool                          |
+| `magnetMode`          | `"normal" \| "weak" \| "strong"` | Snap-to-OHLC mode                                       |
+| `isLocked`            | `boolean`                        | Whether all drawings are locked                         |
+| `isVisible`           | `boolean`                        | Whether all drawings are visible                        |
+| `selectTool(name)`    | —                                | Start drawing via `chart.createOverlay`                 |
+| `clearActiveTool()`   | —                                | Deselect tool (local state only)                        |
+| `setMagnetMode(mode)` | —                                | Change magnet mode for all existing and future drawings |
+| `toggleLock()`        | —                                | Toggle lock on all drawings                             |
+| `toggleVisibility()`  | —                                | Show/hide all drawings                                  |
+| `removeAllDrawings()` | —                                | Remove all drawings in the `drawing_tools` group        |
+
+```typescript
+interface DrawingToolItem {
+  name: string; // klinecharts overlay name, e.g. "arrow", "fibonacciLine"
+  localeKey: string; // Localization key
+}
+
+interface DrawingCategoryItem {
+  key: string; // "singleLine" | "moreLine" | "polygon" | "fibonacci" | "wave"
+  tools: DrawingToolItem[];
+}
+```
+
+**Categories and tools:**
+
+| Category (`key`) | Tools                                                                                                                                                                  |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `singleLine`     | horizontalStraightLine, horizontalRayLine, horizontalSegment, verticalStraightLine, verticalRayLine, verticalSegment, straightLine, rayLine, segment, arrow, priceLine |
+| `moreLine`       | priceChannelLine, parallelStraightLine                                                                                                                                 |
+| `polygon`        | circle, rect, parallelogram, triangle                                                                                                                                  |
+| `fibonacci`      | fibonacciLine, fibonacciSegment, fibonacciCircle, fibonacciSpiral, fibonacciSpeedResistanceFan, fibonacciExtension, gannBox                                            |
+| `wave`           | xabcd, abcd, threeWaves, fiveWaves, eightWaves, anyWaves                                                                                                               |
+
+---
+
+### useKlinechartsUISettings
+
+Manage chart appearance: candle type, colors, price marks, axes, grid, crosshair, tooltips.
+
+```typescript
+const settings = useKlinechartsUISettings();
+```
+
+#### State
+
+| Field                    | Type            | Default          | Description               |
+| ------------------------ | --------------- | ---------------- | ------------------------- |
+| `candleType`             | `string`        | `"candle_solid"` | Candle display type       |
+| `candleUpColor`          | `string`        | `"#2DC08E"`      | Bullish candle color      |
+| `candleDownColor`        | `string`        | `"#F92855"`      | Bearish candle color      |
+| `showLastPrice`          | `boolean`       | `true`           | Last price mark on Y-axis |
+| `showHighPrice`          | `boolean`       | `true`           | High price mark           |
+| `showLowPrice`           | `boolean`       | `true`           | Low price mark            |
+| `showIndicatorLastValue` | `boolean`       | `true`           | Indicator last value mark |
+| `priceAxisType`          | `PriceAxisType` | `"normal"`       | Y-axis scale type         |
+| `reverseCoordinate`      | `boolean`       | `false`          | Invert Y-axis             |
+| `showTimeAxis`           | `boolean`       | `true`           | Show X-axis               |
+| `showGrid`               | `boolean`       | `true`           | Show grid                 |
+| `showCrosshair`          | `boolean`       | `true`           | Show crosshair            |
+| `showCandleTooltip`      | `boolean`       | `true`           | OHLCV tooltip             |
+| `showIndicatorTooltip`   | `boolean`       | `true`           | Indicator tooltip         |
+
+**Candle types:** `candle_solid`, `candle_stroke`, `candle_up_stroke`, `candle_down_stroke`, `ohlc`, `area`
+
+**Price axis types:** `"normal"`, `"percentage"`, `"log"`
+
+#### Extra fields
+
+| Field            | Type                                          | Description                                           |
+| ---------------- | --------------------------------------------- | ----------------------------------------------------- |
+| `candleTypes`    | `CandleTypeItem[]`                            | List of `{ key, localeKey }` for rendering a selector |
+| `priceAxisTypes` | `{ key: PriceAxisType; localeKey: string }[]` | List for rendering a selector                         |
+
+#### Setters
+
+Each field has a corresponding setter: `setCandleType`, `setCandleUpColor`, `setCandleDownColor`, `setShowLastPrice`, `setShowHighPrice`, `setShowLowPrice`, `setShowIndicatorLastValue`, `setPriceAxisType`, `setReverseCoordinate`, `setShowTimeAxis`, `setShowGrid`, `setShowCrosshair`, `setShowCandleTooltip`, `setShowIndicatorTooltip`.
+
+All setters immediately apply changes via `chart.setStyles(...)`.
+
+| Method              | Description                                                 |
+| ------------------- | ----------------------------------------------------------- |
+| `resetToDefaults()` | Reset all settings to defaults via `chart.setStyles(theme)` |
+
+> **Important:** Settings are stored in local `useState` inside the hook — they are not part of the provider's reducer state. The hook must be called unconditionally (not only when a dialog is open) to preserve settings across dialog open/close cycles. Changes trigger `onSettingsChange` from the provider.
+
+---
+
+### useScreenshot
+
+Capture and download a chart screenshot.
+
+```typescript
+const { screenshotUrl, capture, download, clear } = useScreenshot();
+```
+
+| Field/Method          | Type                          | Description                                            |
+| --------------------- | ----------------------------- | ------------------------------------------------------ |
+| `screenshotUrl`       | `string \| null`              | JPEG data URL of the last screenshot                   |
+| `capture()`           | `() => void`                  | Capture the current chart state                        |
+| `download(filename?)` | `(filename?: string) => void` | Download as a file (default: `"chart-screenshot.jpg"`) |
+| `clear()`             | `() => void`                  | Clear `screenshotUrl` from state                       |
+
+Screenshot is created via `chart.getConvertPictureUrl(true, "jpeg", bgColor)`. Background depends on the current theme: `#151517` for dark, `#ffffff` for light.
+
+```tsx
+const { screenshotUrl, capture, download, clear } = useScreenshot();
+
+<button onClick={capture}>Capture</button>;
+{
+  screenshotUrl && (
+    <>
+      <img src={screenshotUrl} alt="chart" />
+      <button onClick={() => download()}>Download</button>
+      <button onClick={clear}>Close</button>
+    </>
+  );
+}
+```
+
+---
+
+### useFullscreen
+
+Toggle fullscreen mode. Uses `fullscreenContainerRef` from the provider.
+
+```typescript
+const { isFullscreen, toggle, enter, exit, containerRef } = useFullscreen();
+```
+
+| Field/Method   | Type                             | Description                    |
+| -------------- | -------------------------------- | ------------------------------ |
+| `isFullscreen` | `boolean`                        | Current fullscreen state       |
+| `toggle()`     | `() => void`                     | Toggle                         |
+| `enter()`      | `() => void`                     | Enter fullscreen               |
+| `exit()`       | `() => void`                     | Exit fullscreen                |
+| `containerRef` | `RefObject<HTMLElement \| null>` | The same ref from the provider |
+
+Supports cross-browser vendor prefixes (`webkit`, `ms`).
+
+**Important:** `containerRef` must be assigned to the container element that should occupy the full screen (typically the root layout element):
+
+```tsx
+const { containerRef, toggle, isFullscreen } = useFullscreen();
+
+<div ref={containerRef as React.RefObject<HTMLDivElement>}>
+  <button onClick={toggle}>{isFullscreen ? "Exit" : "Fullscreen"}</button>
+  <ChartView />
+</div>;
+```
+
+---
+
+### useOrderLines
+
+Create and manage horizontal price level lines (order lines).
+
+> **Requirement:** The `orderLine` overlay must be registered via `overlays={[orderLine]}` on the provider.
+
+```typescript
+const {
+  createOrderLine,
+  updateOrderLine,
+  removeOrderLine,
+  removeAllOrderLines,
+} = useOrderLines();
+```
+
+#### createOrderLine
+
+```typescript
+createOrderLine(options: OrderLineOptions): string | null
+```
+
+Returns the `id` of the created line, or `null` if the chart is not ready.
+
+```typescript
+interface OrderLineOptions extends OrderLineExtendData {
+  id?: string; // Auto-generated if omitted
+  price: number; // Price level
+  draggable?: boolean; // Allow drag to change price. Default: false
+  onPriceChange?: (price: number) => void; // Called when drag ends
+}
+```
+
+All `OrderLineExtendData` fields (see [orderLine extension](#orderline)) are accepted directly — they flow through as overlay `extendData`.
+
+#### updateOrderLine
+
+```typescript
+updateOrderLine(id: string, options: Partial<Omit<OrderLineOptions, "id">>): void
+```
+
+Updates an existing line. Only pass the fields you want to change.
+
+#### removeOrderLine / removeAllOrderLines
+
+```typescript
+removeOrderLine(id: string): void
+removeAllOrderLines(): void // Removes all overlays with name="orderLine"
+```
+
+```tsx
+const { createOrderLine, updateOrderLine, removeOrderLine } = useOrderLines();
+
+const id = createOrderLine({
+  price: 45000,
+  color: "#ff9900",
+  text: "Target",
+  line: { style: "dashed" },
+  mark: { bg: "#ff9900", color: "#fff" },
+  draggable: true,
+  onPriceChange: (newPrice) => console.log("Moved to:", newPrice),
+});
+
+updateOrderLine(id!, { color: "#00ff00" });
+removeOrderLine(id!);
+```
+
+---
+
+## Utilities
+
+### createDataLoader
+
+Creates a klinecharts `DataLoader` from a `Datafeed` instance.
+
+```typescript
+function createDataLoader(
+  datafeed: Datafeed,
+  dispatch: Dispatch<KlinechartsUIAction>,
+): DataLoader;
+```
+
+This bridges the `Datafeed` interface to the klinecharts native `DataLoader` format.
+
+**Behavior:**
+
+| klinecharts request type | Action                                                                                                  |
+| ------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `"init"`                 | Loads the latest ~1000 bars (`to=Date.now(), from=0`), saves `oldestTimestamp`, increments `currentGen` |
+| `"forward"`              | Loads bars older than `oldestTimestamp - 1` for left-scroll pagination                                  |
+| `"backward"`             | Ignored (real-time handled via `subscribeBar`)                                                          |
+
+**Race condition protection:** each `"init"` increments `currentGen`. If a `"forward"` request completes after a new `"init"` has started, the result is discarded.
+
+```tsx
+function ChartView() {
+  const { state, dispatch, datafeed } = useKlinechartsUI();
+
+  const dataLoader = useMemo(
+    () => createDataLoader(datafeed, dispatch),
+    [datafeed, dispatch],
+  );
+
+  return (
+    <KLineChart
+      dataLoader={dataLoader}
+      symbol={state.symbol ?? undefined}
+      period={state.period}
+      locale={state.locale}
+      timezone={state.timezone}
+      styles={state.theme}
+      onReady={(chart) => dispatch({ type: "SET_CHART", chart })}
+    />
+  );
+}
+```
+
+---
+
+## Data & Constants
+
+All constants are exported from the root `index.ts`:
+
+### DEFAULT_PERIODS
+
+```typescript
+const DEFAULT_PERIODS: TerminalPeriod[] = [
+  { span: 1, type: "minute", label: "1m" },
+  { span: 5, type: "minute", label: "5m" },
+  { span: 15, type: "minute", label: "15m" },
+  { span: 1, type: "hour", label: "1H" },
+  { span: 2, type: "hour", label: "2H" },
+  { span: 4, type: "hour", label: "4H" },
+  { span: 1, type: "day", label: "D" },
+  { span: 1, type: "week", label: "W" },
+  { span: 1, type: "month", label: "M" },
+  { span: 1, type: "year", label: "Y" },
+];
+```
+
+### TIMEZONES
+
+Array of `TimezoneOption[]` — 18 timezones. Fields: `key` (IANA) and `localeKey` (short name).
+
+### MAIN_INDICATORS / SUB_INDICATORS
+
+String arrays of indicator names used as the available-for-selection list.
+
+### INDICATOR_PARAMS
+
+```typescript
+const INDICATOR_PARAMS: Record<string, IndicatorDefinition>;
+
+interface IndicatorDefinition {
+  name: string;
+  localeKey: string;
+  params: { label: string; defaultValue: number }[];
+}
+```
+
+Used internally by `getIndicatorParams` inside `useIndicators`.
+
+### DRAWING_CATEGORIES
+
+Array of drawing tool categories. Used by `useDrawingTools`.
+
+### CANDLE_TYPES
+
+```typescript
+const CANDLE_TYPES: CandleTypeOption[] = [
+  { key: "candle_solid", localeKey: "candle_solid" },
+  { key: "candle_stroke", localeKey: "candle_stroke" },
+  { key: "candle_up_stroke", localeKey: "candle_up_stroke" },
+  { key: "candle_down_stroke", localeKey: "candle_down_stroke" },
+  { key: "ohlc", localeKey: "ohlc" },
+  { key: "area", localeKey: "area" },
+];
+```
+
+### PRICE_AXIS_TYPES
+
+```typescript
+const PRICE_AXIS_TYPES = ["normal", "percentage", "log"] as const;
+type PriceAxisType = "normal" | "percentage" | "log";
+```
+
+---
+
+## Drawing Overlays
+
+`OverlayTemplate` instances for drawing tools. Automatically registered when `registerExtensions: true` (default).
+
+**Named exports:**
+
+| Export                        | Overlay name                    | Description         |
+| ----------------------------- | ------------------------------- | ------------------- |
+| `arrow`                       | `"arrow"`                       | Arrow               |
+| `circle`                      | `"circle"`                      | Circle              |
+| `rect`                        | `"rect"`                        | Rectangle           |
+| `triangle`                    | `"triangle"`                    | Triangle            |
+| `parallelogram`               | `"parallelogram"`               | Parallelogram       |
+| `fibonacciCircle`             | `"fibonacciCircle"`             | Fibonacci circle    |
+| `fibonacciSegment`            | `"fibonacciSegment"`            | Fibonacci segment   |
+| `fibonacciSpiral`             | `"fibonacciSpiral"`             | Fibonacci spiral    |
+| `fibonacciSpeedResistanceFan` | `"fibonacciSpeedResistanceFan"` | Fibonacci fan       |
+| `fibonacciExtension`          | `"fibonacciExtension"`          | Fibonacci extension |
+| `gannBox`                     | `"gannBox"`                     | Gann box            |
+| `threeWaves`                  | `"threeWaves"`                  | 3-wave pattern      |
+| `fiveWaves`                   | `"fiveWaves"`                   | 5-wave pattern      |
+| `eightWaves`                  | `"eightWaves"`                  | 8-wave pattern      |
+| `anyWaves`                    | `"anyWaves"`                    | Custom wave pattern |
+| `abcd`                        | `"abcd"`                        | ABCD pattern        |
+| `xabcd`                       | `"xabcd"`                       | XABCD pattern       |
+
+---
+
+## Extensions
+
+### registerExtensions
+
+Registers all built-in drawing overlays via `registerOverlay`. Called automatically by the provider when `registerExtensions: true`.
+
+```typescript
+import { registerExtensions } from "react-klinecharts-ui";
+registerExtensions(); // Idempotent — repeated calls are ignored
+```
+
+### orderLine
+
+Overlay template for horizontal price level lines. **Not registered automatically** — must be passed explicitly to the provider.
+
+```typescript
+import { orderLine, KlinechartsUIProvider } from "react-klinecharts-ui";
+
+<KlinechartsUIProvider overlays={[orderLine]}>...</KlinechartsUIProvider>;
+```
+
+**Implementation details:**
+
+- `needDefaultYAxisFigure: false` — custom rendering of the Y-axis mark
+- `createYAxisFigures` — draws a colored price mark on the right axis
+- `createPointFigures` — draws a horizontal line with an optional text label
+- `performEventPressedMove` — updates `points[0].value` during drag
+- Uses `chart.getSymbol()?.pricePrecision ?? 2` for price formatting
+
+#### OrderLineExtendData
+
+All fields are optional. Defaults produce an orange dashed line with a white-on-orange price mark.
+
+```typescript
+interface OrderLineExtendData {
+  /** Primary color for line, mark bg, and label fallback. Default: "rgba(255, 165, 0, 0.85)" */
+  color?: string;
+  /** Optional text label displayed above the line. */
+  text?: string;
+  /** Line style overrides. */
+  line?: OrderLineLineStyle;
+  /** Y-axis price mark style overrides. */
+  mark?: OrderLineMarkStyle;
+  /** Text label style overrides. */
+  label?: OrderLineLabelStyle;
+}
+
+interface OrderLineLineStyle {
+  style?: "solid" | "dashed" | "dotted"; // Default: "dashed"
+  width?: number; // Default: 1
+  dashedValue?: [number, number]; // Default: [4, 2]
+}
+
+interface OrderLineMarkStyle {
+  color?: string; // Text color. Default: "#ffffff"
+  bg?: string; // Background (falls back to top-level color)
+  borderRadius?: number; // Default: 2
+  font?: OrderLineFontStyle;
+  padding?: OrderLinePadding;
+}
+
+interface OrderLineLabelStyle {
+  color?: string; // Text color (falls back to top-level color)
+  bg?: string; // Background. Default: "transparent"
+  borderRadius?: number; // Default: 0
+  font?: OrderLineFontStyle;
+  padding?: OrderLinePadding;
+  offset?: OrderLinePadding; // Position offset. Defaults: x=8, y=3
+}
+
+interface OrderLineFontStyle {
+  size?: number; // Default: 11
+  family?: string; // Default: "Helvetica Neue, Arial, sans-serif"
+  weight?: string; // Default: "bold" (mark) / "normal" (label)
+}
+
+interface OrderLinePadding {
+  x?: number;
+  y?: number;
+}
+```
+
+All sub-interfaces (`OrderLineLineStyle`, `OrderLineMarkStyle`, `OrderLineLabelStyle`, `OrderLineFontStyle`, `OrderLinePadding`) are exported as named types from both the main and `extensions` entry points.
+
+### overlays (array)
+
+Array of all built-in drawing overlays — for direct access to the list:
+
+```typescript
+import { overlays } from "react-klinecharts-ui";
+// overlays === [arrow, circle, rect, triangle, ...] (17 items)
+```
+
+---
+
+## State Callbacks
+
+Callbacks are invoked **synchronously** inside `enhancedDispatch`, before the React re-render — enabling immediate state persistence.
+
+```tsx
+<KlinechartsUIProvider
+  datafeed={datafeed}
+  onStateChange={(action, nextState, prevState) => {
+    // Called for every dispatched action
+    console.log(action.type, nextState);
+  }}
+  onSymbolChange={(symbol) => {
+    localStorage.setItem('symbol', JSON.stringify(symbol));
+  }}
+  onPeriodChange={(period) => {
+    localStorage.setItem('period', JSON.stringify(period));
+  }}
+  onThemeChange={(theme) => {
+    localStorage.setItem('theme', theme);
+  }}
+  onTimezoneChange={(timezone) => {
+    localStorage.setItem('timezone', timezone);
+  }}
+  onMainIndicatorsChange={(indicators) => {
+    localStorage.setItem('mainIndicators', JSON.stringify(indicators));
+  }}
+  onSubIndicatorsChange={(indicators) => {
+    localStorage.setItem('subIndicators', JSON.stringify(indicators));
+  }}
+  onSettingsChange={(settings) => {
+    // Called from useKlinechartsUISettings on every change
+    localStorage.setItem('settings', JSON.stringify(settings));
+  }}
+>
+```
+
+**Restoring persisted state:**
+
+```tsx
+const savedSymbol = JSON.parse(localStorage.getItem('symbol') ?? 'null');
+const savedTheme = localStorage.getItem('theme') ?? 'dark';
+
+<KlinechartsUIProvider
+  defaultSymbol={savedSymbol ?? { ticker: 'BTCUSDT' }}
+  defaultTheme={savedTheme}
+>
+```
+
+---
+
+## Full Export List
+
+```typescript
+// Provider & context
+export { KlinechartsUIProvider };
+export {
+  useKlinechartsUI,
+  KlinechartsUIStateContext,
+  KlinechartsUIDispatchContext,
+};
+export type {
+  KlinechartsUIOptions,
+  KlinechartsUIState,
+  KlinechartsUIAction,
+  KlinechartsUIContextValue,
+  KlinechartsUIDispatchValue,
+  Datafeed,
+  PartialSymbolInfo,
+};
+
+// Hooks
+export { useKlinechartsUITheme, type UseKlinechartsUIThemeReturn };
+export { useKlinechartsUILoading, type UseKlinechartsUILoadingReturn };
+export { usePeriods, type UsePeriodsReturn };
+export { useTimezone, type UseTimezoneReturn, type TimezoneItem };
+export { useSymbolSearch, type UseSymbolSearchReturn };
+export { useIndicators, type UseIndicatorsReturn, type IndicatorInfo };
+export {
+  useDrawingTools,
+  type UseDrawingToolsReturn,
+  type DrawingToolItem,
+  type DrawingCategoryItem,
+};
+export {
+  useKlinechartsUISettings,
+  type UseKlinechartsUISettingsReturn,
+  type KlinechartsUISettingsState,
+  type CandleTypeItem,
+};
+export { useScreenshot, type UseScreenshotReturn };
+export { useFullscreen, type UseFullscreenReturn };
+export { useOrderLines, type UseOrderLinesReturn, type OrderLineOptions };
+
+// Data
+export { DEFAULT_PERIODS, type TerminalPeriod };
+export { TIMEZONES, type TimezoneOption };
+export {
+  MAIN_INDICATORS,
+  SUB_INDICATORS,
+  INDICATOR_PARAMS,
+  type IndicatorParamConfig,
+  type IndicatorDefinition,
+};
+export {
+  DRAWING_CATEGORIES,
+  type DrawingTool,
+  type DrawingToolCategory,
+  type MagnetMode,
+};
+export {
+  CANDLE_TYPES,
+  PRICE_AXIS_TYPES,
+  type CandleTypeOption,
+  type PriceAxisType,
+};
+
+// Utilities
+export { createDataLoader };
+
+// Drawing overlays (all 17)
+export {
+  arrow,
+  circle,
+  rect,
+  triangle,
+  parallelogram,
+  fibonacciCircle,
+  fibonacciSegment,
+  fibonacciSpiral,
+  fibonacciSpeedResistanceFan,
+  fibonacciExtension,
+  gannBox,
+  threeWaves,
+  fiveWaves,
+  eightWaves,
+  anyWaves,
+  abcd,
+  xabcd,
+};
+
+// Extensions
+export { registerExtensions, overlays, orderLine };
+export type {
+  OrderLineExtendData,
+  OrderLineLineStyle,
+  OrderLineMarkStyle,
+  OrderLineLabelStyle,
+  OrderLineFontStyle,
+  OrderLinePadding,
+};
+```

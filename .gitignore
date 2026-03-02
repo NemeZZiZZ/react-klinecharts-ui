@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.DS_Store
+
+# lock files — only pnpm-lock.yaml is canonical
+package-lock.json
+yarn.lock
+
+examples/node_modules/
+examples/dist/
+examples/.vite/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
