@@ -30,6 +30,8 @@ export const DRAWING_CATEGORIES: DrawingToolCategory[] = [
     tools: [
       { name: "priceChannelLine", localeKey: "price_channel_line" },
       { name: "parallelStraightLine", localeKey: "parallel_straight_line" },
+      { name: "ray", localeKey: "ray" },
+      { name: "parallelChannel", localeKey: "parallel_channel" },
     ],
   },
   {
@@ -53,7 +55,9 @@ export const DRAWING_CATEGORIES: DrawingToolCategory[] = [
         localeKey: "fibonacci_speed_resistance_fan",
       },
       { name: "fibonacciExtension", localeKey: "fibonacci_extension" },
+      { name: "fibRetracement", localeKey: "fib_retracement" },
       { name: "gannBox", localeKey: "gann_box" },
+      { name: "gannFan", localeKey: "gann_fan" },
     ],
   },
   {
@@ -65,6 +69,26 @@ export const DRAWING_CATEGORIES: DrawingToolCategory[] = [
       { name: "fiveWaves", localeKey: "five_waves" },
       { name: "eightWaves", localeKey: "eight_waves" },
       { name: "anyWaves", localeKey: "any_waves" },
+      { name: "elliottWave", localeKey: "elliott_wave" },
+    ],
+  },
+  {
+    key: "measure",
+    tools: [
+      { name: "measure", localeKey: "measure" },
+    ],
+  },
+  {
+    key: "position",
+    tools: [
+      { name: "longPosition", localeKey: "long_position" },
+      { name: "shortPosition", localeKey: "short_position" },
+    ],
+  },
+  {
+    key: "annotation",
+    tools: [
+      { name: "brush", localeKey: "brush" },
     ],
   },
 ];

@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from "react";
-import { useKlinechartsUI } from "../provider/ChartTerminalContext";
+import { useKlinechartsUI, useKlinechartsUIDispatch } from "../provider/ChartTerminalContext";
 import { DRAWING_CATEGORIES, type MagnetMode } from "../data/drawings";
 
 const DRAWING_GROUP_ID = "drawing_tools";
@@ -30,6 +30,7 @@ export interface UseDrawingToolsReturn {
 
 export function useDrawingTools(): UseDrawingToolsReturn {
   const { state } = useKlinechartsUI();
+  const { undoRedoListenerRef } = useKlinechartsUIDispatch();
   const [activeTool, setActiveTool] = useState<string | null>(null);
   const [magnetMode, setMagnetModeState] = useState<MagnetMode>("normal");
   const [isLocked, setIsLocked] = useState(false);
@@ -61,9 +62,24 @@ export function useDrawingTools(): UseDrawingToolsReturn {
             : magnetMode === "weak"
               ? "weak_magnet"
               : "normal" as any,
+        onDrawEnd: (event: any) => {
+          const o = event.overlay;
+          undoRedoListenerRef.current?.({
+            type: "overlay_added",
+            data: {
+              id: o.id,
+              overlayData: {
+                name: o.name,
+                points: o.points,
+                styles: o.styles,
+                extendData: o.extendData,
+              },
+            },
+          });
+        },
       });
     },
-    [state.chart, isLocked, isVisible, magnetMode]
+    [state.chart, isLocked, isVisible, magnetMode, undoRedoListenerRef]
   );
 
   const clearActiveTool = useCallback(() => {
@@ -121,9 +137,23 @@ export function useDrawingTools(): UseDrawingToolsReturn {
   }, [state.chart, isVisible]);
 
   const removeAllDrawings = useCallback(() => {
+    const overlays = state.chart?.getOverlays({ groupId: DRAWING_GROUP_ID });
+    if (overlays && overlays.length > 0) {
+      const snapshot = overlays.map((o: any) => ({
+        name: o.name,
+        id: o.id,
+        points: o.points,
+        styles: o.styles,
+        extendData: o.extendData,
+      }));
+      undoRedoListenerRef.current?.({
+        type: "overlays_removed",
+        data: { overlays: snapshot },
+      });
+    }
     state.chart?.removeOverlay({ groupId: DRAWING_GROUP_ID });
     setActiveTool(null);
-  }, [state.chart]);
+  }, [state.chart, undoRedoListenerRef]);
 
   return {
     categories,

@@ -110,6 +110,7 @@ export function KlinechartsUIProvider({
   );
 
   const fullscreenContainerRef = useRef<HTMLElement | null>(null);
+  const undoRedoListenerRef = useRef<import("./types").UndoRedoListener | null>(null);
 
   // Tracks the current state so enhancedDispatch can compute the new state
   // synchronously (reducer is pure, so we can call it before dispatch).
@@ -196,6 +197,7 @@ export function KlinechartsUIProvider({
       datafeed,
       onSettingsChange,
       fullscreenContainerRef,
+      undoRedoListenerRef,
     }),
     [enhancedDispatch, datafeed, onSettingsChange],
   );

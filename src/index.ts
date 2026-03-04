@@ -64,6 +64,23 @@ export {
   type UseOrderLinesReturn,
   type OrderLineOptions,
 } from "./hooks/useOrderLines";
+export {
+  useUndoRedo,
+  type UseUndoRedoReturn,
+  type UndoRedoAction,
+  type UndoRedoActionType,
+} from "./hooks/useUndoRedo";
+export {
+  useLayoutManager,
+  type UseLayoutManagerReturn,
+  type LayoutEntry,
+  type ChartLayoutState,
+} from "./hooks/useLayoutManager";
+export {
+  useScriptEditor,
+  type UseScriptEditorReturn,
+  type ScriptPlacement,
+} from "./hooks/useScriptEditor";
 
 // Data
 export {
@@ -96,12 +113,21 @@ export type {
 
 // Utils
 export { createDataLoader } from "./utils/createDataLoader";
+export { default as TA } from "./utils/TA";
 
 // Drawing-tool overlay templates
 export * from "./overlays";
 
+// Custom indicator templates
+export * from "./indicators";
+
 // Extensions (registration + optional overlays)
-export { registerExtensions, overlays, orderLine } from "./extensions";
+export {
+  registerExtensions,
+  overlays,
+  indicators,
+  orderLine,
+} from "./extensions";
 export type {
   OrderLineExtendData,
   OrderLineLineStyle,

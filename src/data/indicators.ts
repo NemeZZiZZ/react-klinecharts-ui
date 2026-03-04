@@ -16,6 +16,13 @@ export const MAIN_INDICATORS: string[] = [
   "BOLL",
   "SAR",
   "BBI",
+  "BOLL_TV",
+  "Ichimoku",
+  "SuperTrend",
+  "HMA",
+  "VWAP",
+  "PivotPoints",
+  "MA_Ribbon",
 ];
 
 export const SUB_INDICATORS: string[] = [
@@ -45,6 +52,10 @@ export const SUB_INDICATORS: string[] = [
   "PVT",
   "BBI",
   "AO",
+  "MACD_TV",
+  "RSI_TV",
+  "CCI_TV",
+  "Stochastic",
 ];
 
 export const INDICATOR_PARAMS: Record<string, IndicatorDefinition> = {
@@ -203,6 +214,88 @@ export const INDICATOR_PARAMS: Record<string, IndicatorDefinition> = {
     params: [
       { label: "params_1", defaultValue: 5 },
       { label: "params_2", defaultValue: 34 },
+    ],
+  },
+  BOLL_TV: {
+    name: "BOLL_TV",
+    localeKey: "boll_tv",
+    params: [
+      { label: "period", defaultValue: 20 },
+      { label: "multiplier", defaultValue: 2 },
+    ],
+  },
+  Ichimoku: {
+    name: "Ichimoku",
+    localeKey: "ichimoku",
+    params: [
+      { label: "tenkan", defaultValue: 9 },
+      { label: "kijun", defaultValue: 26 },
+      { label: "senkou_b", defaultValue: 52 },
+      { label: "offset", defaultValue: 26 },
+    ],
+  },
+  SuperTrend: {
+    name: "SuperTrend",
+    localeKey: "super_trend",
+    params: [
+      { label: "period", defaultValue: 10 },
+      { label: "factor", defaultValue: 3 },
+    ],
+  },
+  HMA: {
+    name: "HMA",
+    localeKey: "hma",
+    params: [{ label: "period", defaultValue: 9 }],
+  },
+  VWAP: {
+    name: "VWAP",
+    localeKey: "vwap",
+    params: [],
+  },
+  PivotPoints: {
+    name: "PivotPoints",
+    localeKey: "pivot_points",
+    params: [],
+  },
+  MA_Ribbon: {
+    name: "MA_Ribbon",
+    localeKey: "ma_ribbon",
+    params: [
+      { label: "period_1", defaultValue: 10 },
+      { label: "period_2", defaultValue: 20 },
+      { label: "period_3", defaultValue: 30 },
+      { label: "period_4", defaultValue: 40 },
+    ],
+  },
+  MACD_TV: {
+    name: "MACD_TV",
+    localeKey: "macd_tv",
+    params: [
+      { label: "fast", defaultValue: 12 },
+      { label: "slow", defaultValue: 26 },
+      { label: "signal", defaultValue: 9 },
+    ],
+  },
+  RSI_TV: {
+    name: "RSI_TV",
+    localeKey: "rsi_tv",
+    params: [
+      { label: "rsi_period", defaultValue: 14 },
+      { label: "ma_period", defaultValue: 14 },
+    ],
+  },
+  CCI_TV: {
+    name: "CCI_TV",
+    localeKey: "cci_tv",
+    params: [{ label: "period", defaultValue: 20 }],
+  },
+  Stochastic: {
+    name: "Stochastic",
+    localeKey: "stochastic",
+    params: [
+      { label: "period", defaultValue: 14 },
+      { label: "smooth_k", defaultValue: 3 },
+      { label: "smooth_d", defaultValue: 3 },
     ],
   },
 };

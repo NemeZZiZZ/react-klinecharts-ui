@@ -101,12 +101,17 @@ export type KlinechartsUIAction =
   | { type: "SET_LOCALE"; locale: string }
   | { type: "SET_SCREENSHOT_URL"; url: string | null };
 
+/** Callback pushed by useUndoRedo so other hooks can record actions. */
+export type UndoRedoListener = (action: { type: string; data: unknown }) => void;
+
 /** The stable, dispatch-only slice of the context (never changes after mount). */
 export interface KlinechartsUIDispatchValue {
   dispatch: Dispatch<KlinechartsUIAction>;
   datafeed: Datafeed;
   onSettingsChange?: (settings: Record<string, unknown>) => void;
   fullscreenContainerRef: RefObject<HTMLElement | null>;
+  /** Ref populated by useUndoRedo; other hooks call it to record actions. */
+  undoRedoListenerRef: RefObject<UndoRedoListener | null>;
 }
 
 /** Combined context value returned by `useKlinechartsUI()`. */

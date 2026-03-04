@@ -2,6 +2,10 @@
 
 **react-klinecharts-ui** is a headless React library for building financial trading terminals on top of [klinecharts](https://github.com/liihuu/KLineChart). It provides a state provider, a set of hooks, and overlay templates. No UI components are included — use any UI framework you prefer.
 
+### Acknowledgments
+
+Many features in this library — including 11 TradingView-style indicators, 9 drawing overlays, the TA math library, undo/redo, layout manager, and script editor — were ported from the [QUANTIX Extended Edition](https://github.com/dsavenk0/KLineChart-Pro) fork of KLineChart-Pro by [@dsavenk0](https://github.com/dsavenk0). The original fork implements these as a tightly-coupled Vue 3 application; this library re-implements them as headless React hooks following the composable, framework-agnostic architecture.
+
 ---
 
 ## Table of Contents
@@ -27,13 +31,18 @@
    - [useScreenshot](#usescreenshot)
    - [useFullscreen](#usefullscreen)
    - [useOrderLines](#useorderlines)
+   - [useUndoRedo](#useundoredo)
+   - [useLayoutManager](#uselayoutmanager)
+   - [useScriptEditor](#usescripteditor)
 6. [Utilities](#utilities)
    - [createDataLoader](#createdataloader)
+   - [TA (Technical Analysis)](#ta-technical-analysis)
 7. [Data & Constants](#data--constants)
-8. [Drawing Overlays](#drawing-overlays)
-9. [Extensions](#extensions)
-10. [State Callbacks](#state-callbacks)
-11. [Full Export List](#full-export-list)
+8. [Custom Indicator Templates](#custom-indicator-templates)
+9. [Drawing Overlays](#drawing-overlays)
+10. [Extensions](#extensions)
+11. [State Callbacks](#state-callbacks)
+12. [Full Export List](#full-export-list)
 
 ---
 
@@ -737,6 +746,169 @@ removeOrderLine(id!);
 
 ---
 
+### useUndoRedo
+
+Undo/redo history for drawing overlays and indicator toggles. Automatically connected to `useDrawingTools` and `useIndicators` via a shared context ref — actions are recorded without manual wiring.
+
+**Keyboard shortcuts:** `Ctrl+Z` (undo), `Ctrl+Y` / `Ctrl+Shift+Z` (redo).
+
+```typescript
+import { useUndoRedo } from "react-klinecharts-ui";
+
+const { canUndo, canRedo, undo, redo, pushAction, clear } = useUndoRedo();
+```
+
+#### Return type: `UseUndoRedoReturn`
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `canUndo` | `boolean` | Whether there are actions to undo |
+| `canRedo` | `boolean` | Whether there are actions to redo |
+| `undo` | `() => void` | Undo the last action |
+| `redo` | `() => void` | Redo the last undone action |
+| `pushAction` | `(action: UndoRedoAction) => void` | Push a new action onto the undo stack (clears redo) |
+| `clear` | `() => void` | Clear all undo/redo history |
+
+#### Action types
+
+| Type | Trigger | Undo behaviour | Redo behaviour |
+|------|---------|----------------|----------------|
+| `overlay_added` | User completes a drawing | Removes the overlay | Re-creates the overlay |
+| `overlays_removed` | `removeAllDrawings()` | Restores all removed overlays | Re-removes them |
+| `indicator_toggled` | Add/remove indicator | Reverses the toggle | Re-applies the toggle |
+
+#### Cross-hook communication
+
+`useUndoRedo` registers a `pushAction` callback on `undoRedoListenerRef` (shared via provider context). When `useDrawingTools` finishes a drawing or `useIndicators` toggles an indicator, they call the ref to record the action — no prop drilling required.
+
+---
+
+### useLayoutManager
+
+Save, load, rename, and delete named chart layouts via `localStorage`. Captures indicators, drawings, symbol, and period. Optional auto-save with 5-second debounce.
+
+```typescript
+import { useLayoutManager } from "react-klinecharts-ui";
+
+const {
+  layouts,
+  saveLayout,
+  loadLayout,
+  deleteLayout,
+  renameLayout,
+  refreshLayouts,
+  autoSaveEnabled,
+  setAutoSaveEnabled,
+} = useLayoutManager();
+```
+
+#### Return type: `UseLayoutManagerReturn`
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `layouts` | `LayoutEntry[]` | List of saved layout entries |
+| `saveLayout` | `(name: string) => string \| null` | Save current chart state; returns layout ID |
+| `loadLayout` | `(id: string) => boolean` | Load and apply a layout by ID |
+| `deleteLayout` | `(id: string) => void` | Delete a layout |
+| `renameLayout` | `(id: string, name: string) => boolean` | Rename a layout |
+| `refreshLayouts` | `() => void` | Refresh the list from localStorage |
+| `autoSaveEnabled` | `boolean` | Whether auto-save is enabled |
+| `setAutoSaveEnabled` | `(enabled: boolean) => void` | Toggle auto-save |
+
+#### LayoutEntry
+
+```typescript
+interface LayoutEntry {
+  id: string;
+  name: string;
+  symbol: string;
+  period: string;
+  timestamp: number;
+  lastModified: number;
+  state: ChartLayoutState;
+}
+```
+
+#### ChartLayoutState
+
+```typescript
+interface ChartLayoutState {
+  version: string;
+  meta: { symbol: string; period: string; timestamp: number; lastModified: number };
+  indicators: Array<{ paneId: string; name: string; calcParams: any[]; visible: boolean }>;
+  drawings: Array<{ name: string; points: any[]; styles?: any; extendData?: any }>;
+}
+```
+
+---
+
+### useScriptEditor
+
+Pine Script-style custom indicator editor. Users write plain JavaScript function bodies that receive `TA`, `dataList` (array of `KLineData`), and `params` (parsed from a comma-separated string). The script must return an array of objects — one per candle, each key becomes a chart series.
+
+Scripts execute inside a sandboxed `new Function()` with dangerous globals shadowed: `fetch`, `XMLHttpRequest`, `WebSocket`, `Worker`, `SharedWorker`, `importScripts`, `self`, `caches`, `indexedDB`.
+
+```typescript
+import { useScriptEditor } from "react-klinecharts-ui";
+
+const {
+  code, setCode,
+  scriptName, setScriptName,
+  params, setParams,
+  placement, setPlacement,
+  error, status, isRunning, hasActiveScript,
+  runScript, removeScript, resetCode,
+  exportScript, importScript,
+  defaultScript,
+} = useScriptEditor();
+```
+
+#### Return type: `UseScriptEditorReturn`
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `code` | `string` | Current script source code |
+| `setCode` | `(code: string) => void` | Update the source code |
+| `scriptName` | `string` | Display name of the script |
+| `setScriptName` | `(name: string) => void` | Update the name |
+| `params` | `string` | Comma-separated numeric params (e.g. `"14, 26, 9"`) |
+| `setParams` | `(params: string) => void` | Update params |
+| `placement` | `ScriptPlacement` | `"main"` or `"sub"` |
+| `setPlacement` | `(p: ScriptPlacement) => void` | Set placement |
+| `error` | `string` | Last error message (empty = no error) |
+| `status` | `string` | Last status message |
+| `isRunning` | `boolean` | Whether the script is currently executing |
+| `hasActiveScript` | `boolean` | Whether a script indicator is on the chart |
+| `runScript` | `() => void` | Execute the script and register the indicator |
+| `removeScript` | `() => void` | Remove the current script indicator from the chart |
+| `resetCode` | `() => void` | Reset code to the default template |
+| `exportScript` | `() => void` | Download the code as a `.js` file |
+| `importScript` | `(file: File) => void` | Load a script from a file |
+| `defaultScript` | `string` | The default template code |
+
+#### Example script
+
+```javascript
+// Available: TA, dataList, params
+const period = params[0] ?? 14;
+const closes = dataList.map(d => d.close);
+const highs  = dataList.map(d => d.high);
+const lows   = dataList.map(d => d.low);
+
+const rsi  = TA.rsi(closes, period);
+const boll = TA.bollinger(closes, period, 2);
+
+// Return one object per candle — each key = one line on the chart
+return rsi.map((v, i) => ({
+  rsi:   v,
+  upper: boll.upper[i],
+  mid:   boll.mid[i],
+  lower: boll.lower[i],
+}));
+```
+
+---
+
 ## Utilities
 
 ### createDataLoader
@@ -784,6 +956,33 @@ function ChartView() {
   );
 }
 ```
+
+---
+
+### TA (Technical Analysis)
+
+A standalone math library for computing common technical indicators. Used internally by indicator templates and available to custom scripts via `useScriptEditor`.
+
+```typescript
+import { TA } from "react-klinecharts-ui";
+```
+
+| Function | Signature | Returns |
+|----------|-----------|---------|
+| `TA.sma` | `(data: number[], period: number)` | `number[]` — Simple Moving Average |
+| `TA.ema` | `(data: number[], period: number)` | `number[]` — Exponential Moving Average |
+| `TA.rma` | `(data: number[], period: number)` | `number[]` — Running (Wilder's) Moving Average |
+| `TA.wma` | `(data: number[], period: number)` | `number[]` — Weighted Moving Average |
+| `TA.hma` | `(data: number[], period: number)` | `number[]` — Hull Moving Average |
+| `TA.stdev` | `(data: number[], period: number)` | `number[]` — Standard Deviation |
+| `TA.rsi` | `(data: number[], period: number)` | `(number \| null)[]` — Relative Strength Index |
+| `TA.macd` | `(data: number[], fast?: number, slow?: number, signal?: number)` | `{ dif, dea, macd }` — each `(number \| null)[]` |
+| `TA.bollinger` | `(data: number[], period?: number, mult?: number)` | `{ upper, mid, lower }` — each `(number \| null)[]` |
+| `TA.tr` | `(highs: number[], lows: number[], closes: number[])` | `number[]` — True Range |
+| `TA.atr` | `(highs: number[], lows: number[], closes: number[], period: number)` | `number[]` — Average True Range |
+| `TA.vwap` | `(highs: number[], lows: number[], closes: number[], volumes: number[])` | `number[]` — Volume Weighted Average Price |
+| `TA.cci` | `(highs: number[], lows: number[], closes: number[], period: number)` | `number[]` — Commodity Channel Index |
+| `TA.stoch` | `(highs: number[], lows: number[], closes: number[], kPeriod?, kSmooth?, dPeriod?)` | `{ k, d }` — each `(number \| null)[]` |
 
 ---
 
@@ -856,6 +1055,38 @@ type PriceAxisType = "normal" | "percentage" | "log";
 
 ---
 
+## Custom Indicator Templates
+
+11 TradingView-style indicator templates ported from [QUANTIX Extended Edition](https://github.com/dsavenk0/KLineChart-Pro). All are registered automatically via `registerExtensions`. Each template uses the `TA` library for calculations and includes custom `draw` functions for TradingView-like visual styling (gradient fills, dashed level lines, multi-color histograms).
+
+```typescript
+import { indicators } from "react-klinecharts-ui";
+// indicators === [bollTv, cci, hma, ichimoku, maRibbon, macdTv, pivotPoints, rsiTv, stochastic, superTrend, vwap]
+```
+
+### Main chart indicators
+
+| Template | Name | Default params | Description |
+|----------|------|----------------|-------------|
+| `bollTv` | `BOLL_TV` | `[20, 2]` | Bollinger Bands — TradingView style with filled band area, SMA midline, and upper/lower bands |
+| `hma` | `HMA` | `[9]` | Hull Moving Average — high smoothing with minimal lag via `TA.hma()` |
+| `ichimoku` | `ICHIMOKU` | `[9, 26, 52, 26]` | Ichimoku Cloud — Tenkan-sen, Kijun-sen, Senkou Span A/B (filled cloud), Chikou Span |
+| `maRibbon` | `MA_RIBBON` | `[5, 10, 20, 30, 50, 100]` | Moving Average Ribbon — 6 EMAs with distinct colors for trend visualization |
+| `pivotPoints` | `PIVOT_POINTS` | `[1]` | Standard pivot with Pivot, R1, R2, S1, S2 levels as dashed horizontal lines |
+| `superTrend` | `SUPERTREND` | `[10, 3]` | ATR-based trend — dynamic green (up) / red (down) line coloring |
+| `vwap` | `VWAP` | `[]` | Volume Weighted Average Price — single blue line via `TA.vwap()` |
+
+### Sub-pane indicators
+
+| Template | Name | Default params | Description |
+|----------|------|----------------|-------------|
+| `macdTv` | `MACD_TV` | `[12, 26, 9]` | 4-color histogram: growing-positive (#26A69A), shrinking-positive (#B2DFDB), growing-negative (#FFCDD2), shrinking-negative (#EF5350). MACD line (#2962FF), Signal line (#FF6D00) |
+| `rsiTv` | `RSI_TV` | `[14, 14]` | RSI + MA line. Dashed levels at 70/50/30. Gradient fills in overbought (>70, red) and oversold (<30, green) zones |
+| `cci` | `CCI` | `[20]` | Commodity Channel Index via `TA.cci()` with dashed +100/0/-100 reference lines |
+| `stochastic` | `STOCHASTIC` | `[14, 1, 3]` | %K (#2962FF) and %D (#FF6D00) lines. Dashed 80/50/20 levels. Gradient fills in overbought/oversold zones |
+
+---
+
 ## Drawing Overlays
 
 `OverlayTemplate` instances for drawing tools. Automatically registered when `registerExtensions: true` (default).
@@ -881,6 +1112,15 @@ type PriceAxisType = "normal" | "percentage" | "log";
 | `anyWaves`                    | `"anyWaves"`                    | Custom wave pattern |
 | `abcd`                        | `"abcd"`                        | ABCD pattern        |
 | `xabcd`                       | `"xabcd"`                       | XABCD pattern       |
+| `elliottWave`                 | `"elliottWave"`                 | Elliott Wave (5-wave cycle with numbered vertices) |
+| `gannFan`                     | `"gannFan"`                     | Gann Fan (1x1, 1x2, etc.) |
+| `fibRetracement`              | `"fibRetracement"`              | Fibonacci retracement levels |
+| `parallelChannel`             | `"parallelChannel"`             | Parallel channel (two parallel lines) |
+| `longPosition`                | `"longPosition"`                | Long position risk/reward (TP/SL with % labels) |
+| `shortPosition`               | `"shortPosition"`               | Short position risk/reward (TP/SL with % labels) |
+| `measure`                     | `"measure"`                     | Measure tool (price %, bar count, time delta) |
+| `brush`                       | `"brush"`                       | Freehand brush drawing (Bezier smoothing) |
+| `ray`                         | `"ray"`                         | Infinite ray from a point |
 
 ---
 
@@ -974,7 +1214,7 @@ Array of all built-in drawing overlays — for direct access to the list:
 
 ```typescript
 import { overlays } from "react-klinecharts-ui";
-// overlays === [arrow, circle, rect, triangle, ...] (17 items)
+// overlays === [arrow, circle, rect, triangle, ...] (26 items)
 ```
 
 ---
@@ -1071,6 +1311,23 @@ export {
 export { useScreenshot, type UseScreenshotReturn };
 export { useFullscreen, type UseFullscreenReturn };
 export { useOrderLines, type UseOrderLinesReturn, type OrderLineOptions };
+export {
+  useUndoRedo,
+  type UseUndoRedoReturn,
+  type UndoRedoAction,
+  type UndoRedoActionType,
+};
+export {
+  useLayoutManager,
+  type UseLayoutManagerReturn,
+  type LayoutEntry,
+  type ChartLayoutState,
+};
+export {
+  useScriptEditor,
+  type UseScriptEditorReturn,
+  type ScriptPlacement,
+};
 
 // Data
 export { DEFAULT_PERIODS, type TerminalPeriod };
@@ -1091,36 +1348,39 @@ export {
 export {
   CANDLE_TYPES,
   PRICE_AXIS_TYPES,
+  YAXIS_POSITIONS,
+  COMPARE_RULES,
+  TOOLTIP_SHOW_RULES,
   type CandleTypeOption,
   type PriceAxisType,
+  type YAxisPosition,
+  type CompareRule,
+  type TooltipShowRule,
 };
 
 // Utilities
 export { createDataLoader };
+export { default as TA } from "./utils/TA";
 
-// Drawing overlays (all 17)
+// Drawing overlays (all 26)
 export {
-  arrow,
-  circle,
-  rect,
-  triangle,
-  parallelogram,
-  fibonacciCircle,
-  fibonacciSegment,
-  fibonacciSpiral,
-  fibonacciSpeedResistanceFan,
-  fibonacciExtension,
-  gannBox,
-  threeWaves,
-  fiveWaves,
-  eightWaves,
-  anyWaves,
-  abcd,
-  xabcd,
+  arrow, circle, rect, triangle, parallelogram,
+  fibonacciCircle, fibonacciSegment, fibonacciSpiral,
+  fibonacciSpeedResistanceFan, fibonacciExtension,
+  fibRetracement,
+  gannBox, gannFan,
+  threeWaves, fiveWaves, eightWaves, anyWaves, elliottWave,
+  abcd, xabcd,
+  parallelChannel, ray,
+  longPosition, shortPosition,
+  measure, brush,
 };
 
+// Custom indicator templates (all 11)
+export * from "./indicators";
+
 // Extensions
-export { registerExtensions, overlays, orderLine };
+export { registerExtensions, overlays, indicators, orderLine };
 export type {
   OrderLineExtendData,
   OrderLineLineStyle,

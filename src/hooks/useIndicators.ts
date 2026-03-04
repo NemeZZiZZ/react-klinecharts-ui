@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { useKlinechartsUI } from "../provider/ChartTerminalContext";
+import { useKlinechartsUI, useKlinechartsUIDispatch } from "../provider/ChartTerminalContext";
 import {
   MAIN_INDICATORS,
   SUB_INDICATORS,
@@ -45,6 +45,7 @@ export interface UseIndicatorsReturn {
 
 export function useIndicators(): UseIndicatorsReturn {
   const { state, dispatch } = useKlinechartsUI();
+  const { undoRedoListenerRef } = useKlinechartsUIDispatch();
 
   const mainIndicators = useMemo(() => {
     const activeNames = state.mainIndicators;
@@ -74,8 +75,12 @@ export function useIndicators(): UseIndicatorsReturn {
       );
       const newIndicators = [...state.mainIndicators, name];
       dispatch({ type: "SET_MAIN_INDICATORS", indicators: newIndicators });
+      undoRedoListenerRef.current?.({
+        type: "indicator_toggled",
+        data: { name, wasActive: false, isMain: true, paneId: "candle_pane" },
+      });
     },
-    [state.chart, state.mainIndicators, dispatch],
+    [state.chart, state.mainIndicators, dispatch, undoRedoListenerRef],
   );
 
   const removeMainIndicator = useCallback(
@@ -83,8 +88,12 @@ export function useIndicators(): UseIndicatorsReturn {
       state.chart?.removeIndicator({ id: `main_${name}` });
       const newIndicators = state.mainIndicators.filter((n) => n !== name);
       dispatch({ type: "SET_MAIN_INDICATORS", indicators: newIndicators });
+      undoRedoListenerRef.current?.({
+        type: "indicator_toggled",
+        data: { name, wasActive: true, isMain: true, paneId: "candle_pane" },
+      });
     },
-    [state.chart, state.mainIndicators, dispatch],
+    [state.chart, state.mainIndicators, dispatch, undoRedoListenerRef],
   );
 
   const addSubIndicator = useCallback(
@@ -95,18 +104,27 @@ export function useIndicators(): UseIndicatorsReturn {
       const paneId = state.chart?.getIndicators({ id })?.[0]?.paneId ?? "";
       const newIndicators = { ...state.subIndicators, [name]: paneId };
       dispatch({ type: "SET_SUB_INDICATORS", indicators: newIndicators });
+      undoRedoListenerRef.current?.({
+        type: "indicator_toggled",
+        data: { name, wasActive: false, isMain: false, paneId },
+      });
     },
-    [state.chart, state.subIndicators, dispatch],
+    [state.chart, state.subIndicators, dispatch, undoRedoListenerRef],
   );
 
   const removeSubIndicator = useCallback(
     (name: string) => {
+      const paneId = state.subIndicators[name] ?? "";
       state.chart?.removeIndicator({ id: `sub_${name}` });
       const newIndicators = { ...state.subIndicators };
       delete newIndicators[name];
       dispatch({ type: "SET_SUB_INDICATORS", indicators: newIndicators });
+      undoRedoListenerRef.current?.({
+        type: "indicator_toggled",
+        data: { name, wasActive: true, isMain: false, paneId },
+      });
     },
-    [state.chart, state.subIndicators, dispatch],
+    [state.chart, state.subIndicators, dispatch, undoRedoListenerRef],
   );
 
   const toggleMainIndicator = useCallback(
