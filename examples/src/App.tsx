@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   KlinechartsUIProvider,
   useFullscreen,
@@ -6,16 +6,26 @@ import {
   useKlinechartsUILoading,
   orderLine,
 } from "react-klinecharts-ui";
+import { Menu } from "lucide-react";
 import { binanceDatafeed, defaultSymbol } from "./datafeed";
 import { DrawingSidebar } from "./components/DrawingSidebar";
 import { Toolbar } from "./components/Toolbar";
 import { ChartView } from "./components/ChartView";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { cn } from "./lib/utils";
 
 function TerminalLayout() {
   const { containerRef } = useFullscreen();
   const { theme } = useKlinechartsUITheme();
   const { isLoading } = useKlinechartsUILoading();
+  const [showDrawingSidebar, setShowDrawingSidebar] = useState(true);
 
   // Set .dark on <html> so Radix portals (Dialog, Popover, Tooltip)
   // also inherit dark mode CSS variables
@@ -32,13 +42,33 @@ function TerminalLayout() {
     <TooltipProvider delayDuration={0}>
       <div
         ref={containerRef as React.RefObject<HTMLDivElement>}
-        className="flex min-h-svh w-full bg-background"
+        className="flex flex-col h-svh bg-background"
       >
-        <DrawingSidebar />
-        <div className="relative flex w-full flex-col">
-          <header className="flex h-10 shrink-0 items-center gap-1 border-b px-2">
-            <Toolbar />
-          </header>
+        <header className="flex h-10 shrink-0 items-center border-b px-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={showDrawingSidebar ? "secondary" : "ghost"}
+                size="icon-sm"
+                onClick={() => setShowDrawingSidebar((v) => !v)}
+              >
+                <Menu className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Drawing tools</TooltipContent>
+          </Tooltip>
+          <Separator orientation="vertical" className="mx-1 h-5" />
+          <Toolbar />
+        </header>
+
+        <div
+          className={cn("flex-1 grid", {
+            "grid-cols-[auto_1fr]": showDrawingSidebar,
+            "": !showDrawingSidebar,
+          })}
+        >
+          {showDrawingSidebar && <DrawingSidebar />}
+
           <div className="flex-[1_0_0] grid relative">
             <ChartView className="absolute inset-0" />
 

@@ -15,8 +15,8 @@ export default defineConfig({
       output: {
         manualChunks: {
           react: ["react", "react-dom"],
-          klinecharts: ["klinecharts", "react-klinecharts", "react-klinecharts-ui"],
-          ui: ["@radix-ui/react-dialog", "@radix-ui/react-popover", "@radix-ui/react-tooltip", "@radix-ui/react-slot", "lucide-react"],
+          klinecharts: ["react-klinecharts", "react-klinecharts-ui"],
+          ui: ["radix-ui", "lucide-react"],
         },
       },
     },

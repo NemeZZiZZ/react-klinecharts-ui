@@ -8,7 +8,7 @@ A fully working trading terminal built with `react-klinecharts-ui` using live Bi
 
 ```
 examples/src/
-├── App.tsx                          # Root: provider + layout
+├── App.tsx                          # Root: provider + layout + sidebar toggle
 ├── datafeed.ts                      # Datafeed implementation via Binance API
 ├── hooks/
 │   └── use-modal-state.ts           # Dialog state helper
@@ -22,6 +22,8 @@ examples/src/
     ├── SymbolSearchDialog.tsx       # Symbol search dialog
     ├── ScreenshotDialog.tsx         # Screenshot preview/download dialog
     ├── OrderLineDialog.tsx          # Order line create/manage dialog
+    ├── LayoutManagerDialog.tsx      # Save/load/manage chart layouts dialog
+    ├── ScriptEditorDialog.tsx       # Custom indicator script editor dialog
     ├── IndicatorPaneOverlays.tsx    # React overlay on each pane (indicator name controls)
     └── OrderLineOverlays.tsx        # React overlay on pane root (order line hover controls)
 ```
@@ -52,28 +54,37 @@ export default function App() {
 
 ### TerminalLayout
 
-Inner component that uses library hooks to synchronise the CSS theme and render the shell.
+Inner component that uses library hooks to synchronise the CSS theme and render the shell. Includes a toggle button to show/hide the `DrawingSidebar`.
 
 ```tsx
 function TerminalLayout() {
   const { containerRef } = useFullscreen();
   const { theme } = useKlinechartsUITheme();
   const { isLoading } = useKlinechartsUILoading();
+  const [showDrawingSidebar, setShowDrawingSidebar] = useState(true);
 
-  // Sync .dark with <html> for Radix UI portals (Dialog, Popover, Tooltip)
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
   }, [theme]);
 
   return (
     <TooltipProvider delayDuration={0}>
-      <div ref={containerRef} className="flex min-h-svh w-full bg-background">
-        <DrawingSidebar />
-        <div className="relative flex w-full flex-col">
-          <header>
-            <Toolbar />
-          </header>
-          <div className="flex-[1_0_0] grid relative">
+      <div ref={containerRef} className="flex flex-col h-svh bg-background">
+        <header className="flex h-10 shrink-0 items-center border-b px-1">
+          <Button
+            variant={showDrawingSidebar ? "secondary" : "ghost"}
+            size="icon-sm"
+            onClick={() => setShowDrawingSidebar((v) => !v)}
+          >
+            <Menu className="size-4" />
+          </Button>
+          <Separator orientation="vertical" className="mx-1 h-5" />
+          <Toolbar />
+        </header>
+
+        <div className={cn("flex-1 grid", showDrawingSidebar && "grid-cols-[auto_1fr]")}>
+          {showDrawingSidebar && <DrawingSidebar />}
+          <div className="grid relative">
             <ChartView className="absolute inset-0" />
             {isLoading && <LoadingSpinner />}
           </div>
@@ -83,6 +94,8 @@ function TerminalLayout() {
   );
 }
 ```
+
+**Drawing sidebar toggle:** A `Menu` button in the header toggles the sidebar visibility. The grid layout switches between `grid-cols-[auto_1fr]` (with sidebar) and single-column (without).
 
 **Why `theme` is synchronised with `<html>`:** Radix UI creates portals directly inside `document.body`. For dark-mode CSS variables to work in dialogs and tooltips, the `dark` class must be on `<html>`, not only on the chart container.
 
@@ -247,7 +260,7 @@ Children rendered inside `<KLineChart>` get access to `KLineChartContext` (the `
 
 ## Toolbar.tsx
 
-Horizontal toolbar in the header. Uses 6 hooks and opens 6 dialogs.
+Horizontal toolbar in the header. Uses 8 hooks and opens 8 dialogs.
 
 ### Hooks used
 
@@ -257,20 +270,29 @@ const { theme, toggleTheme }               = useKlinechartsUITheme();
 const { isFullscreen, toggle }             = useFullscreen();
 const { capture }                          = useScreenshot();
 const { activeSymbol }                     = useSymbolSearch();
+const { canUndo, canRedo, undo, redo }     = useUndoRedo();
 ```
 
 ### Toolbar items (left to right)
 
 1. **Symbol button** — shows `activeSymbol.ticker` or "Select Symbol", opens `SymbolSearchDialog`
-2. **Period buttons** — one button per timeframe; active period highlighted with `variant="secondary"`
+2. **Period selector** — responsive: `DropdownMenu` on screens < `xl`, row of `Button`s on `xl`+. Active period shown with `variant="secondary"` or `Check` icon in dropdown
 3. **Indicators** — opens `IndicatorDialog`
-4. **Timezone** — opens `TimezoneDialog`
+4. **Timezone** — opens `TimezoneDialog` (hidden below `lg`)
 5. **Order Lines** — opens `OrderLineDialog`
-6. **Settings** — opens `SettingsDialog`
-7. **Spacer** (`flex-1`)
-8. **Screenshot** — calls `capture()` then opens `ScreenshotDialog`
-9. **Theme toggle** — `Sun` / `Moon` depending on the theme
-10. **Fullscreen toggle** — `Maximize` / `Minimize`
+6. **Script** — opens `ScriptEditorDialog` (hidden below `lg`)
+7. **Settings** — opens `SettingsDialog`
+8. **Spacer** (`flex-1`)
+9. **Undo / Redo** — `useUndoRedo` buttons, disabled when stack is empty (hidden below `lg`)
+10. **Layouts** — opens `LayoutManagerDialog` (hidden below `lg`)
+11. **Screenshot** — calls `capture()` then opens `ScreenshotDialog` (hidden below `lg`)
+12. **Theme toggle** — `Sun` / `Moon` depending on the theme (hidden below `lg`)
+13. **Fullscreen toggle** — `Maximize` / `Minimize` (hidden below `lg`)
+
+### Responsive behaviour
+
+- **< xl:** Period buttons collapse into a `DropdownMenu` with a `Clock` icon showing the active period label
+- **< lg:** Text labels on Indicators/Timezone/Order Lines/Script buttons are hidden (icon-only). Undo/Redo, Layouts, Screenshot, Theme, and Fullscreen buttons are hidden entirely
 
 ### Dialog state pattern
 
@@ -293,7 +315,7 @@ function useModalState() {
 
 ## DrawingSidebar.tsx
 
-Narrow vertical sidebar (`w-10`) for drawing tools. Uses only `useDrawingTools`.
+Narrow vertical sidebar (`w-10`) for drawing tools. Toggled via the `Menu` button in `App.tsx`. Uses only `useDrawingTools`.
 
 ```typescript
 const {
@@ -304,11 +326,12 @@ const {
 
 ### Sidebar structure
 
-**Drawing tool categories** — each category is a `Popover` with a `Tooltip`:
-- Category icon from `CATEGORY_ICONS`: Lines→`Slash`, Channels→`Route`, Shapes→`Hexagon`, Fibonacci→`Activity`, Waves→`Waves`
+**Drawing tool categories** — each category renders differently based on tool count:
+- **Single tool:** `Tooltip` + `Button` — clicking directly activates the tool (no popover)
+- **Multiple tools:** `Popover` with `Tooltip` — opens a scrollable list of tools
+- Category icons from `CATEGORY_ICONS`: Lines→`Slash`, Channels→`Route`, Shapes→`Hexagon`, Fibonacci→`Activity`, Waves→`Waves`, Measure→`Ruler`, Positions→`TrendingUp`, Annotation→`Paintbrush`
 - Clicking a tool → `selectTool(name)` → `chart.createOverlay({ name, groupId: 'drawing_tools', ... })`
 - Active category is highlighted via `variant="secondary"` (`hasActive` = any tool in the category is `activeTool`)
-- Popover uses `w-auto min-w-48` width and `max-h-[70vh]` scroll area
 
 **Global drawing controls** (below a separator):
 
@@ -487,6 +510,62 @@ Each entry shows:
 
 ---
 
+## LayoutManagerDialog.tsx
+
+Save, load, rename, and delete named chart layouts. Uses `useLayoutManager`.
+
+```typescript
+const {
+  layouts, saveLayout, loadLayout, deleteLayout,
+  renameLayout, refreshLayouts, autoSaveEnabled, setAutoSaveEnabled,
+} = useLayoutManager();
+```
+
+### Features
+
+- **Save:** Name input + Save button. Calls `saveLayout(name)` which serializes current indicators, drawings, symbol, and period to `localStorage`
+- **Layout list:** Each entry shows name, symbol, period, and timestamp. Actions: Load, Rename (inline edit), Delete
+- **Auto-save toggle:** Switch to enable/disable 5-second debounced auto-save
+- **Empty state:** "No saved layouts" message when the list is empty
+
+### Storage
+
+Layouts are stored in `localStorage` under keys `klinecharts_layout:{id}` with an index at `klinecharts_layout_index`.
+
+---
+
+## ScriptEditorDialog.tsx
+
+Custom indicator editor with a dark-themed code editor. Uses `useScriptEditor`.
+
+```typescript
+const {
+  code, setCode, scriptName, setScriptName,
+  params, setParams, placement, setPlacement,
+  error, status, isRunning, hasActiveScript,
+  runScript, removeScript, resetCode, exportScript, importScript,
+} = useScriptEditor();
+```
+
+### Dialog sections
+
+1. **Header** — "Script Indicator Editor" title with JS badge
+2. **Settings row** — Name input, Params input (comma-separated), Placement radio (Sub/Main), Remove button (when active)
+3. **Code editor** — Dark-themed (`#0d1117`) textarea with line number gutter. Tab inserts 2 spaces, `Ctrl+Enter` runs the script
+4. **Error/Status bar** — Red bar with error message, or green bar with success status
+5. **Footer** — Import/Export buttons, Reset button, Run button. Keyboard hint: `Kbd` styled `Ctrl` + `Enter` to run
+
+### Script sandbox
+
+Scripts execute as `new Function("TA", "dataList", "params", code)` with dangerous globals (`fetch`, `XMLHttpRequest`, `WebSocket`, `Worker`, etc.) shadowed as `undefined`. The script must return an `Array` of objects — each key becomes a chart series with auto-assigned colors from a 6-color palette.
+
+### Import/Export
+
+- **Import:** Hidden `<input type="file">` accepting `.js`, `.ts`, `.txt`. Sets code and auto-fills script name from filename
+- **Export:** Downloads current code as `{scriptName}.js` via `Blob` + `URL.createObjectURL`
+
+---
+
 ## IndicatorPaneOverlays.tsx
 
 A reactive overlay that renders interactive controls on top of indicator names in the tooltip area of each pane. Uses `<Widget>` from `react-klinecharts` for portals into the klinecharts DOM.
@@ -607,27 +686,33 @@ App.tsx
   KlinechartsUIProvider (state, dispatch, datafeed)
   │
   TerminalLayout (TooltipProvider)
-  ├── DrawingSidebar ──────── useDrawingTools
-  └── Main area
-      ├── Toolbar
-      │   ├── usePeriods
-      │   ├── useKlinechartsUITheme
-      │   ├── useFullscreen
-      │   ├── useScreenshot
-      │   ├── useSymbolSearch
-      │   ├── IndicatorDialog ─────── useIndicators
-      │   ├── SettingsDialog ──────── useKlinechartsUISettings
-      │   ├── TimezoneDialog ──────── useTimezone
-      │   ├── SymbolSearchDialog ──── useSymbolSearch
-      │   ├── ScreenshotDialog ────── useScreenshot
-      │   └── OrderLineDialog ─────── useOrderLines + useKlinechartsUI
-      │
-      └── ChartView
-          ├── createDataLoader(datafeed, dispatch)
-          ├── <KLineChart onReady={→ SET_CHART}>
-          │     ├── IndicatorPaneOverlays ── useIndicators + useKLineChart
-          │     └── OrderLineOverlays ────── useOrderLines + useKLineChart
-          └── (loads data via dataLoader)
+  ├── [Toggle] DrawingSidebar ── useDrawingTools
+  │     └── Categories: single-tool → direct click, multi-tool → Popover
+  │
+  ├── Header
+  │   ├── Sidebar toggle button (Menu icon)
+  │   └── Toolbar
+  │       ├── usePeriods (dropdown < xl, buttons >= xl)
+  │       ├── useKlinechartsUITheme
+  │       ├── useFullscreen
+  │       ├── useScreenshot
+  │       ├── useSymbolSearch
+  │       ├── useUndoRedo
+  │       ├── IndicatorDialog ─────── useIndicators
+  │       ├── SettingsDialog ──────── useKlinechartsUISettings
+  │       ├── TimezoneDialog ──────── useTimezone
+  │       ├── SymbolSearchDialog ──── useSymbolSearch
+  │       ├── ScreenshotDialog ────── useScreenshot
+  │       ├── OrderLineDialog ─────── useOrderLines + useKlinechartsUI
+  │       ├── LayoutManagerDialog ─── useLayoutManager
+  │       └── ScriptEditorDialog ──── useScriptEditor
+  │
+  └── ChartView
+      ├── createDataLoader(datafeed, dispatch)
+      ├── <KLineChart onReady={→ SET_CHART}>
+      │     ├── IndicatorPaneOverlays ── useIndicators + useKLineChart
+      │     └── OrderLineOverlays ────── useOrderLines + useKLineChart
+      └── (loads data via dataLoader)
 ```
 
 ---

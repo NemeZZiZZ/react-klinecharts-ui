@@ -33,8 +33,8 @@ importers:
         specifier: 0.1.0
         version: 0.1.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       react-klinecharts-ui:
-        specifier: 0.1.0
-        version: 0.1.0(react-dom@19.2.4(react@19.2.4))(react-klinecharts@0.1.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)
+        specifier: file:..
+        version: file:..(react-dom@19.2.4(react@19.2.4))(react-klinecharts@0.1.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)
       tailwind-merge:
         specifier: ^2.6.1
         version: 2.6.1
@@ -2415,8 +2415,8 @@ packages:
     peerDependencies:
       react: ^19.2.4
 
-  react-klinecharts-ui@0.1.0:
-    resolution: {integrity: sha512-ONm2RRakbMt068Zud9TbNE1+Bik+OufVuFdQ1wu7eUgoAzo9uQ7rGBAT6b7m8YAZwWQUsoZcJToLMu5FXsocqg==}
+  react-klinecharts-ui@file:..:
+    resolution: {directory: .., type: directory}
     engines: {node: '>=16.0.0'}
     peerDependencies:
       react: '>=17.0.0'
@@ -5141,7 +5141,7 @@ snapshots:
       react: 19.2.4
       scheduler: 0.27.0
 
-  react-klinecharts-ui@0.1.0(react-dom@19.2.4(react@19.2.4))(react-klinecharts@0.1.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4):
+  react-klinecharts-ui@file:..(react-dom@19.2.4(react@19.2.4))(react-klinecharts@0.1.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4):
     dependencies:
       react: 19.2.4
       react-dom: 19.2.4(react@19.2.4)

@@ -11,6 +11,9 @@ import {
   Eye,
   EyeOff,
   Trash2,
+  Ruler,
+  TrendingUp,
+  Paintbrush,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -34,6 +37,9 @@ const CATEGORY_ICONS: Record<string, LucideIcon> = {
   polygon: Hexagon,
   fibonacci: Activity,
   wave: Waves,
+  measure: Ruler,
+  position: TrendingUp,
+  annotation: Paintbrush,
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -42,6 +48,9 @@ const CATEGORY_LABELS: Record<string, string> = {
   polygon: "Shapes",
   fibonacci: "Fibonacci",
   wave: "Waves",
+  measure: "Measure",
+  position: "Positions",
+  annotation: "Annotation",
 };
 
 export function DrawingSidebar() {
@@ -65,37 +74,62 @@ export function DrawingSidebar() {
         const label = CATEGORY_LABELS[category.key] ?? category.key;
         const hasActive = category.tools.some((t) => t.name === activeTool);
 
-        return (
-        <Popover key={category.key}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <PopoverTrigger asChild>
-                <Button variant={hasActive ? "secondary" : "ghost"} size="icon-sm">
+        if (category.tools.length === 1) {
+          const tool = category.tools[0];
+          return (
+            <Tooltip key={category.key}>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={hasActive ? "secondary" : "ghost"}
+                  size="icon-sm"
+                  onClick={() => selectTool(tool.name)}
+                >
                   <Icon className="size-4" />
                 </Button>
-              </PopoverTrigger>
-            </TooltipTrigger>
-            <TooltipContent side="right">{label}</TooltipContent>
-          </Tooltip>
+              </TooltipTrigger>
+              <TooltipContent side="right">{label}</TooltipContent>
+            </Tooltip>
+          );
+        }
 
-          <PopoverContent side="right" align="start" className="w-auto min-w-48 p-1">
-            <ScrollArea className="max-h-[70vh]">
-              {category.tools.map((tool) => (
-                <button
-                  key={tool.name}
-                  onClick={() => selectTool(tool.name)}
-                  className={cn(
-                    "flex w-full items-center rounded-sm px-2 py-1.5 text-sm transition-colors",
-                    "hover:bg-accent",
-                    activeTool === tool.name && "bg-primary/10 text-primary",
-                  )}
-                >
-                  {tool.name}
-                </button>
-              ))}
-            </ScrollArea>
-          </PopoverContent>
-        </Popover>
+        return (
+          <Popover key={category.key}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant={hasActive ? "secondary" : "ghost"}
+                    size="icon-sm"
+                  >
+                    <Icon className="size-4" />
+                  </Button>
+                </PopoverTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="right">{label}</TooltipContent>
+            </Tooltip>
+
+            <PopoverContent
+              side="right"
+              align="start"
+              className="w-auto min-w-48 p-1"
+            >
+              <ScrollArea className="max-h-[70vh]">
+                {category.tools.map((tool) => (
+                  <button
+                    key={tool.name}
+                    onClick={() => selectTool(tool.name)}
+                    className={cn(
+                      "flex w-full items-center rounded-sm px-2 py-1.5 text-sm transition-colors",
+                      "hover:bg-accent",
+                      activeTool === tool.name && "bg-primary/10 text-primary",
+                    )}
+                  >
+                    {tool.name}
+                  </button>
+                ))}
+              </ScrollArea>
+            </PopoverContent>
+          </Popover>
         );
       })}
 

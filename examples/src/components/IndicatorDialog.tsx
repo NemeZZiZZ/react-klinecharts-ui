@@ -8,6 +8,7 @@ import {
   Plus,
   ChevronDown,
   ChevronRight,
+  Search,
 } from "lucide-react";
 import {
   Dialog,
@@ -186,10 +187,19 @@ export function IndicatorDialog({ open, onOpenChange }: IndicatorDialogProps) {
     activeSubIndicators,
   } = useIndicators();
 
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const matchesSearch = (name: string) =>
+    !searchQuery || name.toLowerCase().includes(searchQuery.toLowerCase());
+
   const activeMainList = mainIndicators.filter((i) => i.isActive);
   const activeSubList = subIndicators.filter((i) => i.isActive);
-  const inactiveMainList = mainIndicators.filter((i) => !i.isActive);
-  const inactiveSubList = subIndicators.filter((i) => !i.isActive);
+  const inactiveMainList = mainIndicators.filter(
+    (i) => !i.isActive && matchesSearch(i.name),
+  );
+  const inactiveSubList = subIndicators.filter(
+    (i) => !i.isActive && matchesSearch(i.name),
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -200,6 +210,17 @@ export function IndicatorDialog({ open, onOpenChange }: IndicatorDialogProps) {
             Manage active indicators and add new ones.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search indicators..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="h-8 pl-8"
+          />
+        </div>
 
         <ScrollArea className="max-h-[60vh]">
           <div className="space-y-4 pr-3">
