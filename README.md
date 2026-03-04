@@ -48,14 +48,12 @@ Many features in this library — including 11 TradingView-style indicators, 9 d
 
 ## Installation
 
-> **Note:** `react-klinecharts` is not yet published to the npm registry. Install it directly from GitHub:
-
 ```bash
-npm install react-klinecharts-ui github:NemeZZiZZ/react-klinecharts
+npm install react-klinecharts-ui react-klinecharts
 # or with pnpm
-pnpm add react-klinecharts-ui github:NemeZZiZZ/react-klinecharts
+pnpm add react-klinecharts-ui react-klinecharts
 # or with yarn
-yarn add react-klinecharts-ui github:NemeZZiZZ/react-klinecharts
+yarn add react-klinecharts-ui react-klinecharts
 ```
 
 ---
