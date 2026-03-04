@@ -18,6 +18,7 @@ export interface ChartLayoutState {
     name: string;
     calcParams: any[];
     visible: boolean;
+    styles?: any;
   }>;
   drawings: Array<{
     name: string;
@@ -121,6 +122,7 @@ export function useLayoutManager(): UseLayoutManagerReturn {
             name: indicator.name,
             calcParams: indicator.calcParams,
             visible: indicator.visible,
+            ...(indicator.styles ? { styles: indicator.styles } : {}),
           });
         });
       });
@@ -223,6 +225,14 @@ export function useLayoutManager(): UseLayoutManagerReturn {
             ind.paneId !== "candle_pane",
             { id: ind.paneId },
           );
+
+          if (ind.styles) {
+            chart.overrideIndicator({
+              name: ind.name,
+              paneId: ind.paneId,
+              styles: ind.styles,
+            });
+          }
 
           if (ind.paneId === "candle_pane") {
             newMainIndicators.push(ind.name);

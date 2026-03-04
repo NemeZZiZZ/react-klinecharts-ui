@@ -176,9 +176,16 @@ export function useIndicators(): UseIndicatorsReturn {
   const moveToMain = useCallback(
     (name: string) => {
       if (!state.chart) return;
+      const prevCalcParams =
+        state.chart.getIndicators({ id: `sub_${name}` })?.[0]?.calcParams;
       state.chart.removeIndicator({ id: `sub_${name}` });
       state.chart.createIndicator(
-        { name, id: `main_${name}`, paneId: "candle_pane" },
+        {
+          name,
+          id: `main_${name}`,
+          paneId: "candle_pane",
+          ...(prevCalcParams ? { calcParams: prevCalcParams } : {}),
+        },
         true,
         { id: "candle_pane" },
       );
@@ -196,9 +203,15 @@ export function useIndicators(): UseIndicatorsReturn {
   const moveToSub = useCallback(
     (name: string) => {
       if (!state.chart) return;
+      const prevCalcParams =
+        state.chart.getIndicators({ id: `main_${name}` })?.[0]?.calcParams;
       state.chart.removeIndicator({ id: `main_${name}` });
       const subId = `sub_${name}`;
-      state.chart.createIndicator({ name, id: subId });
+      state.chart.createIndicator({
+        name,
+        id: subId,
+        ...(prevCalcParams ? { calcParams: prevCalcParams } : {}),
+      });
       const paneId =
         state.chart.getIndicators({ id: subId })?.[0]?.paneId ?? "";
       const newMain = state.mainIndicators.filter((n) => n !== name);

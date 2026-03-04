@@ -62,16 +62,16 @@ export function useOrderLines(): UseOrderLinesReturn {
         callbacksRef.current.set(id, onPriceChange);
       }
 
-      // klinecharts needs at least a dataIndex to anchor the point so that
-      // needDefaultYAxisFigure can compute the Y coordinate and render the
-      // price label on the right axis. We use the last bar's index.
-      const dataCount = state.chart.getDataList().length;
-      const anchorIndex = dataCount > 0 ? dataCount - 1 : 0;
+      // Anchor the point using the latest bar's timestamp. This is stable
+      // across data pagination (left-scroll adds bars, shifting dataIndex).
+      const dataList = state.chart.getDataList();
+      const anchorTimestamp =
+        dataList.length > 0 ? dataList[dataList.length - 1].timestamp : Date.now();
 
       state.chart.createOverlay({
         name: "orderLine",
         id,
-        points: [{ dataIndex: anchorIndex, value: price }],
+        points: [{ timestamp: anchorTimestamp, value: price }],
         extendData,
         lock: !draggable,
         mode: "normal",
@@ -98,12 +98,13 @@ export function useOrderLines(): UseOrderLinesReturn {
         callbacksRef.current.set(id, onPriceChange);
       }
 
-      const dataCount = state.chart.getDataList().length;
-      const anchorIndex = dataCount > 0 ? dataCount - 1 : 0;
+      const dataList = state.chart.getDataList();
+      const anchorTimestamp =
+        dataList.length > 0 ? dataList[dataList.length - 1].timestamp : Date.now();
       state.chart.overrideOverlay({
         id,
         ...(price != null
-          ? { points: [{ dataIndex: anchorIndex, value: price }] }
+          ? { points: [{ timestamp: anchorTimestamp, value: price }] }
           : {}),
         ...(draggable != null ? { lock: !draggable } : {}),
         extendData: {
