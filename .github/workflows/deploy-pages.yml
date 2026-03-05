@@ -27,15 +27,11 @@ jobs:
           node-version: 20
           cache: pnpm
 
-      - name: Install root dependencies
+      - name: Install dependencies
         run: pnpm install
 
       - name: Build library
         run: pnpm build
-
-      - name: Install example dependencies
-        working-directory: examples
-        run: pnpm install
 
       - name: Build example
         working-directory: examples
