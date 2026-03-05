@@ -2,6 +2,8 @@
 
 **react-klinecharts-ui** is a headless React library for building financial trading terminals on top of [klinecharts](https://github.com/liihuu/KLineChart). It provides a state provider, a set of hooks, and overlay templates. No UI components are included — use any UI framework you prefer.
 
+**[Live Demo](https://nemezzizz.github.io/react-klinecharts-ui/)**
+
 ### Acknowledgments
 
 Many features in this library — including 11 TradingView-style indicators, 9 drawing overlays, the TA math library, undo/redo, layout manager, and script editor — were ported from the [QUANTIX Extended Edition](https://github.com/dsavenk0/KLineChart-Pro) fork of KLineChart-Pro by [@dsavenk0](https://github.com/dsavenk0). The original fork implements these as a tightly-coupled Vue 3 application; this library re-implements them as headless React hooks following the composable, framework-agnostic architecture.
