@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useKlinechartsUI, useIndicators } from "react-klinecharts-ui";
 import { useKLineChart, Widget } from "react-klinecharts";
 import type { Chart } from "react-klinecharts";
-import { Eye, EyeOff, PanelTop, PanelBottom, Settings2, X } from "lucide-react";
+import { Eye, EyeOff, PanelTop, PanelBottom, Settings2, X, ChevronUp, ChevronDown, Minimize2, Maximize2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -200,10 +200,14 @@ function NameHoverZone({
   initialVisible,
   isMainPane,
   hasSettings,
+  isCollapsed,
   onToggleVisible,
   onMovePane,
   onRemove,
   onOpenSettings,
+  onCollapse,
+  onReorderUp,
+  onReorderDown,
 }: {
   displayText: string;
   x: number;
@@ -217,10 +221,14 @@ function NameHoverZone({
   initialVisible: boolean;
   isMainPane: boolean;
   hasSettings: boolean;
+  isCollapsed?: boolean;
   onToggleVisible: (visible: boolean) => void;
   onMovePane: () => void;
   onRemove: () => void;
   onOpenSettings: () => void;
+  onCollapse?: () => void;
+  onReorderUp?: () => void;
+  onReorderDown?: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const [hidden, setHidden] = useState(!initialVisible);
@@ -286,6 +294,33 @@ function NameHoverZone({
           >
             {isMainPane ? <PanelBottom size={12} /> : <PanelTop size={12} />}
           </button>
+          {!isMainPane && onCollapse && (
+            <button
+              onClick={onCollapse}
+              className={`${iconBtn} text-[rgba(180,180,180,0.8)]`}
+              title={isCollapsed ? "Expand pane" : "Collapse pane"}
+            >
+              {isCollapsed ? <Maximize2 size={12} /> : <Minimize2 size={12} />}
+            </button>
+          )}
+          {!isMainPane && onReorderUp && (
+            <button
+              onClick={onReorderUp}
+              className={`${iconBtn} text-[rgba(180,180,180,0.8)]`}
+              title="Move up"
+            >
+              <ChevronUp size={12} />
+            </button>
+          )}
+          {!isMainPane && onReorderDown && (
+            <button
+              onClick={onReorderDown}
+              className={`${iconBtn} text-[rgba(180,180,180,0.8)]`}
+              title="Move down"
+            >
+              <ChevronDown size={12} />
+            </button>
+          )}
           <button
             onClick={onRemove}
             className={`${iconBtn} text-red-500/70`}
@@ -313,6 +348,10 @@ function PaneOverlay({
   onToggleVisible,
   onMovePane,
   onOpenSettings,
+  isCollapsed,
+  onCollapse,
+  onReorderUp,
+  onReorderDown,
 }: {
   indicators: string[];
   paneId: string;
@@ -327,6 +366,10 @@ function PaneOverlay({
   onToggleVisible: (name: string, visible: boolean) => void;
   onMovePane: (name: string) => void;
   onOpenSettings: (name: string, paneId: string) => void;
+  isCollapsed?: (name: string) => boolean;
+  onCollapse?: (name: string) => void;
+  onReorderUp?: (name: string) => void;
+  onReorderDown?: (name: string) => void;
 }) {
   const positions = useMemo(
     () => calcNamePositions(chart, paneId, indicators, layout),
@@ -350,10 +393,14 @@ function PaneOverlay({
           initialVisible={positions[i].visible}
           isMainPane={isMainPane}
           hasSettings={getIndicatorParams(name).length > 0}
+          isCollapsed={isCollapsed?.(name)}
           onToggleVisible={(vis) => onToggleVisible(name, vis)}
           onMovePane={() => onMovePane(name)}
           onRemove={() => onRemove(name)}
           onOpenSettings={() => onOpenSettings(name, paneId)}
+          onCollapse={onCollapse ? () => onCollapse(name) : undefined}
+          onReorderUp={onReorderUp ? () => onReorderUp(name) : undefined}
+          onReorderDown={onReorderDown ? () => onReorderDown(name) : undefined}
         />
       ))}
     </>
@@ -375,6 +422,10 @@ export function IndicatorPaneOverlays() {
     setIndicatorVisible,
     getIndicatorParams,
     updateIndicatorParams,
+    collapseSubIndicator,
+    expandSubIndicator,
+    isSubIndicatorCollapsed,
+    reorderSubIndicator,
   } = useIndicators();
 
   const chart = useKLineChart();
@@ -483,6 +534,14 @@ export function IndicatorPaneOverlays() {
               }
               onMovePane={moveToMain}
               onOpenSettings={handleOpenSettings}
+              isCollapsed={isSubIndicatorCollapsed}
+              onCollapse={(name) =>
+                isSubIndicatorCollapsed(name)
+                  ? expandSubIndicator(name)
+                  : collapseSubIndicator(name)
+              }
+              onReorderUp={(name) => reorderSubIndicator(name, "up")}
+              onReorderDown={(name) => reorderSubIndicator(name, "down")}
             />
           </Widget>
         );

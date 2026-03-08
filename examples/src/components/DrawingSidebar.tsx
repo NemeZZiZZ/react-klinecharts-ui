@@ -14,6 +14,8 @@ import {
   Ruler,
   TrendingUp,
   Paintbrush,
+  MousePointer2,
+  Repeat,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -60,15 +62,33 @@ export function DrawingSidebar() {
     magnetMode,
     isLocked,
     isVisible,
+    autoRetrigger,
     selectTool,
+    clearActiveTool,
     setMagnetMode,
     toggleLock,
     toggleVisibility,
     removeAllDrawings,
+    setAutoRetrigger,
   } = useDrawingTools();
 
   return (
     <div className="flex w-10 flex-col items-center gap-0.5 border-r border-border bg-card py-1">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={activeTool === null ? "secondary" : "ghost"}
+            size="icon-sm"
+            onClick={clearActiveTool}
+          >
+            <MousePointer2 className="size-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">Cursor</TooltipContent>
+      </Tooltip>
+
+      <Separator className="my-1 w-5" />
+
       {categories.map((category) => {
         const Icon = CATEGORY_ICONS[category.key] ?? Slash;
         const label = CATEGORY_LABELS[category.key] ?? category.key;
@@ -161,6 +181,21 @@ export function DrawingSidebar() {
           </Button>
         </TooltipTrigger>
         <TooltipContent side="right">Magnet: {magnetMode}</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={autoRetrigger ? "secondary" : "ghost"}
+            size="icon-sm"
+            onClick={() => setAutoRetrigger(!autoRetrigger)}
+          >
+            <Repeat className="size-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          {autoRetrigger ? "Auto-retrigger: on" : "Auto-retrigger: off"}
+        </TooltipContent>
       </Tooltip>
 
       <Tooltip>

@@ -11,6 +11,8 @@ import { binanceDatafeed, defaultSymbol } from "./datafeed";
 import { DrawingSidebar } from "./components/DrawingSidebar";
 import { Toolbar } from "./components/Toolbar";
 import { ChartView } from "./components/ChartView";
+import { StatusBar } from "./components/StatusBar";
+import { KeyboardShortcuts } from "./components/KeyboardShortcuts";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -77,6 +79,9 @@ function TerminalLayout() {
             )}
           </div>
         </div>
+
+        <StatusBar />
+        <KeyboardShortcuts />
       </div>
     </TooltipProvider>
   );
