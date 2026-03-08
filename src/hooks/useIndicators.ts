@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { useKlinechartsUI, useKlinechartsUIDispatch } from "../provider/ChartTerminalContext";
 import {
   MAIN_INDICATORS,
@@ -41,11 +41,25 @@ export interface UseIndicatorsReturn {
   ) => { label: string; defaultValue: number }[];
   isMainIndicatorActive: (name: string) => boolean;
   isSubIndicatorActive: (name: string) => boolean;
+  /** Collapse a sub-indicator pane to minimal height (30px). */
+  collapseSubIndicator: (name: string) => void;
+  /** Expand a previously collapsed sub-indicator pane to its prior height. */
+  expandSubIndicator: (name: string) => void;
+  /** Whether the given sub-indicator pane is currently collapsed. */
+  isSubIndicatorCollapsed: (name: string) => boolean;
+  /** Reorder a sub-indicator pane up or down relative to other sub-indicators. */
+  reorderSubIndicator: (name: string, direction: "up" | "down") => void;
 }
+
+const COLLAPSED_HEIGHT = 30;
 
 export function useIndicators(): UseIndicatorsReturn {
   const { state, dispatch } = useKlinechartsUI();
   const { undoRedoListenerRef } = useKlinechartsUIDispatch();
+
+  // Track original pane heights for collapse/expand
+  const paneHeightsRef = useRef<Record<string, number>>({});
+  const collapsedPanesRef = useRef<Set<string>>(new Set());
 
   const mainIndicators = useMemo(() => {
     const activeNames = state.mainIndicators;
@@ -234,6 +248,111 @@ export function useIndicators(): UseIndicatorsReturn {
     [state.subIndicators],
   );
 
+  const collapseSubIndicator = useCallback(
+    (name: string) => {
+      const paneId = state.subIndicators[name];
+      if (!state.chart || !paneId) return;
+
+      const currentSize = (state.chart as any).getSize?.(paneId);
+      if (currentSize?.height && currentSize.height > COLLAPSED_HEIGHT) {
+        paneHeightsRef.current[paneId] = currentSize.height;
+      }
+      collapsedPanesRef.current.add(paneId);
+
+      (state.chart as any).setPaneOptions?.({
+        id: paneId,
+        height: COLLAPSED_HEIGHT,
+      });
+      state.chart.overrideIndicator({ name, id: `sub_${name}`, visible: false });
+    },
+    [state.chart, state.subIndicators],
+  );
+
+  const expandSubIndicator = useCallback(
+    (name: string) => {
+      const paneId = state.subIndicators[name];
+      if (!state.chart || !paneId) return;
+
+      const savedHeight = paneHeightsRef.current[paneId] ?? 100;
+      collapsedPanesRef.current.delete(paneId);
+
+      (state.chart as any).setPaneOptions?.({
+        id: paneId,
+        height: savedHeight,
+      });
+      state.chart.overrideIndicator({ name, id: `sub_${name}`, visible: true });
+    },
+    [state.chart, state.subIndicators],
+  );
+
+  const isSubIndicatorCollapsed = useCallback(
+    (name: string) => {
+      const paneId = state.subIndicators[name];
+      return paneId ? collapsedPanesRef.current.has(paneId) : false;
+    },
+    [state.subIndicators],
+  );
+
+  const reorderSubIndicator = useCallback(
+    (name: string, direction: "up" | "down") => {
+      if (!state.chart) return;
+
+      const subNames = Object.keys(state.subIndicators);
+      const idx = subNames.indexOf(name);
+      if (idx === -1) return;
+
+      const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+      if (swapIdx < 0 || swapIdx >= subNames.length) return;
+
+      // Collect full indicator state for all sub-indicators
+      const subStates = subNames.map((n) => {
+        const id = `sub_${n}`;
+        const indicator = state.chart!.getIndicators({ id })?.[0];
+        return {
+          name: n,
+          calcParams: indicator?.calcParams,
+          visible: indicator?.visible ?? true,
+          styles: indicator?.styles,
+          paneId: state.subIndicators[n],
+        };
+      });
+
+      // Swap the two entries
+      [subStates[idx], subStates[swapIdx]] = [subStates[swapIdx], subStates[idx]];
+
+      // Remove all sub-indicators
+      for (const n of subNames) {
+        state.chart!.removeIndicator({ id: `sub_${n}` });
+      }
+
+      // Recreate in new order
+      const newSubIndicators: Record<string, string> = {};
+      for (const sub of subStates) {
+        const id = `sub_${sub.name}`;
+        state.chart!.createIndicator({
+          name: sub.name,
+          id,
+          ...(sub.calcParams ? { calcParams: sub.calcParams } : {}),
+          visible: sub.visible,
+        });
+        const paneId =
+          state.chart!.getIndicators({ id })?.[0]?.paneId ?? "";
+        newSubIndicators[sub.name] = paneId;
+
+        if (sub.styles) {
+          state.chart!.overrideIndicator({
+            name: sub.name,
+            paneId,
+            styles: sub.styles,
+          });
+        }
+      }
+
+      dispatch({ type: "SET_SUB_INDICATORS", indicators: newSubIndicators });
+    },
+    [state.chart, state.subIndicators, dispatch],
+  );
+
   return {
     mainIndicators,
     subIndicators,
@@ -254,5 +373,9 @@ export function useIndicators(): UseIndicatorsReturn {
     getIndicatorParams,
     isMainIndicatorActive,
     isSubIndicatorActive,
+    collapseSubIndicator,
+    expandSubIndicator,
+    isSubIndicatorCollapsed,
+    reorderSubIndicator,
   };
 }

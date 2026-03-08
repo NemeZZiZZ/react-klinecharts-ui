@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { useKlinechartsUI, useKlinechartsUIDispatch } from "../provider/ChartTerminalContext";
 import { DRAWING_CATEGORIES, type MagnetMode } from "../data/drawings";
 
@@ -20,12 +20,16 @@ export interface UseDrawingToolsReturn {
   magnetMode: MagnetMode;
   isLocked: boolean;
   isVisible: boolean;
+  /** Whether drawing tools auto-retrigger after completing a shape. Default: true. */
+  autoRetrigger: boolean;
   selectTool: (name: string) => void;
   clearActiveTool: () => void;
   setMagnetMode: (mode: MagnetMode) => void;
   toggleLock: () => void;
   toggleVisibility: () => void;
   removeAllDrawings: () => void;
+  /** Enable/disable auto-retrigger mode. */
+  setAutoRetrigger: (enabled: boolean) => void;
 }
 
 export function useDrawingTools(): UseDrawingToolsReturn {
@@ -35,6 +39,19 @@ export function useDrawingTools(): UseDrawingToolsReturn {
   const [magnetMode, setMagnetModeState] = useState<MagnetMode>("normal");
   const [isLocked, setIsLocked] = useState(false);
   const [isVisible, setIsVisible] = useState(true);
+  const [autoRetrigger, setAutoRetrigger] = useState(true);
+
+  // Refs to capture latest state for the onDrawEnd closure
+  const activeToolRef = useRef(activeTool);
+  activeToolRef.current = activeTool;
+  const autoRetriggerRef = useRef(autoRetrigger);
+  autoRetriggerRef.current = autoRetrigger;
+  const isLockedRef = useRef(isLocked);
+  isLockedRef.current = isLocked;
+  const isVisibleRef = useRef(isVisible);
+  isVisibleRef.current = isVisible;
+  const magnetModeRef = useRef(magnetMode);
+  magnetModeRef.current = magnetMode;
 
   const categories = useMemo(
     () =>
@@ -48,20 +65,20 @@ export function useDrawingTools(): UseDrawingToolsReturn {
     []
   );
 
-  const selectTool = useCallback(
+  const createOverlayForTool = useCallback(
     (name: string) => {
-      setActiveTool(name);
+      const mode =
+        magnetModeRef.current === "strong"
+          ? "strong_magnet"
+          : magnetModeRef.current === "weak"
+            ? "weak_magnet"
+            : "normal";
       state.chart?.createOverlay({
         name,
         groupId: DRAWING_GROUP_ID,
-        lock: isLocked,
-        visible: isVisible,
-        mode:
-          magnetMode === "strong"
-            ? "strong_magnet"
-            : magnetMode === "weak"
-              ? "weak_magnet"
-              : "normal" as any,
+        lock: isLockedRef.current,
+        visible: isVisibleRef.current,
+        mode: mode as any,
         onDrawEnd: (event: any) => {
           const o = event.overlay;
           undoRedoListenerRef.current?.({
@@ -76,10 +93,24 @@ export function useDrawingTools(): UseDrawingToolsReturn {
               },
             },
           });
+          // Auto-retrigger: immediately start another overlay of the same type
+          if (autoRetriggerRef.current && activeToolRef.current === name) {
+            requestAnimationFrame(() => {
+              createOverlayForTool(name);
+            });
+          }
         },
       });
     },
-    [state.chart, isLocked, isVisible, magnetMode, undoRedoListenerRef]
+    [state.chart, undoRedoListenerRef],
+  );
+
+  const selectTool = useCallback(
+    (name: string) => {
+      setActiveTool(name);
+      createOverlayForTool(name);
+    },
+    [createOverlayForTool],
   );
 
   const clearActiveTool = useCallback(() => {
@@ -161,11 +192,13 @@ export function useDrawingTools(): UseDrawingToolsReturn {
     magnetMode,
     isLocked,
     isVisible,
+    autoRetrigger,
     selectTool,
     clearActiveTool,
     setMagnetMode,
     toggleLock,
     toggleVisibility,
     removeAllDrawings,
+    setAutoRetrigger,
   };
 }
