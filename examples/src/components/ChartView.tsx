@@ -4,6 +4,9 @@ import type { Chart } from "react-klinecharts";
 import { useKlinechartsUI, createDataLoader } from "react-klinecharts-ui";
 import { IndicatorPaneOverlays } from "./IndicatorPaneOverlays";
 import { OrderLineOverlays } from "./OrderLineOverlays";
+import { Watermark } from "./Watermark";
+import { ChartContextMenu } from "./ChartContextMenu";
+import { cn } from "@/lib/utils";
 
 interface ChartViewProps {
   className?: string;
@@ -56,18 +59,21 @@ export function ChartView({ className }: ChartViewProps) {
   );
 
   return (
-    <KLineChart
-      className={className}
-      dataLoader={dataLoader}
-      symbol={state.symbol ?? undefined}
-      period={state.period}
-      locale={state.locale}
-      timezone={state.timezone}
-      styles={state.theme}
-      onReady={handleReady}
-    >
-      <IndicatorPaneOverlays />
-      <OrderLineOverlays />
-    </KLineChart>
+    <ChartContextMenu className={cn("grid relative", className)}>
+      <KLineChart
+        className="absolute inset-0 z-2"
+        dataLoader={dataLoader}
+        symbol={state.symbol ?? undefined}
+        period={state.period}
+        locale={state.locale}
+        timezone={state.timezone}
+        styles={state.theme}
+        onReady={handleReady}
+      >
+        <Watermark className="row-start-1 col-start-1 z-1" />
+        <IndicatorPaneOverlays />
+        <OrderLineOverlays />
+      </KLineChart>
+    </ChartContextMenu>
   );
 }

@@ -97,7 +97,12 @@ export const binanceDatafeed: Datafeed = {
       callback,
     };
 
-    if (!ws || ws.readyState === WebSocket.CLOSED) {
+    // Open a new WS if none exists or the previous one is closed/closing
+    if (
+      !ws ||
+      ws.readyState === WebSocket.CLOSED ||
+      ws.readyState === WebSocket.CLOSING
+    ) {
       ws = new WebSocket(`wss://stream.binance.com:9443/ws/${stream}`);
     }
 
@@ -117,9 +122,8 @@ export const binanceDatafeed: Datafeed = {
       });
     };
 
-    ws.onerror = (err) => {
-      console.error("WebSocket error:", err);
-    };
+    // Suppress errors from intentional closes (e.g. StrictMode remount)
+    ws.onerror = () => {};
   },
 
   unsubscribe(symbol: SymbolInfo, period: TerminalPeriod) {
