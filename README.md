@@ -36,6 +36,11 @@ Many features in this library — including 11 TradingView-style indicators, 9 d
    - [useUndoRedo](#useundoredo)
    - [useLayoutManager](#uselayoutmanager)
    - [useScriptEditor](#usescripteditor)
+   - [useWatchlist](#usewatchlist)
+   - [useCompare](#usecompare)
+   - [useMeasure](#usemeasure)
+   - [useAnnotations](#useannotations)
+   - [useReplay](#usereplay)
 6. [Utilities](#utilities)
    - [createDataLoader](#createdataloader)
    - [TA (Technical Analysis)](#ta-technical-analysis)
@@ -909,6 +914,188 @@ return rsi.map((v, i) => ({
 
 ---
 
+### useWatchlist
+
+Manage a list of tracked symbols with live price updates from your datafeed.
+
+```typescript
+import { useWatchlist } from "react-klinecharts-ui";
+
+const {
+  items,
+  addSymbol,
+  removeSymbol,
+  switchSymbol,
+  activeSymbol,
+} = useWatchlist();
+```
+
+#### Return type: `UseWatchlistReturn`
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `items` | `WatchlistItem[]` | Array of tracked symbols with price data |
+| `addSymbol` | `(ticker: string) => void` | Add a symbol to the watchlist |
+| `removeSymbol` | `(ticker: string) => void` | Remove a symbol from the watchlist |
+| `switchSymbol` | `(ticker: string) => void` | Change the chart to display a symbol |
+| `activeSymbol` | `string \| null` | Currently displayed symbol ticker |
+
+#### WatchlistItem
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `ticker` | `string` | Symbol identifier |
+| `lastPrice` | `number \| null` | Last traded price |
+| `change` | `number \| null` | Absolute price change |
+| `changePercent` | `number \| null` | 24h percentage change |
+
+---
+
+### useCompare
+
+Compare multiple symbols on the same chart with individual colors and visibility toggle.
+
+```typescript
+import { useCompare } from "react-klinecharts-ui";
+
+const {
+  symbols,
+  addSymbol,
+  removeSymbol,
+  toggleSymbol,
+  clearAll,
+} = useCompare();
+```
+
+#### Return type: `UseCompareReturn`
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `symbols` | `CompareSymbol[]` | Array of comparison symbols with metadata |
+| `addSymbol` | `(ticker: string) => void` | Add a symbol to compare |
+| `removeSymbol` | `(ticker: string) => void` | Remove a comparison symbol |
+| `toggleSymbol` | `(ticker: string) => void` | Toggle visibility of a symbol |
+| `clearAll` | `() => void` | Remove all comparison symbols |
+
+#### CompareSymbol
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `ticker` | `string` | Symbol identifier |
+| `visible` | `boolean` | Whether the symbol is currently visible on chart |
+| `color` | `string` | Hex color code for the symbol's line |
+
+---
+
+### useMeasure
+
+Measure price changes, percentage swings, bar count, and time intervals between two points on the chart.
+
+```typescript
+import { useMeasure } from "react-klinecharts-ui";
+
+const {
+  isActive,
+  startMeasure,
+  cancelMeasure,
+  result,
+} = useMeasure();
+```
+
+#### Return type: `UseMeasureReturn`
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `isActive` | `boolean` | Whether measurement mode is enabled |
+| `startMeasure` | `() => void` | Enter measurement mode (click two points) |
+| `cancelMeasure` | `() => void` | Exit measurement mode |
+| `result` | `MeasureResult \| null` | Measurement data (null if not measured yet) |
+
+#### MeasureResult
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `priceDiff` | `number` | Absolute price difference |
+| `pricePercent` | `number` | Percentage change |
+| `bars` | `number` | Number of bars between points |
+| `timeDiff` | `number` | Time difference in milliseconds |
+
+---
+
+### useAnnotations
+
+Add text annotations at specific price levels and timestamps with optional colors.
+
+```typescript
+import { useAnnotations } from "react-klinecharts-ui";
+
+const {
+  annotations,
+  addAnnotation,
+  removeAnnotation,
+  updateAnnotation,
+  clearAnnotations,
+} = useAnnotations();
+```
+
+#### Return type: `UseAnnotationsReturn`
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `annotations` | `Annotation[]` | Array of all annotations |
+| `addAnnotation` | `(text, price, timestamp, color?) => string` | Add annotation; returns ID |
+| `removeAnnotation` | `(id: string) => void` | Remove annotation by ID |
+| `updateAnnotation` | `(id, updates) => void` | Update text or color |
+| `clearAnnotations` | `() => void` | Remove all annotations |
+
+#### Annotation
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `id` | `string` | Unique identifier |
+| `text` | `string` | Annotation text |
+| `price` | `number` | Price level |
+| `timestamp` | `number` | Candle timestamp |
+| `color` | `string \| undefined` | Optional hex color |
+
+---
+
+### useReplay
+
+Replay historical candles at various speeds with play/pause/step controls and progress tracking.
+
+```typescript
+import { useReplay } from "react-klinecharts-ui";
+
+const {
+  isPlaying,
+  speed,
+  currentIndex,
+  totalBars,
+  play,
+  pause,
+  stop,
+  step,
+  setSpeed,
+} = useReplay();
+```
+
+#### Return type: `UseReplayReturn`
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `isPlaying` | `boolean` | Whether replay is running |
+| `speed` | `number` | Current playback speed (0.25, 0.5, 1, 2, 4) |
+| `currentIndex` | `number` | Current bar index being displayed |
+| `totalBars` | `number` | Total bars in the dataset |
+| `play` | `() => void` | Start replay from current position |
+| `pause` | `() => void` | Pause replay (can resume with play) |
+| `stop` | `() => void` | Stop replay and reset to start |
+| `step` | `() => void` | Advance one bar when paused |
+| `setSpeed` | `(speed: number) => void` | Set playback speed multiplier |
+
+---
+
 ## Utilities
 
 ### createDataLoader
@@ -1207,6 +1394,58 @@ interface OrderLinePadding {
 ```
 
 All sub-interfaces (`OrderLineLineStyle`, `OrderLineMarkStyle`, `OrderLineLabelStyle`, `OrderLineFontStyle`, `OrderLinePadding`) are exported as named types from both the main and `extensions` entry points.
+
+### depthOverlay
+
+Overlay template for visualizing order book depth as horizontal liquidity bars at each price level. Shows cumulative buy/sell volume at price levels, useful for understanding support/resistance zones.
+
+```typescript
+import { depthOverlay, KlinechartsUIProvider } from "react-klinecharts-ui/extensions";
+
+<KlinechartsUIProvider overlays={[depthOverlay]}>...</KlinechartsUIProvider>;
+```
+
+**Implementation details:**
+
+- `needDefaultPointFigure: false`, `needDefaultXAxisFigure: false`, `needDefaultYAxisFigure: false` — entirely custom rendering
+- `createPointFigures` — draws rect figures at each price level using `yAxis.convertToPixel(price)` for positioning
+- `zLevel: -1` — renders behind the main candlestick data
+- Dynamic data via `extendData` — update with `chart.overrideOverlay({ id, extendData: newData })`
+
+#### DepthOverlayExtendData
+
+```typescript
+interface DepthOverlayExtendData {
+  rows?: DepthOverlayRow[];
+  /** Optional: customize buy side color. Default: "rgba(16, 186, 156, 0.3)" */
+  buyColor?: string;
+  /** Optional: customize sell side color. Default: "rgba(239, 68, 68, 0.3)" */
+  sellColor?: string;
+}
+
+interface DepthOverlayRow {
+  price: number;
+  buyVolume: number;
+  sellVolume: number;
+}
+```
+
+**Usage example:**
+
+```typescript
+const chart = state.chart;
+if (chart) {
+  const rows: DepthOverlayRow[] = [
+    { price: 40000, buyVolume: 5.2, sellVolume: 3.1 },
+    { price: 40100, buyVolume: 4.8, sellVolume: 4.2 },
+    // ...
+  ];
+  chart.overrideOverlay({
+    id: "depthOverlay",
+    extendData: { rows, buyColor: "rgba(34, 197, 94, 0.3)" },
+  });
+}
+```
 
 ### overlays (array)
 

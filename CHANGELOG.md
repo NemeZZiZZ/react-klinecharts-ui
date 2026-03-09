@@ -4,6 +4,53 @@ All notable changes to **react-klinecharts-ui** are documented in this file.
 
 ---
 
+## 0.3.0 — 2026-03-09
+
+Major feature release with 5 new hooks for real-time trading terminal functionality, depth visualization overlay, multi-chart synchronization, and comprehensive examples demonstrating all library features.
+
+### New Hooks
+
+- **`useWatchlist`** — Manage a list of tracked symbols with live price updates. Tracks last price and 24h change percentage.
+
+- **`useCompare`** — Compare multiple symbols on the same chart. Add/remove symbols with toggle visibility and custom colors.
+
+- **`useMeasure`** — Measure price changes, percentage swings, bar count, and time intervals between chart points.
+
+- **`useAnnotations`** — Add text annotations at specific price levels and timestamps with color customization.
+
+- **`useReplay`** — Replay historical candles at various speeds (0.25x–4x) with play/pause/step/stop controls and progress tracking.
+
+### New Extensions
+
+- **`depthOverlay`** — Horizontal liquidity bars overlay showing buy/sell order book depth at each price level, with customizable styling and real-time data updates.
+
+### Example Components
+
+Added 8 comprehensive example UI components demonstrating each new hook and feature:
+- `WatchlistPanel` — Symbol list with live prices and 24h % change
+- `CompareDialog` — Multi-symbol comparison with quick-add buttons
+- `MeasureButton` — Measurement tool with price/time/bar count display
+- `AnnotationsButton` — Add/manage/clear price-level text annotations
+- `ReplayControls` — Historical candle replay with speed control
+- `OrderBookPanel` — Live order book depth (Binance integration)
+- `DepthOverlayToggle` — Toggle depth overlay on chart
+- `OrderLineAlertSound` — Sound alerts for order line touches
+
+### New Example Pages
+
+- **Terminal** (`#terminal`) — Full-featured trading terminal with 15+ features including drawing tools, indicators, order book, depth overlay, watchlist, annotations, replay, compare, and measure tools.
+- **Multi-Chart Synced** (`#multi-chart`) — Synchronized scroll, zoom, and crosshair across multiple independent charts.
+- **Depth/Order Book** (`#depth`) — Dedicated depth chart with live Binance order book updates.
+
+### Improvements
+
+- Multi-chart scroll/zoom sync — Delta-based synchronization using klinecharts internal scroll state (`store.startScroll()`, `store.scroll(distance)`), preventing feedback loops and inconsistent viewport positions.
+- Improved annotation visibility — Switched from `simpleTag` (Y-axis label only) to `simpleAnnotation` (chart arrow + text popup).
+- WebSocket stability — Added `WebSocket.CLOSING` state check and suppressed harmless errors from React StrictMode remounts in datafeed.
+- Watchlist live data — Dedicated Binance mini-ticker WebSocket stream with 50ms debounce, avoiding conflicts with chart's kline subscription.
+
+---
+
 ## 0.2.0 — 2026-03-04
 
 Extended the library with features ported from the [QUANTIX Extended Edition](https://github.com/dsavenk0/KLineChart-Pro) fork of KLineChart-Pro. The original fork implements these features as a tightly-coupled Vue 3 application; this release re-implements them as headless React hooks and overlay/indicator templates, following the library's headless architecture.
