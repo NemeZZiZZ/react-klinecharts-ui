@@ -81,7 +81,48 @@ export {
   type UseScriptEditorReturn,
   type ScriptPlacement,
 } from "./hooks/useScriptEditor";
-
+export {
+  useCrosshair,
+  type UseCrosshairReturn,
+  type CrosshairBarData,
+} from "./hooks/useCrosshair";
+export {
+  useAlerts,
+  type UseAlertsReturn,
+  type Alert,
+  type AlertCondition,
+} from "./hooks/useAlerts";
+export {
+  useDataExport,
+  type UseDataExportReturn,
+  type ExportFormat,
+} from "./hooks/useDataExport";
+export {
+  useWatchlist,
+  type UseWatchlistReturn,
+  type WatchlistItem,
+} from "./hooks/useWatchlist";
+export {
+  useReplay,
+  type UseReplayReturn,
+  type ReplaySpeed,
+} from "./hooks/useReplay";
+export {
+  useCompare,
+  type UseCompareReturn,
+  type CompareSymbol,
+} from "./hooks/useCompare";
+export {
+  useMeasure,
+  type UseMeasureReturn,
+  type MeasureResult,
+  type MeasurePoint,
+} from "./hooks/useMeasure";
+export {
+  useAnnotations,
+  type UseAnnotationsReturn,
+  type Annotation,
+} from "./hooks/useAnnotations";
 // Data
 export {
   DEFAULT_PERIODS,
@@ -127,6 +168,7 @@ export {
   overlays,
   indicators,
   orderLine,
+  depthOverlay,
 } from "./extensions";
 export type {
   OrderLineExtendData,
@@ -135,4 +177,6 @@ export type {
   OrderLineLabelStyle,
   OrderLineFontStyle,
   OrderLinePadding,
+  DepthOverlayExtendData,
+  DepthOverlayRow,
 } from "./extensions";

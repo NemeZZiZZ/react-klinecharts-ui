@@ -2,6 +2,7 @@ import { registerOverlay, registerIndicator } from "react-klinecharts";
 import * as drawingOverlays from "../overlays";
 import * as customIndicators from "../indicators";
 import orderLine from "./overlays/orderLine";
+import depthOverlay from "./overlays/depthOverlay";
 
 /**
  * Built-in drawing-tool overlays registered by default.
@@ -25,6 +26,7 @@ export function registerExtensions(): void {
 }
 
 export { orderLine };
+export { depthOverlay };
 export type {
   OrderLineExtendData,
   OrderLineLineStyle,
@@ -33,3 +35,7 @@ export type {
   OrderLineFontStyle,
   OrderLinePadding,
 } from "./overlays/orderLine";
+export type {
+  DepthOverlayExtendData,
+  DepthOverlayRow,
+} from "./overlays/depthOverlay";
