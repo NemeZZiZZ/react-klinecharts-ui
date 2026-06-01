@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef } from "react";
+import type { YAxisOverride } from "react-klinecharts";
 import { useKlinechartsUI, useKlinechartsUIDispatch } from "../provider/ChartTerminalContext";
 import {
   MAIN_INDICATORS,
@@ -11,6 +12,17 @@ export interface IndicatorInfo {
   isActive: boolean;
 }
 
+/** Options accepted when adding an indicator. */
+export interface AddIndicatorOptions {
+  /**
+   * Bind the indicator to a custom Y-axis (klinecharts v10 multiple y-axes).
+   * Provide a stable `id` to create/share a secondary axis; e.g.
+   * `{ id: "rsi_axis", position: "left" }`. Omit to use the pane's default
+   * (shared) axis.
+   */
+  yAxis?: YAxisOverride;
+}
+
 export interface UseIndicatorsReturn {
   mainIndicators: IndicatorInfo[];
   subIndicators: IndicatorInfo[];
@@ -18,9 +30,9 @@ export interface UseIndicatorsReturn {
   activeSubIndicators: Record<string, string>;
   availableMainIndicators: string[];
   availableSubIndicators: string[];
-  addMainIndicator: (name: string) => void;
+  addMainIndicator: (name: string, options?: AddIndicatorOptions) => void;
   removeMainIndicator: (name: string) => void;
-  addSubIndicator: (name: string) => void;
+  addSubIndicator: (name: string, options?: AddIndicatorOptions) => void;
   removeSubIndicator: (name: string) => void;
   toggleMainIndicator: (name: string) => void;
   toggleSubIndicator: (name: string) => void;
@@ -49,6 +61,25 @@ export interface UseIndicatorsReturn {
   isSubIndicatorCollapsed: (name: string) => boolean;
   /** Reorder a sub-indicator pane up or down relative to other sub-indicators. */
   reorderSubIndicator: (name: string, direction: "up" | "down") => void;
+  /**
+   * Custom Y-axis bindings, keyed by indicator id (`main_<name>` /
+   * `sub_<name>`). Only contains indicators bound to a secondary axis.
+   */
+  indicatorAxes: Record<string, string>;
+  /** Get the custom `yAxisId` an indicator is bound to, or `undefined` for the default axis. */
+  getIndicatorAxis: (name: string, isMain: boolean) => string | undefined;
+  /**
+   * Rebind an existing indicator to a different Y-axis. Because klinecharts v10
+   * `overrideIndicator` cannot change axis binding, this removes and recreates
+   * the indicator (preserving calc params, styles and visibility).
+   * Pass `yAxis` to bind to a secondary axis, or omit it to return the
+   * indicator to the pane's default (shared) axis.
+   */
+  bindIndicatorToNewAxis: (
+    name: string,
+    isMain: boolean,
+    yAxis?: YAxisOverride,
+  ) => void;
 }
 
 const COLLAPSED_HEIGHT = 30;
@@ -80,65 +111,98 @@ export function useIndicators(): UseIndicatorsReturn {
   }, [state.subIndicators]);
 
   const addMainIndicator = useCallback(
-    (name: string) => {
+    (name: string, options?: AddIndicatorOptions) => {
       if (state.mainIndicators.includes(name)) return;
+      const yAxis = options?.yAxis;
       state.chart?.createIndicator(
-        { name, id: `main_${name}`, paneId: "candle_pane" },
-        true,
-        { id: "candle_pane" },
+        { name, id: `main_${name}` },
+        { isStack: true, pane: { id: "candle_pane" }, yAxis },
       );
       const newIndicators = [...state.mainIndicators, name];
       dispatch({ type: "SET_MAIN_INDICATORS", indicators: newIndicators });
+      if (yAxis?.id) {
+        dispatch({
+          type: "SET_INDICATOR_AXES",
+          axes: { ...state.indicatorAxes, [`main_${name}`]: yAxis.id },
+        });
+      }
       undoRedoListenerRef.current?.({
         type: "indicator_toggled",
-        data: { name, wasActive: false, isMain: true, paneId: "candle_pane" },
+        data: {
+          name,
+          wasActive: false,
+          isMain: true,
+          paneId: "candle_pane",
+          yAxisId: yAxis?.id,
+        },
       });
     },
-    [state.chart, state.mainIndicators, dispatch, undoRedoListenerRef],
+    [state.chart, state.mainIndicators, state.indicatorAxes, dispatch, undoRedoListenerRef],
   );
 
   const removeMainIndicator = useCallback(
     (name: string) => {
-      state.chart?.removeIndicator({ id: `main_${name}` });
+      const id = `main_${name}`;
+      const yAxisId = state.indicatorAxes[id];
+      state.chart?.removeIndicator({ id });
       const newIndicators = state.mainIndicators.filter((n) => n !== name);
       dispatch({ type: "SET_MAIN_INDICATORS", indicators: newIndicators });
+      if (yAxisId) {
+        const nextAxes = { ...state.indicatorAxes };
+        delete nextAxes[id];
+        dispatch({ type: "SET_INDICATOR_AXES", axes: nextAxes });
+      }
       undoRedoListenerRef.current?.({
         type: "indicator_toggled",
-        data: { name, wasActive: true, isMain: true, paneId: "candle_pane" },
+        data: { name, wasActive: true, isMain: true, paneId: "candle_pane", yAxisId },
       });
     },
-    [state.chart, state.mainIndicators, dispatch, undoRedoListenerRef],
+    [state.chart, state.mainIndicators, state.indicatorAxes, dispatch, undoRedoListenerRef],
   );
 
   const addSubIndicator = useCallback(
-    (name: string) => {
+    (name: string, options?: AddIndicatorOptions) => {
       if (name in state.subIndicators) return;
       const id = `sub_${name}`;
-      state.chart?.createIndicator({ name, id });
+      const yAxis = options?.yAxis;
+      state.chart?.createIndicator({ name, id }, { yAxis });
       const paneId = state.chart?.getIndicators({ id })?.[0]?.paneId ?? "";
       const newIndicators = { ...state.subIndicators, [name]: paneId };
       dispatch({ type: "SET_SUB_INDICATORS", indicators: newIndicators });
+      if (yAxis?.id) {
+        dispatch({
+          type: "SET_INDICATOR_AXES",
+          axes: { ...state.indicatorAxes, [id]: yAxis.id },
+        });
+      }
       undoRedoListenerRef.current?.({
         type: "indicator_toggled",
-        data: { name, wasActive: false, isMain: false, paneId },
+        data: { name, wasActive: false, isMain: false, paneId, yAxisId: yAxis?.id },
       });
     },
-    [state.chart, state.subIndicators, dispatch, undoRedoListenerRef],
+    [state.chart, state.subIndicators, state.indicatorAxes, dispatch, undoRedoListenerRef],
   );
 
   const removeSubIndicator = useCallback(
     (name: string) => {
+      const id = `sub_${name}`;
       const paneId = state.subIndicators[name] ?? "";
-      state.chart?.removeIndicator({ id: `sub_${name}` });
+      const yAxisId = state.indicatorAxes[id];
+      state.chart?.removeIndicator({ id });
       const newIndicators = { ...state.subIndicators };
       delete newIndicators[name];
       dispatch({ type: "SET_SUB_INDICATORS", indicators: newIndicators });
+      if (yAxisId) {
+        const nextAxes = { ...state.indicatorAxes };
+        delete nextAxes[id];
+        dispatch({ type: "SET_INDICATOR_AXES", axes: nextAxes });
+      }
       undoRedoListenerRef.current?.({
         type: "indicator_toggled",
-        data: { name, wasActive: true, isMain: false, paneId },
+        data: { name, wasActive: true, isMain: false, paneId, yAxisId },
       });
     },
-    [state.chart, state.subIndicators, dispatch, undoRedoListenerRef],
+    [state.chart, state.subIndicators, state.indicatorAxes, dispatch, undoRedoListenerRef],
   );
 
   const toggleMainIndicator = useCallback(
@@ -172,8 +236,10 @@ export function useIndicators(): UseIndicatorsReturn {
   );
 
   const updateIndicatorParams = useCallback(
-    (name: string, paneId: string, params: number[]) => {
-      state.chart?.overrideIndicator({ name, paneId, calcParams: params });
+    // `paneId` is kept in the signature for API stability; klinecharts v10
+    // `overrideIndicator` no longer accepts it and targets by name/id instead.
+    (name: string, _paneId: string, params: number[]) => {
+      state.chart?.overrideIndicator({ name, calcParams: params });
     },
     [state.chart],
   );
@@ -197,11 +263,9 @@ export function useIndicators(): UseIndicatorsReturn {
         {
           name,
           id: `main_${name}`,
-          paneId: "candle_pane",
           ...(prevCalcParams ? { calcParams: prevCalcParams } : {}),
         },
-        true,
-        { id: "candle_pane" },
+        { isStack: true, pane: { id: "candle_pane" } },
       );
       const newSub = { ...state.subIndicators };
       delete newSub[name];
@@ -342,7 +406,7 @@ export function useIndicators(): UseIndicatorsReturn {
         if (sub.styles) {
           state.chart!.overrideIndicator({
             name: sub.name,
-            paneId,
+            id,
             styles: sub.styles,
           });
         }
@@ -351,6 +415,54 @@ export function useIndicators(): UseIndicatorsReturn {
       dispatch({ type: "SET_SUB_INDICATORS", indicators: newSubIndicators });
     },
     [state.chart, state.subIndicators, dispatch],
+  );
+
+  const getIndicatorAxis = useCallback(
+    (name: string, isMain: boolean) =>
+      state.indicatorAxes[isMain ? `main_${name}` : `sub_${name}`],
+    [state.indicatorAxes],
+  );
+
+  const bindIndicatorToNewAxis = useCallback(
+    (name: string, isMain: boolean, yAxis?: YAxisOverride) => {
+      if (!state.chart) return;
+      const id = isMain ? `main_${name}` : `sub_${name}`;
+      const current = state.chart.getIndicators({ id })?.[0];
+      if (!current) return;
+
+      // Snapshot the indicator before recreating it on a different axis.
+      const calcParams = current.calcParams;
+      const styles = current.styles;
+      const visible = current.visible ?? true;
+      // Main indicators live on the candle pane; sub-indicators keep their pane.
+      const paneId = isMain
+        ? "candle_pane"
+        : (current.paneId ?? state.subIndicators[name] ?? "");
+
+      state.chart.removeIndicator({ id });
+      state.chart.createIndicator(
+        {
+          name,
+          id,
+          ...(calcParams ? { calcParams } : {}),
+          visible,
+        },
+        {
+          isStack: isMain,
+          ...(paneId ? { pane: { id: paneId } } : {}),
+          yAxis,
+        },
+      );
+      if (styles) {
+        state.chart.overrideIndicator({ name, id, styles });
+      }
+
+      const nextAxes = { ...state.indicatorAxes };
+      if (yAxis?.id) nextAxes[id] = yAxis.id;
+      else delete nextAxes[id];
+      dispatch({ type: "SET_INDICATOR_AXES", axes: nextAxes });
+    },
+    [state.chart, state.indicatorAxes, state.subIndicators, dispatch],
   );
 
   return {
@@ -377,5 +489,8 @@ export function useIndicators(): UseIndicatorsReturn {
     expandSubIndicator,
     isSubIndicatorCollapsed,
     reorderSubIndicator,
+    indicatorAxes: state.indicatorAxes,
+    getIndicatorAxis,
+    bindIndicatorToNewAxis,
   };
 }

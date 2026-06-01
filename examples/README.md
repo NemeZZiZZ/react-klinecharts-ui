@@ -217,9 +217,8 @@ function ChartView({ className }) {
     // Create main indicators on candle_pane
     mainIndicatorsRef.current.forEach((name) => {
       chart.createIndicator(
-        { name, id: `main_${name}`, paneId: 'candle_pane' },
-        true,
-        { id: 'candle_pane' }
+        { name, id: `main_${name}` },
+        { isStack: true, pane: { id: 'candle_pane' } }
       );
     });
 

@@ -38,6 +38,7 @@ export {
   useIndicators,
   type UseIndicatorsReturn,
   type IndicatorInfo,
+  type AddIndicatorOptions,
 } from "./hooks/useIndicators";
 export {
   useDrawingTools,

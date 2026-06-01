@@ -40,6 +40,8 @@ function reducer(
       return { ...state, mainIndicators: action.indicators };
     case "SET_SUB_INDICATORS":
       return { ...state, subIndicators: action.indicators };
+    case "SET_INDICATOR_AXES":
+      return { ...state, indicatorAxes: action.axes };
     case "SET_STYLES":
       return { ...state, styles: action.styles };
     case "SET_LOCALE":
@@ -104,6 +106,7 @@ export function KlinechartsUIProvider({
         (acc, name) => ({ ...acc, [name]: "" }),
         {} as Record<string, string>,
       ),
+      indicatorAxes: {},
       styles: opts.styles,
       screenshotUrl: null,
     }),

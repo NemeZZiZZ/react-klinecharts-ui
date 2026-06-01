@@ -112,24 +112,30 @@ export function useUndoRedo(): UseUndoRedoReturn {
           break;
         }
         case "indicator_toggled": {
-          const { name, wasActive, isMain, paneId } = action.data;
+          const { name, wasActive, isMain, paneId, yAxisId } = action.data;
+          const id = isMain ? `main_${name}` : `sub_${name}`;
           if (wasActive) {
-            // It was active before, so re-add it
+            // It was active before, so re-add it (preserving its axis binding).
             if (isMain) {
               state.chart.createIndicator(
-                { name, id: `main_${name}`, paneId: "candle_pane" },
-                true,
-                { id: "candle_pane" },
+                { name, id },
+                {
+                  isStack: true,
+                  pane: { id: "candle_pane" },
+                  ...(yAxisId ? { yAxis: { id: yAxisId } } : {}),
+                },
               );
               dispatch({
                 type: "SET_MAIN_INDICATORS",
                 indicators: [...state.mainIndicators, name],
               });
             } else {
-              state.chart.createIndicator({ name, id: `sub_${name}` });
+              state.chart.createIndicator(
+                { name, id },
+                yAxisId ? { yAxis: { id: yAxisId } } : undefined,
+              );
               const newPaneId =
-                state.chart.getIndicators({ id: `sub_${name}` })?.[0]
-                  ?.paneId ?? "";
+                state.chart.getIndicators({ id })?.[0]?.paneId ?? "";
               dispatch({
                 type: "SET_SUB_INDICATORS",
                 indicators: {
@@ -138,10 +144,16 @@ export function useUndoRedo(): UseUndoRedoReturn {
                 },
               });
             }
+            if (yAxisId) {
+              dispatch({
+                type: "SET_INDICATOR_AXES",
+                axes: { ...state.indicatorAxes, [id]: yAxisId },
+              });
+            }
           } else {
             // It was not active before, so remove it
+            state.chart.removeIndicator({ id });
             if (isMain) {
-              state.chart.removeIndicator({ id: `main_${name}` });
               dispatch({
                 type: "SET_MAIN_INDICATORS",
                 indicators: state.mainIndicators.filter(
@@ -149,13 +161,17 @@ export function useUndoRedo(): UseUndoRedoReturn {
                 ),
               });
             } else {
-              state.chart.removeIndicator({ id: `sub_${name}` });
               const newSub = { ...state.subIndicators };
               delete newSub[name];
               dispatch({
                 type: "SET_SUB_INDICATORS",
                 indicators: newSub,
               });
+            }
+            if (state.indicatorAxes[id]) {
+              const nextAxes = { ...state.indicatorAxes };
+              delete nextAxes[id];
+              dispatch({ type: "SET_INDICATOR_AXES", axes: nextAxes });
             }
           }
           setRedoStack((prev) => [
@@ -167,6 +183,7 @@ export function useUndoRedo(): UseUndoRedoReturn {
                 wasActive: !wasActive,
                 isMain,
                 paneId,
+                yAxisId,
               },
             },
           ]);
@@ -176,7 +193,7 @@ export function useUndoRedo(): UseUndoRedoReturn {
     } finally {
       isProcessingRef.current = false;
     }
-  }, [undoStack, state.chart, state.mainIndicators, state.subIndicators, dispatch]);
+  }, [undoStack, state.chart, state.mainIndicators, state.subIndicators, state.indicatorAxes, dispatch]);
 
   const redo = useCallback(() => {
     if (redoStack.length === 0 || !state.chart || isProcessingRef.current)
@@ -235,23 +252,29 @@ export function useUndoRedo(): UseUndoRedoReturn {
           break;
         }
         case "indicator_toggled": {
-          const { name, wasActive, isMain } = action.data;
+          const { name, wasActive, isMain, paneId, yAxisId } = action.data;
+          const id = isMain ? `main_${name}` : `sub_${name}`;
           if (wasActive) {
             if (isMain) {
               state.chart.createIndicator(
-                { name, id: `main_${name}`, paneId: "candle_pane" },
-                true,
-                { id: "candle_pane" },
+                { name, id },
+                {
+                  isStack: true,
+                  pane: { id: "candle_pane" },
+                  ...(yAxisId ? { yAxis: { id: yAxisId } } : {}),
+                },
               );
               dispatch({
                 type: "SET_MAIN_INDICATORS",
                 indicators: [...state.mainIndicators, name],
               });
             } else {
-              state.chart.createIndicator({ name, id: `sub_${name}` });
+              state.chart.createIndicator(
+                { name, id },
+                yAxisId ? { yAxis: { id: yAxisId } } : undefined,
+              );
               const newPaneId =
-                state.chart.getIndicators({ id: `sub_${name}` })?.[0]
-                  ?.paneId ?? "";
+                state.chart.getIndicators({ id })?.[0]?.paneId ?? "";
               dispatch({
                 type: "SET_SUB_INDICATORS",
                 indicators: {
@@ -260,9 +283,15 @@ export function useUndoRedo(): UseUndoRedoReturn {
                 },
               });
             }
+            if (yAxisId) {
+              dispatch({
+                type: "SET_INDICATOR_AXES",
+                axes: { ...state.indicatorAxes, [id]: yAxisId },
+              });
+            }
           } else {
+            state.chart.removeIndicator({ id });
             if (isMain) {
-              state.chart.removeIndicator({ id: `main_${name}` });
               dispatch({
                 type: "SET_MAIN_INDICATORS",
                 indicators: state.mainIndicators.filter(
@@ -270,13 +299,17 @@ export function useUndoRedo(): UseUndoRedoReturn {
                 ),
               });
             } else {
-              state.chart.removeIndicator({ id: `sub_${name}` });
               const newSub = { ...state.subIndicators };
               delete newSub[name];
               dispatch({
                 type: "SET_SUB_INDICATORS",
                 indicators: newSub,
               });
+            }
+            if (state.indicatorAxes[id]) {
+              const nextAxes = { ...state.indicatorAxes };
+              delete nextAxes[id];
+              dispatch({ type: "SET_INDICATOR_AXES", axes: nextAxes });
             }
           }
           setUndoStack((prev) => [
@@ -287,6 +320,8 @@ export function useUndoRedo(): UseUndoRedoReturn {
                 name,
                 wasActive: !wasActive,
                 isMain,
+                paneId,
+                yAxisId,
               },
             },
           ]);
@@ -296,7 +331,7 @@ export function useUndoRedo(): UseUndoRedoReturn {
     } finally {
       isProcessingRef.current = false;
     }
-  }, [redoStack, state.chart, state.mainIndicators, state.subIndicators, dispatch]);
+  }, [redoStack, state.chart, state.mainIndicators, state.subIndicators, state.indicatorAxes, dispatch]);
 
   // Keyboard shortcuts
   useEffect(() => {

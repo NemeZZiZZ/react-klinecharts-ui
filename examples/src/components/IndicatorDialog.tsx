@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   Search,
+  Columns2,
 } from "lucide-react";
 import {
   Dialog,
@@ -75,6 +76,8 @@ function ActiveIndicatorRow({
   onRemove,
   onToggleVisible,
   onUpdateParams,
+  hasSeparateAxis,
+  onToggleSeparateAxis,
 }: {
   name: string;
   isMain: boolean;
@@ -83,6 +86,8 @@ function ActiveIndicatorRow({
   onRemove: () => void;
   onToggleVisible: (visible: boolean) => void;
   onUpdateParams: (name: string, paneId: string, values: number[]) => void;
+  hasSeparateAxis?: boolean;
+  onToggleSeparateAxis?: () => void;
 }) {
   const [visible, setVisible] = useState(true);
   const [expanded, setExpanded] = useState(false);
@@ -124,6 +129,27 @@ function ActiveIndicatorRow({
         <span className="text-[10px] text-muted-foreground">
           {isMain ? "main" : "sub"}
         </span>
+
+        {isMain && onToggleSeparateAxis && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              "size-6",
+              hasSeparateAxis
+                ? "text-primary"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            onClick={onToggleSeparateAxis}
+            title={
+              hasSeparateAxis
+                ? "Move back to price axis"
+                : "Move to a separate left axis"
+            }
+          >
+            <Columns2 className="size-3.5" />
+          </Button>
+        )}
 
         <Button
           variant="ghost"
@@ -185,6 +211,8 @@ export function IndicatorDialog({ open, onOpenChange }: IndicatorDialogProps) {
     updateIndicatorParams,
     getIndicatorParams,
     activeSubIndicators,
+    getIndicatorAxis,
+    bindIndicatorToNewAxis,
   } = useIndicators();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -243,6 +271,16 @@ export function IndicatorDialog({ open, onOpenChange }: IndicatorDialogProps) {
                         setIndicatorVisible(indicator.name, true, v)
                       }
                       onUpdateParams={updateIndicatorParams}
+                      hasSeparateAxis={!!getIndicatorAxis(indicator.name, true)}
+                      onToggleSeparateAxis={() =>
+                        bindIndicatorToNewAxis(
+                          indicator.name,
+                          true,
+                          getIndicatorAxis(indicator.name, true)
+                            ? undefined
+                            : { id: `axis_${indicator.name}`, position: "left" },
+                        )
+                      }
                     />
                   ))}
                   {activeSubList.map((indicator) => (

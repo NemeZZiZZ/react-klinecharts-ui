@@ -19,6 +19,8 @@ export interface ChartLayoutState {
     calcParams: any[];
     visible: boolean;
     styles?: any;
+    /** Custom Y-axis the indicator is bound to (klinecharts v10 multiple y-axes). */
+    yAxisId?: string;
   }>;
   drawings: Array<{
     name: string;
@@ -117,12 +119,16 @@ export function useLayoutManager(): UseLayoutManagerReturn {
     if (indicatorMap) {
       indicatorMap.forEach((paneIndicators: any, paneId: string) => {
         paneIndicators.forEach((indicator: any) => {
+          // Persist a custom axis binding only when it was explicitly tracked
+          // (avoids serializing the pane's default axis id).
+          const yAxisId = state.indicatorAxes[indicator.id];
           indicators.push({
             paneId,
             name: indicator.name,
             calcParams: indicator.calcParams,
             visible: indicator.visible,
             ...(indicator.styles ? { styles: indicator.styles } : {}),
+            ...(yAxisId ? { yAxisId } : {}),
           });
         });
       });
@@ -152,7 +158,7 @@ export function useLayoutManager(): UseLayoutManagerReturn {
       indicators,
       drawings,
     };
-  }, [state.chart, state.symbol, state.period]);
+  }, [state.chart, state.symbol, state.period, state.indicatorAxes]);
 
   const saveLayout = useCallback(
     (name: string): string | null => {
@@ -213,28 +219,41 @@ export function useLayoutManager(): UseLayoutManagerReturn {
       // Restore indicators
       const newMainIndicators: string[] = [];
       const newSubIndicators: Record<string, string> = {};
+      const restoredAxes: Record<string, string> = {};
 
       if (chartState.indicators) {
         for (const ind of chartState.indicators) {
+          const isMain = ind.paneId === "candle_pane";
+          // Use the canonical id convention so the restored indicators stay in
+          // sync with useIndicators (removable, axis-trackable).
+          const id = isMain ? `main_${ind.name}` : `sub_${ind.name}`;
           chart.createIndicator(
             {
               name: ind.name,
+              id,
               calcParams: ind.calcParams,
               visible: ind.visible,
             },
-            ind.paneId !== "candle_pane",
-            { id: ind.paneId },
+            {
+              isStack: ind.paneId !== "candle_pane",
+              pane: { id: ind.paneId },
+              ...(ind.yAxisId ? { yAxis: { id: ind.yAxisId } } : {}),
+            },
           );
 
           if (ind.styles) {
             chart.overrideIndicator({
               name: ind.name,
-              paneId: ind.paneId,
+              id,
               styles: ind.styles,
             });
           }
 
-          if (ind.paneId === "candle_pane") {
+          if (ind.yAxisId) {
+            restoredAxes[id] = ind.yAxisId;
+          }
+
+          if (isMain) {
             newMainIndicators.push(ind.name);
           } else {
             newSubIndicators[ind.name] = ind.paneId;
@@ -249,6 +268,10 @@ export function useLayoutManager(): UseLayoutManagerReturn {
       dispatch({
         type: "SET_SUB_INDICATORS",
         indicators: newSubIndicators,
+      });
+      dispatch({
+        type: "SET_INDICATOR_AXES",
+        axes: restoredAxes,
       });
 
       // Restore drawings

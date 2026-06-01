@@ -121,8 +121,7 @@ export function useCompare(): UseCompareReturn {
       // Place on main pane
       const paneId = state.chart.createIndicator(
         { name: indicatorName },
-        true,
-        { id: "candle_pane" },
+        { isStack: true, pane: { id: "candle_pane" } },
       );
 
       indicatorsRef.current.set(ticker, {

@@ -36,8 +36,8 @@ importers:
         specifier: ^19.0.0
         version: 19.2.4(react@19.2.4)
       react-klinecharts:
-        specifier: 0.1.0
-        version: 0.1.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+        specifier: 0.2.0
+        version: 0.2.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       tsup:
         specifier: ^8.0.0
         version: 8.5.1(jiti@2.6.1)(postcss@8.5.8)(typescript@5.9.3)
@@ -72,8 +72,8 @@ importers:
         specifier: ^19.0.0
         version: 19.2.4(react@19.2.4)
       react-klinecharts:
-        specifier: 0.1.0
-        version: 0.1.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+        specifier: 0.2.0
+        version: 0.2.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       react-klinecharts-ui:
         specifier: workspace:*
         version: link:..
@@ -2567,8 +2567,8 @@ packages:
     resolution: {integrity: sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ==}
     engines: {node: '>=6'}
 
-  klinecharts@10.0.0-beta1:
-    resolution: {integrity: sha512-5ZxFGjJeZqt9+q45lZDhApC3kdgrk51i27uSpIELgXJLNgfSc0anlb8XkU+52LVrBYnTv9dFr8/Q7lG81vIV1w==}
+  klinecharts@10.0.0-beta2:
+    resolution: {integrity: sha512-CsbMhpJHNYLaJrvV56Lms2Y9U/DskNJORVvGRPXoKOT2jyW7hCdKI/0AqG1GW8e3HVwFZFOzCcCjcv0+cZf14g==}
 
   levn@0.4.1:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
@@ -2978,8 +2978,8 @@ packages:
     peerDependencies:
       react: ^19.2.4
 
-  react-klinecharts@0.1.0:
-    resolution: {integrity: sha512-y5ccsM3Bi4tYwl/dWQcigsJikPMX7Gfica7Hjng1XJ9xhNiRe8i20CZKTXvVbYa/4DI/Ej3MQXt7GlJwM47i5g==}
+  react-klinecharts@0.2.0:
+    resolution: {integrity: sha512-V6nBHCsjXjSUItzpiPDCVCMiAvbSz8ogU7fqVkFhSkfN1qQBqh5tveQYX8WCtcqyNVDyKewfuSW/Ejmd8BAROQ==}
     engines: {node: '>=18'}
     peerDependencies:
       react: ^17.0.0 || ^18.0.0 || ^19.0.0
@@ -5865,7 +5865,7 @@ snapshots:
 
   kleur@4.1.5: {}
 
-  klinecharts@10.0.0-beta1: {}
+  klinecharts@10.0.0-beta2: {}
 
   levn@0.4.1:
     dependencies:
@@ -6278,9 +6278,9 @@ snapshots:
       react: 19.2.4
       scheduler: 0.27.0
 
-  react-klinecharts@0.1.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4):
+  react-klinecharts@0.2.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4):
     dependencies:
-      klinecharts: 10.0.0-beta1
+      klinecharts: 10.0.0-beta2
       react: 19.2.4
       react-dom: 19.2.4(react@19.2.4)
 

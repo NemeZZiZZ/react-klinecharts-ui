@@ -84,6 +84,15 @@ export interface KlinechartsUIState {
   periods: TerminalPeriod[];
   mainIndicators: string[];
   subIndicators: Record<string, string>;
+  /**
+   * Custom Y-axis bindings for indicators, keyed by indicator id
+   * (`main_<name>` / `sub_<name>`), value is the bound `yAxisId`.
+   * Only populated for indicators explicitly bound to a secondary
+   * (non-default) axis via `useIndicators`. Indicators on the shared
+   * default axis are absent. Used to persist bindings across
+   * undo/redo and layout presets.
+   */
+  indicatorAxes: Record<string, string>;
   styles: DeepPartial<Styles> | undefined;
   screenshotUrl: string | null;
 }
@@ -97,6 +106,7 @@ export type KlinechartsUIAction =
   | { type: "SET_LOADING"; isLoading: boolean }
   | { type: "SET_MAIN_INDICATORS"; indicators: string[] }
   | { type: "SET_SUB_INDICATORS"; indicators: Record<string, string> }
+  | { type: "SET_INDICATOR_AXES"; axes: Record<string, string> }
   | { type: "SET_STYLES"; styles: DeepPartial<Styles> | undefined }
   | { type: "SET_LOCALE"; locale: string }
   | { type: "SET_SCREENSHOT_URL"; url: string | null };

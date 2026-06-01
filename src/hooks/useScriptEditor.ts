@@ -196,8 +196,7 @@ export function useScriptEditor(): UseScriptEditorReturn {
       if (placement === "main") {
         paneId = chart.createIndicator(
           { name: indicatorName },
-          true,
-          { id: "candle_pane" },
+          { isStack: true, pane: { id: "candle_pane" } },
         );
       } else {
         paneId = chart.createIndicator({ name: indicatorName });

@@ -4,6 +4,40 @@ All notable changes to **react-klinecharts-ui** are documented in this file.
 
 ---
 
+## 0.4.0 — 2026-06-01
+
+Compatibility release for **react-klinecharts 0.2.0** / **klinecharts 10.0.0-beta2**. Adopts the new klinecharts v10 chart-instance API and exposes the new **multiple Y-axes** feature through `useIndicators`.
+
+### New Features
+
+- **Secondary Y-axis binding for indicators** (`useIndicators`). klinecharts v10 allows several independent Y-axes on a single pane, so an indicator with a value range very different from price (e.g. RSI 0–100, volume) can get its own scale instead of distorting the shared price axis or being pushed into a separate sub-pane.
+
+  - `addMainIndicator(name, { yAxis })` and `addSubIndicator(name, { yAxis })` — accept an optional `yAxis: YAxisOverride`. Provide a stable `yAxis.id` to create/share a secondary axis (e.g. `{ id: "rsi_axis", position: "left" }`); omit it for the pane's default (shared) axis.
+  - `bindIndicatorToNewAxis(name, isMain, yAxis?)` — moves an existing indicator to a different axis. Because v10 `overrideIndicator` cannot rebind an axis, this removes and recreates the indicator while preserving its calc params, styles and visibility. Omitting `yAxis` returns it to the default axis. This lets a UI offer "move to a separate axis / back to price / left-right" with a single call instead of duplicating the remove-and-recreate logic in every component.
+  - `indicatorAxes` / `getIndicatorAxis(name, isMain)` — read which indicators are bound to a custom axis (the live source of truth a UI can render against).
+
+  The binding is a **persistent property**, not a one-shot action: it is preserved across **undo/redo** (`useUndoRedo`) and **layout presets** (`useLayoutManager`). A new additive `indicatorAxes` field (keyed by indicator id) was added to the provider state to track custom bindings; it defaults to `{}` and indicators on the shared default axis are absent from it. As part of this, `useLayoutManager` now restores indicators with the canonical `main_<name>` / `sub_<name>` ids so restored presets stay in sync with `useIndicators`.
+
+### Examples
+
+- **Secondary Y-axis** example page (`#secondary-axis`) demonstrating an RSI oscillator on the price pane — shared axis (squished) vs its own left axis — with Undo/Redo to show the binding persists. The indicator dialog also gained a per-main-indicator "separate axis" toggle.
+
+
+
+### Breaking Changes
+
+- **Peer dependency** `react-klinecharts` raised from `>=0.1.0` to `>=0.2.0` (which depends on `klinecharts ^10.0.0-beta2`). Consumers must upgrade `react-klinecharts` to `0.2.0`.
+
+### Internal / API Migration
+
+- **`createIndicator`** — migrated to the new v10 signature `createIndicator(value, { isStack, pane, yAxis })`. Previously the library used the positional form `createIndicator(value, isStack, paneOptions)`, which no longer exists. Affects `useIndicators`, `useCompare`, `useScriptEditor`, `useLayoutManager` and `useUndoRedo`.
+
+- **`IndicatorCreate`** — `paneId` (and `yAxisId`) were removed from the indicator-create object in v10. Pane placement now goes through the `pane` option of `createIndicator`; `overrideIndicator` targets indicators by `id` / `name`. Updated all `createIndicator` / `overrideIndicator` calls accordingly.
+
+- **Axis configuration** — `setPaneOptions` no longer accepts an `axis` field in v10. Price-axis settings (reverse coordinate, price-axis type, y-axis position, inside) now use the new `overrideYAxis()` instance method in `useKlinechartsUISettings`.
+
+> Note: klinecharts `10.0.0-beta2` ships swapped parameter typings for `overrideYAxis` / `overrideXAxis` in its `.d.ts` (the runtime is correct). The library casts around this until the upstream typings are fixed.
+
 ## 0.3.0 — 2026-03-09
 
 Major feature release with 5 new hooks for real-time trading terminal functionality, depth visualization overlay, multi-chart synchronization, and comprehensive examples demonstrating all library features.

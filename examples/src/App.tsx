@@ -6,6 +6,7 @@ const IndicatorBuilderExample = lazy(() => import("./pages/indicator-builder"));
 const MobileExample = lazy(() => import("./pages/mobile"));
 const QuickStartExample = lazy(() => import("./pages/quick-start"));
 const DepthExample = lazy(() => import("./pages/depth"));
+const SecondaryAxisExample = lazy(() => import("./pages/secondary-axis"));
 
 const EXAMPLES = [
   {
@@ -58,6 +59,12 @@ const EXAMPLES = [
     label: "Order Book / Depth",
     component: DepthExample,
     features: ["useKlinechartsUI", "Live order book"],
+  },
+  {
+    id: "secondary-axis",
+    label: "Secondary Y-axis",
+    component: SecondaryAxisExample,
+    features: ["useIndicators", "Multiple y-axes", "bindIndicatorToNewAxis", "useUndoRedo"],
   },
   {
     id: "mobile",

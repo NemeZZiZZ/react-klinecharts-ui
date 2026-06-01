@@ -206,6 +206,7 @@ interface KlinechartsUIState {
   periods: TerminalPeriod[]; // List of available timeframes
   mainIndicators: string[]; // Active main chart indicators
   subIndicators: Record<string, string>; // Active sub-indicators: { name → paneId }
+  indicatorAxes: Record<string, string>; // Custom Y-axis bindings: { indicatorId → yAxisId }
   styles: DeepPartial<Styles> | undefined; // Custom klinecharts styles
   screenshotUrl: string | null; // URL of the last screenshot
 }
@@ -225,6 +226,7 @@ type KlinechartsUIAction =
   | { type: "SET_LOADING"; isLoading: boolean }
   | { type: "SET_MAIN_INDICATORS"; indicators: string[] }
   | { type: "SET_SUB_INDICATORS"; indicators: Record<string, string> }
+  | { type: "SET_INDICATOR_AXES"; axes: Record<string, string> }
   | { type: "SET_STYLES"; styles: DeepPartial<Styles> | undefined }
   | { type: "SET_LOCALE"; locale: string }
   | { type: "SET_SCREENSHOT_URL"; url: string | null };
@@ -459,6 +461,9 @@ const {
   getIndicatorParams,
   isMainIndicatorActive,
   isSubIndicatorActive,
+  indicatorAxes,
+  getIndicatorAxis,
+  bindIndicatorToNewAxis,
 } = useIndicators();
 ```
 
@@ -484,9 +489,9 @@ interface IndicatorInfo {
 
 | Method                                        | Description                                                   |
 | --------------------------------------------- | ------------------------------------------------------------- |
-| `addMainIndicator(name)`                      | Creates the indicator on `candle_pane` with id `main_${name}` |
+| `addMainIndicator(name, options?)`            | Creates the indicator on `candle_pane` with id `main_${name}`. Pass `{ yAxis }` to bind it to a secondary axis (see below) |
 | `removeMainIndicator(name)`                   | Removes the indicator and updates state                       |
-| `addSubIndicator(name)`                       | Creates the indicator on a new sub-pane with id `sub_${name}` |
+| `addSubIndicator(name, options?)`             | Creates the indicator on a new sub-pane with id `sub_${name}`. Also accepts `{ yAxis }` |
 | `removeSubIndicator(name)`                    | Removes the sub-indicator and its pane                        |
 | `toggleMainIndicator(name)`                   | `add` if inactive, `remove` if active                         |
 | `toggleSubIndicator(name)`                    | Same for sub-indicators                                       |
@@ -497,6 +502,32 @@ interface IndicatorInfo {
 | `getIndicatorParams(name)`                    | Returns `[{ label, defaultValue }]` or `[]` if no parameters  |
 | `isMainIndicatorActive(name)`                 | Quick active check                                            |
 | `isSubIndicatorActive(name)`                  | Quick active check                                            |
+| `getIndicatorAxis(name, isMain)`              | Returns the custom `yAxisId` an indicator is bound to, or `undefined` for the default axis |
+| `bindIndicatorToNewAxis(name, isMain, yAxis?)`| Rebinds an existing indicator to a different Y-axis (omit `yAxis` to return it to the default axis) |
+
+#### Secondary Y-axis binding (multiple Y-axes)
+
+klinecharts v10 supports several independent Y-axes on one pane, so an indicator whose value range differs sharply from price (RSI 0–100, volume, …) can get its own scale instead of distorting the shared price axis or being forced into a separate sub-pane.
+
+```typescript
+// Add RSI on the main pane, on its own left axis (price scale stays intact)
+addMainIndicator("RSI", { yAxis: { id: "rsi_axis", position: "left" } });
+
+// Later: move it back to the shared price axis
+bindIndicatorToNewAxis("RSI", true);
+
+// Or move an indicator already on the chart onto a dedicated right axis
+bindIndicatorToNewAxis("VOL", true, { id: "vol_axis", position: "right" });
+```
+
+`yAxis` is a klinecharts `YAxisOverride`; the key field is **`id`** — indicators sharing the same `id` share one axis. Useful extras: `position` (`"left" | "right"`), `name` (scale type: `"normal" | "percentage" | "log"`), `inside`, and `needWidget` (set `false` for an invisible axis — own scale, no labels).
+
+This binding is a **persistent property, not a one-shot action**. It is tracked in provider state (`indicatorAxes`, keyed by indicator id) and preserved across:
+
+- **undo/redo** — toggling an indicator off and back on (`useUndoRedo`) restores it on the same axis, not the price axis;
+- **layout presets** — `useLayoutManager` save/load reproduces each indicator's axis 1:1.
+
+> Note: `bindIndicatorToNewAxis` removes and recreates the indicator (v10 `overrideIndicator` cannot rebind an axis), preserving calc params, styles and visibility. The rebind action itself is not pushed onto the undo stack.
 
 #### Available indicators
 

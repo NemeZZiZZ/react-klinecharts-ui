@@ -136,27 +136,41 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
     []
   );
 
+  const applyPaneAxis = useCallback(
+    (axis: Record<string, unknown>) => {
+      // klinecharts v10: axis configuration moved off setPaneOptions to
+      // overrideYAxis. NOTE: klinecharts beta2 .d.ts mistypes the parameter of
+      // `overrideYAxis` as `XAxisOverride` (the param names of overrideYAxis /
+      // overrideXAxis are swapped in the core typings), while the runtime
+      // correctly applies these fields to the Y (price) axis — hence the cast.
+      (
+        state.chart as unknown as {
+          overrideYAxis?: (axis: Record<string, unknown>) => void;
+        }
+      )?.overrideYAxis?.({ paneId: "candle_pane", ...axis });
+    },
+    [state.chart]
+  );
+
   // Apply initial settings when chart becomes available
   const hasAppliedInitial = useRef(false);
   useEffect(() => {
     if (!state.chart || hasAppliedInitial.current) return;
     hasAppliedInitial.current = true;
 
-    // Sync axis settings via setPaneOptions (not styles)
-    const needsPaneOptions =
+    // Sync axis settings via overrideYAxis (klinecharts v10: setPaneOptions no
+    // longer handles axis configuration).
+    const needsAxisOverride =
       settings.reverseCoordinate ||
       settings.priceAxisType !== "normal" ||
       settings.yAxisPosition !== "right" ||
       settings.yAxisInside;
-    if (needsPaneOptions) {
-      state.chart.setPaneOptions({
-        id: "candle_pane",
-        axis: {
-          ...(settings.priceAxisType !== "normal" && { name: settings.priceAxisType }),
-          ...(settings.reverseCoordinate && { reverse: true }),
-          ...(settings.yAxisPosition !== "right" && { position: settings.yAxisPosition }),
-          ...(settings.yAxisInside && { inside: true }),
-        },
+    if (needsAxisOverride) {
+      applyPaneAxis({
+        ...(settings.priceAxisType !== "normal" && { name: settings.priceAxisType }),
+        ...(settings.reverseCoordinate && { reverse: true }),
+        ...(settings.yAxisPosition !== "right" && { position: settings.yAxisPosition }),
+        ...(settings.yAxisInside && { inside: true }),
       });
     }
 
@@ -183,12 +197,6 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
     [state.chart]
   );
 
-  const applyPaneAxis = useCallback(
-    (axis: Record<string, unknown>) => {
-      state.chart?.setPaneOptions({ id: "candle_pane", axis });
-    },
-    [state.chart]
-  );
 
   const setCandleType = useCallback(
     (type: string) => {
@@ -357,11 +365,8 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
     setSettings(defaultSettings);
     state.chart?.setStyles(state.theme);
     // Reset axis options to defaults
-    state.chart?.setPaneOptions({
-      id: "candle_pane",
-      axis: { name: "normal", reverse: false, position: "right", inside: false },
-    });
-  }, [state.chart, state.theme]);
+    applyPaneAxis({ name: "normal", reverse: false, position: "right", inside: false });
+  }, [state.chart, state.theme, applyPaneAxis]);
 
   return {
     ...settings,
