@@ -41,6 +41,9 @@ Many features in this library — including 11 TradingView-style indicators, 9 d
    - [useMeasure](#usemeasure)
    - [useAnnotations](#useannotations)
    - [useReplay](#usereplay)
+   - [useAlerts](#usealerts)
+   - [useCrosshair](#usecrosshair)
+   - [useDataExport](#usedataexport)
 6. [Utilities](#utilities)
    - [createDataLoader](#createdataloader)
    - [TA (Technical Analysis)](#ta-technical-analysis)
@@ -49,7 +52,8 @@ Many features in this library — including 11 TradingView-style indicators, 9 d
 9. [Drawing Overlays](#drawing-overlays)
 10. [Extensions](#extensions)
 11. [State Callbacks](#state-callbacks)
-12. [Full Export List](#full-export-list)
+12. [Backend Signals & Notifications](#backend-signals--notifications)
+13. [Full Export List](#full-export-list)
 
 ---
 
@@ -1127,6 +1131,126 @@ const {
 
 ---
 
+### useAlerts
+
+Client-side price alerts. Draws a locked horizontal line on the chart for each alert and polls the latest candle once per second, firing a callback when the close price crosses the alert level. This is the primary hook for reacting to price events — e.g. forwarding a buy/sell signal to your backend or triggering a push notification (see [Backend Signals & Notifications](#backend-signals--notifications)).
+
+```typescript
+import { useAlerts } from "react-klinecharts-ui";
+
+const {
+  alerts,
+  addAlert,
+  removeAlert,
+  clearAlerts,
+  onAlertTriggered,
+} = useAlerts();
+
+const id = addAlert(65000, "crossing_up", "BTC broke 65k");
+
+onAlertTriggered((alert) => {
+  console.log("Alert fired:", alert.message, alert.price);
+});
+```
+
+#### Return type: `UseAlertsReturn`
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `alerts` | `Alert[]` | Current alerts (active and triggered) |
+| `addAlert` | `(price: number, condition: AlertCondition, message?: string) => string` | Create an alert at a price level; returns its id |
+| `removeAlert` | `(id: string) => void` | Remove a single alert and its chart line |
+| `clearAlerts` | `() => void` | Remove all alerts |
+| `onAlertTriggered` | `(callback: (alert: Alert) => void) => void` | Register a callback fired once when an alert's condition is met |
+
+#### Types
+
+```typescript
+type AlertCondition = "crossing_up" | "crossing_down" | "crossing";
+
+interface Alert {
+  id: string;
+  price: number;
+  condition: AlertCondition;
+  message?: string;
+  triggered: boolean;
+}
+```
+
+| Condition | Fires when |
+|-----------|------------|
+| `crossing_up` | Previous close `<` price **and** current close `>=` price |
+| `crossing_down` | Previous close `>` price **and** current close `<=` price |
+| `crossing` | Either direction |
+
+> Detection is based on the **latest candle's close**, polled every second from `chart.getDataList()`. An alert fires at most once (its `triggered` flag flips to `true`); recreate it to re-arm.
+
+---
+
+### useCrosshair
+
+Tracks the OHLCV data of the bar currently under the crosshair. Returns `null` when the cursor is off-chart. Updates are throttled with `requestAnimationFrame`, making it suitable for driving a live data panel / legend that follows the cursor.
+
+```typescript
+import { useCrosshair } from "react-klinecharts-ui";
+
+const { barData } = useCrosshair();
+
+// barData is null until the cursor is over a candle
+if (barData) {
+  console.log(barData.close, barData.changePercent);
+}
+```
+
+#### Return type: `UseCrosshairReturn`
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `barData` | `CrosshairBarData \| null` | OHLCV of the hovered bar, or `null` when off-chart |
+
+#### CrosshairBarData
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `open` | `number` | Open price |
+| `high` | `number` | High price |
+| `low` | `number` | Low price |
+| `close` | `number` | Close price |
+| `volume` | `number` | Volume |
+| `timestamp` | `number` | Bar timestamp (ms) |
+| `change` | `number` | `close - open`, rounded to the symbol's price precision |
+| `changePercent` | `number` | Percent change relative to open, 2 decimals |
+
+---
+
+### useDataExport
+
+Export chart candle data to a downloaded file in CSV or JSON format. Columns: `Date` (ISO), `Open`, `High`, `Low`, `Close`, `Volume`. The file is named `<ticker>_<YYYY-MM-DD>.<format>`.
+
+```typescript
+import { useDataExport } from "react-klinecharts-ui";
+
+const { exportAll, exportVisible } = useDataExport();
+
+exportAll("csv");      // every loaded bar
+exportVisible("json"); // only the currently visible range
+```
+
+#### Return type: `UseDataExportReturn`
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `exportAll` | `(format: ExportFormat) => void` | Download all loaded candles |
+| `exportVisible` | `(format: ExportFormat) => void` | Download only the visible range (falls back to all bars if the range is unavailable) |
+
+```typescript
+type ExportFormat = "csv" | "json";
+```
+
+> No-op when the chart is not ready or holds no data.
+
+---
+
 ## Utilities
 
 ### createDataLoader
@@ -1269,6 +1393,29 @@ const CANDLE_TYPES: CandleTypeOption[] = [
 ```typescript
 const PRICE_AXIS_TYPES = ["normal", "percentage", "log"] as const;
 type PriceAxisType = "normal" | "percentage" | "log";
+```
+
+### YAXIS_POSITIONS
+
+```typescript
+const YAXIS_POSITIONS = ["left", "right"] as const;
+type YAxisPosition = "left" | "right";
+```
+
+### COMPARE_RULES
+
+Baseline rule used when overlaying compared symbols (see [useCompare](#usecompare)).
+
+```typescript
+const COMPARE_RULES = ["current_open", "prev_close"] as const;
+type CompareRule = "current_open" | "prev_close";
+```
+
+### TOOLTIP_SHOW_RULES
+
+```typescript
+const TOOLTIP_SHOW_RULES = ["always", "follow_cross", "none"] as const;
+type TooltipShowRule = "always" | "follow_cross" | "none";
 ```
 
 ---
@@ -1539,6 +1686,97 @@ const savedTheme = localStorage.getItem('theme') ?? 'dark';
 
 ---
 
+## Backend Signals & Notifications
+
+A common question: **how do front-end indicators connect to a backend for buy/sell signals or push notifications?**
+
+This library is **headless by design** — it owns chart state, datafeed wiring, and overlay management, but it deliberately does **not** generate trading signals, execute orders, or send notifications. Those belong to your application/backend layer. What the library provides is the full set of extension points to connect the two. Backend-driven signals are **not** a built-in feature and are not planned as one, because they fall outside the headless UI scope.
+
+There are two directions to wire up.
+
+### Backend → chart (display server signals)
+
+Push signals computed on your backend into the chart through the `Datafeed` and overlay hooks:
+
+- **`Datafeed.subscribe`** — your real-time channel (WebSocket/SSE). Stream live candles, and alongside them any backend-computed signal payloads.
+- **[`useOrderLines`](#useorderlines)** — render entry/SL/TP levels as draggable horizontal lines; `onPriceChange` reports the new price when a user drags one.
+- **[`useAnnotations`](#useannotations)** — drop markers/notes on the chart at the bars where signals fired.
+
+```tsx
+// A WebSocket carrying both candles and backend signals
+const datafeed: Datafeed = {
+  // ...searchSymbols / getHistoryKLineData
+  subscribe(symbol, period, callback) {
+    const ws = new WebSocket(`wss://api.example.com/stream/${symbol.ticker}`);
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === "kline") callback(msg.candle);
+      if (msg.type === "signal") signalBus.emit(msg); // hand off to your UI
+    };
+    sockets.set(symbol.ticker, ws);
+  },
+  unsubscribe(symbol) {
+    sockets.get(symbol.ticker)?.close();
+    sockets.delete(symbol.ticker);
+  },
+};
+```
+
+```tsx
+// Render a backend signal as an order line + annotation
+function SignalLayer() {
+  const { createOrderLine } = useOrderLines();
+  const { addAnnotation } = useAnnotations();
+
+  useEffect(() => {
+    return signalBus.on("signal", (s) => {
+      createOrderLine({ price: s.entry, text: `${s.side} @ ${s.entry}` });
+      addAnnotation(s.side === "buy" ? "▲" : "▼", s.entry, s.timestamp);
+    });
+  }, [createOrderLine, addAnnotation]);
+
+  return null;
+}
+```
+
+### Chart → backend (react to price events)
+
+Detect a price event on the client and forward it to your backend (webhook, order placement) or fire a push notification — all inside the [`useAlerts`](#usealerts) callback:
+
+```tsx
+function PriceAlertBridge() {
+  const { addAlert, onAlertTriggered } = useAlerts();
+
+  useEffect(() => {
+    addAlert(65000, "crossing_up", "BTC > 65k");
+
+    onAlertTriggered(async (alert) => {
+      // 1. Notify your backend (e.g. to place/adjust an order)
+      await fetch("https://api.example.com/signals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ price: alert.price, condition: alert.condition }),
+      });
+
+      // 2. Browser push notification
+      if (Notification.permission === "granted") {
+        new Notification("Price alert", { body: alert.message });
+      }
+    });
+  }, [addAlert, onAlertTriggered]);
+
+  return null;
+}
+```
+
+> The chart-side `useAlerts` detection is a convenience based on the latest candle close (polled once per second) — it is **not** a substitute for authoritative server-side alerting. For guaranteed delivery, run the alert/signal logic on your backend and use the **Backend → chart** path above to visualize it.
+
+### Observing state
+
+Use **[State Callbacks](#state-callbacks)** (`onStateChange`, `onSymbolChange`, `onSubIndicatorsChange`, …) to forward symbol/period/indicator changes to your backend — for example, to subscribe the right server-side signal stream for whatever the user is currently viewing.
+
+---
+
 ## Full Export List
 
 ```typescript
@@ -1565,7 +1803,12 @@ export { useKlinechartsUILoading, type UseKlinechartsUILoadingReturn };
 export { usePeriods, type UsePeriodsReturn };
 export { useTimezone, type UseTimezoneReturn, type TimezoneItem };
 export { useSymbolSearch, type UseSymbolSearchReturn };
-export { useIndicators, type UseIndicatorsReturn, type IndicatorInfo };
+export {
+  useIndicators,
+  type UseIndicatorsReturn,
+  type IndicatorInfo,
+  type AddIndicatorOptions,
+};
 export {
   useDrawingTools,
   type UseDrawingToolsReturn,
@@ -1598,6 +1841,19 @@ export {
   type UseScriptEditorReturn,
   type ScriptPlacement,
 };
+export { useCrosshair, type UseCrosshairReturn, type CrosshairBarData };
+export { useAlerts, type UseAlertsReturn, type Alert, type AlertCondition };
+export { useDataExport, type UseDataExportReturn, type ExportFormat };
+export { useWatchlist, type UseWatchlistReturn, type WatchlistItem };
+export { useReplay, type UseReplayReturn, type ReplaySpeed };
+export { useCompare, type UseCompareReturn, type CompareSymbol };
+export {
+  useMeasure,
+  type UseMeasureReturn,
+  type MeasureResult,
+  type MeasurePoint,
+};
+export { useAnnotations, type UseAnnotationsReturn, type Annotation };
 
 // Data
 export { DEFAULT_PERIODS, type TerminalPeriod };
@@ -1650,7 +1906,7 @@ export {
 export * from "./indicators";
 
 // Extensions
-export { registerExtensions, overlays, indicators, orderLine };
+export { registerExtensions, overlays, indicators, orderLine, depthOverlay };
 export type {
   OrderLineExtendData,
   OrderLineLineStyle,
@@ -1658,5 +1914,7 @@ export type {
   OrderLineLabelStyle,
   OrderLineFontStyle,
   OrderLinePadding,
+  DepthOverlayExtendData,
+  DepthOverlayRow,
 };
 ```
