@@ -10,6 +10,13 @@ import {
 export interface IndicatorInfo {
   name: string;
   isActive: boolean;
+  /**
+   * Whether the indicator is currently visible on the chart. Defaults to
+   * `true`; only `false` after the indicator has been hidden via
+   * `setIndicatorVisible` or `collapseSubIndicator`. Meaningful only when
+   * `isActive` is `true` (inactive indicators are always reported `true`).
+   */
+  visible: boolean;
 }
 
 /** Options accepted when adding an indicator. */
@@ -43,6 +50,13 @@ export interface UseIndicatorsReturn {
     isMain: boolean,
     visible: boolean,
   ) => void;
+  /**
+   * Read whether an indicator is currently visible. Returns `true` for the
+   * default (un-toggled) state and for inactive indicators. This is the
+   * reactive read counterpart to `setIndicatorVisible` — UI no longer needs to
+   * track visibility locally or reach into the chart instance.
+   */
+  isIndicatorVisible: (name: string, isMain: boolean) => boolean;
   updateIndicatorParams: (
     name: string,
     paneId: string,
@@ -68,6 +82,13 @@ export interface UseIndicatorsReturn {
   indicatorAxes: Record<string, string>;
   /** Get the custom `yAxisId` an indicator is bound to, or `undefined` for the default axis. */
   getIndicatorAxis: (name: string, isMain: boolean) => string | undefined;
+  /**
+   * Visibility overrides keyed by indicator id (`main_<name>` / `sub_<name>`).
+   * Only contains indicators hidden away from the default; an absent key means
+   * visible. Mirror of the provider state, exposed for layout-preset
+   * persistence and direct rendering.
+   */
+  indicatorVisibility: Record<string, boolean>;
   /**
    * Rebind an existing indicator to a different Y-axis. Because klinecharts v10
    * `overrideIndicator` cannot change axis binding, this removes and recreates
@@ -96,19 +117,27 @@ export function useIndicators(): UseIndicatorsReturn {
     const activeNames = state.mainIndicators;
     const inactive = MAIN_INDICATORS.filter((n) => !activeNames.includes(n));
     return [
-      ...activeNames.map((name) => ({ name, isActive: true })),
-      ...inactive.map((name) => ({ name, isActive: false })),
+      ...activeNames.map((name) => ({
+        name,
+        isActive: true,
+        visible: state.indicatorVisibility[`main_${name}`] ?? true,
+      })),
+      ...inactive.map((name) => ({ name, isActive: false, visible: true })),
     ];
-  }, [state.mainIndicators]);
+  }, [state.mainIndicators, state.indicatorVisibility]);
 
   const subIndicators = useMemo(() => {
     const activeNames = Object.keys(state.subIndicators);
     const inactive = SUB_INDICATORS.filter((n) => !activeNames.includes(n));
     return [
-      ...activeNames.map((name) => ({ name, isActive: true })),
-      ...inactive.map((name) => ({ name, isActive: false })),
+      ...activeNames.map((name) => ({
+        name,
+        isActive: true,
+        visible: state.indicatorVisibility[`sub_${name}`] ?? true,
+      })),
+      ...inactive.map((name) => ({ name, isActive: false, visible: true })),
     ];
-  }, [state.subIndicators]);
+  }, [state.subIndicators, state.indicatorVisibility]);
 
   const addMainIndicator = useCallback(
     (name: string, options?: AddIndicatorOptions) => {
@@ -152,12 +181,24 @@ export function useIndicators(): UseIndicatorsReturn {
         delete nextAxes[id];
         dispatch({ type: "SET_INDICATOR_AXES", axes: nextAxes });
       }
+      if (id in state.indicatorVisibility) {
+        const nextVisibility = { ...state.indicatorVisibility };
+        delete nextVisibility[id];
+        dispatch({ type: "SET_INDICATOR_VISIBILITY", visibility: nextVisibility });
+      }
       undoRedoListenerRef.current?.({
         type: "indicator_toggled",
         data: { name, wasActive: true, isMain: true, paneId: "candle_pane", yAxisId },
       });
     },
-    [state.chart, state.mainIndicators, state.indicatorAxes, dispatch, undoRedoListenerRef],
+    [
+      state.chart,
+      state.mainIndicators,
+      state.indicatorAxes,
+      state.indicatorVisibility,
+      dispatch,
+      undoRedoListenerRef,
+    ],
   );
 
   const addSubIndicator = useCallback(
@@ -197,12 +238,24 @@ export function useIndicators(): UseIndicatorsReturn {
         delete nextAxes[id];
         dispatch({ type: "SET_INDICATOR_AXES", axes: nextAxes });
       }
+      if (id in state.indicatorVisibility) {
+        const nextVisibility = { ...state.indicatorVisibility };
+        delete nextVisibility[id];
+        dispatch({ type: "SET_INDICATOR_VISIBILITY", visibility: nextVisibility });
+      }
       undoRedoListenerRef.current?.({
         type: "indicator_toggled",
         data: { name, wasActive: true, isMain: false, paneId, yAxisId },
       });
     },
-    [state.chart, state.subIndicators, state.indicatorAxes, dispatch, undoRedoListenerRef],
+    [
+      state.chart,
+      state.subIndicators,
+      state.indicatorAxes,
+      state.indicatorVisibility,
+      dispatch,
+      undoRedoListenerRef,
+    ],
   );
 
   const toggleMainIndicator = useCallback(
@@ -231,8 +284,21 @@ export function useIndicators(): UseIndicatorsReturn {
     (name: string, isMain: boolean, visible: boolean) => {
       const id = isMain ? `main_${name}` : `sub_${name}`;
       state.chart?.overrideIndicator({ name, id, visible });
+      // Mirror into provider state so `isIndicatorVisible` / the `visible`
+      // field stay reactive. Keep the map sparse: drop the key when visible
+      // (the default) instead of storing `true`.
+      const nextVisibility = { ...state.indicatorVisibility };
+      if (visible) delete nextVisibility[id];
+      else nextVisibility[id] = false;
+      dispatch({ type: "SET_INDICATOR_VISIBILITY", visibility: nextVisibility });
     },
-    [state.chart],
+    [state.chart, state.indicatorVisibility, dispatch],
+  );
+
+  const isIndicatorVisible = useCallback(
+    (name: string, isMain: boolean) =>
+      state.indicatorVisibility[isMain ? `main_${name}` : `sub_${name}`] ?? true,
+    [state.indicatorVisibility],
   );
 
   const updateIndicatorParams = useCallback(
@@ -327,9 +393,14 @@ export function useIndicators(): UseIndicatorsReturn {
         id: paneId,
         height: COLLAPSED_HEIGHT,
       });
-      state.chart.overrideIndicator({ name, id: `sub_${name}`, visible: false });
+      const id = `sub_${name}`;
+      state.chart.overrideIndicator({ name, id, visible: false });
+      dispatch({
+        type: "SET_INDICATOR_VISIBILITY",
+        visibility: { ...state.indicatorVisibility, [id]: false },
+      });
     },
-    [state.chart, state.subIndicators],
+    [state.chart, state.subIndicators, state.indicatorVisibility, dispatch],
   );
 
   const expandSubIndicator = useCallback(
@@ -344,9 +415,13 @@ export function useIndicators(): UseIndicatorsReturn {
         id: paneId,
         height: savedHeight,
       });
-      state.chart.overrideIndicator({ name, id: `sub_${name}`, visible: true });
+      const id = `sub_${name}`;
+      state.chart.overrideIndicator({ name, id, visible: true });
+      const nextVisibility = { ...state.indicatorVisibility };
+      delete nextVisibility[id];
+      dispatch({ type: "SET_INDICATOR_VISIBILITY", visibility: nextVisibility });
     },
-    [state.chart, state.subIndicators],
+    [state.chart, state.subIndicators, state.indicatorVisibility, dispatch],
   );
 
   const isSubIndicatorCollapsed = useCallback(
@@ -481,6 +556,7 @@ export function useIndicators(): UseIndicatorsReturn {
     moveToMain,
     moveToSub,
     setIndicatorVisible,
+    isIndicatorVisible,
     updateIndicatorParams,
     getIndicatorParams,
     isMainIndicatorActive,
@@ -491,6 +567,7 @@ export function useIndicators(): UseIndicatorsReturn {
     reorderSubIndicator,
     indicatorAxes: state.indicatorAxes,
     getIndicatorAxis,
+    indicatorVisibility: state.indicatorVisibility,
     bindIndicatorToNewAxis,
   };
 }

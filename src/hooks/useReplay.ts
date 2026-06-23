@@ -1,7 +1,11 @@
-import { useState, useCallback, useEffect, useRef } from "react";
-import { useKlinechartsUI } from "../provider/ChartTerminalContext";
+import { useCallback } from "react";
+import {
+  useKlinechartsUI,
+  useKlinechartsUIDispatch,
+} from "../provider/ChartTerminalContext";
+import type { ReplaySpeed } from "../provider/featureTypes";
 
-export type ReplaySpeed = 1 | 2 | 5 | 10;
+export type { ReplaySpeed } from "../provider/featureTypes";
 
 export interface UseReplayReturn {
   /** Whether a replay session is active */
@@ -34,54 +38,53 @@ export interface UseReplayReturn {
  * Headless hook for historical data replay (bar-by-bar playback).
  *
  * Loads the current chart data, clears the chart, then progressively adds
- * bars back one at a time at the configured speed. Useful for backtesting
- * and reviewing price action.
+ * bars back one at a time at the configured speed.
+ *
+ * Replay control state lives in the shared provider store and the playback
+ * interval + data buffers are owned by the provider (accessed through stable
+ * refs). This guarantees a single playback session even when `useReplay()` is
+ * mounted in several components (e.g. toolbar + bottom controls + status bar):
+ * starting in one and stepping in another drives the same timer and buffer.
  */
 export function useReplay(): UseReplayReturn {
-  const { state } = useKlinechartsUI();
+  const { state, dispatch } = useKlinechartsUI();
+  const { replayIntervalRef, replaySavedDataRef, replayIndexRef } =
+    useKlinechartsUIDispatch();
 
-  const [isReplaying, setIsReplaying] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [speed, setSpeedState] = useState<ReplaySpeed>(1);
-  const [barIndex, setBarIndex] = useState(0);
-  const [totalBars, setTotalBars] = useState(0);
-
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const savedDataRef = useRef<any[]>([]);
-  const currentIndexRef = useRef(0);
+  const { isReplaying, isPaused, speed, barIndex, totalBars } = state.replay;
 
   const clearInterval_ = useCallback(() => {
-    if (intervalRef.current !== null) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
+    if (replayIntervalRef.current !== null) {
+      clearInterval(replayIntervalRef.current);
+      replayIntervalRef.current = null;
     }
-  }, []);
+  }, [replayIntervalRef]);
 
   const addNextBar = useCallback(() => {
     if (!state.chart) return;
 
-    const data = savedDataRef.current;
-    const idx = currentIndexRef.current;
+    const data = replaySavedDataRef.current;
+    const idx = replayIndexRef.current;
 
     if (idx >= data.length) {
       // Replay finished — stop the interval but keep replay state
       clearInterval_();
-      setIsPaused(true);
+      dispatch({ type: "SET_REPLAY", replay: { isPaused: true } });
       return;
     }
 
     const bar = data[idx];
     (state.chart as any).updateData?.(bar);
-    currentIndexRef.current = idx + 1;
-    setBarIndex(idx + 1);
-  }, [state.chart, clearInterval_]);
+    replayIndexRef.current = idx + 1;
+    dispatch({ type: "SET_REPLAY", replay: { barIndex: idx + 1 } });
+  }, [state.chart, clearInterval_, replaySavedDataRef, replayIndexRef, dispatch]);
 
   const startInterval = useCallback(
     (currentSpeed: ReplaySpeed) => {
       clearInterval_();
-      intervalRef.current = setInterval(addNextBar, 1000 / currentSpeed);
+      replayIntervalRef.current = setInterval(addNextBar, 1000 / currentSpeed);
     },
-    [addNextBar, clearInterval_]
+    [addNextBar, clearInterval_, replayIntervalRef],
   );
 
   const startReplay = useCallback(() => {
@@ -91,20 +94,25 @@ export function useReplay(): UseReplayReturn {
     if (!dataList || dataList.length === 0) return;
 
     // Save a copy of the original data
-    savedDataRef.current = [...dataList];
-    currentIndexRef.current = 0;
+    replaySavedDataRef.current = [...dataList];
+    replayIndexRef.current = 0;
 
-    setTotalBars(dataList.length);
-    setBarIndex(0);
-    setIsReplaying(true);
-    setIsPaused(false);
+    dispatch({
+      type: "SET_REPLAY",
+      replay: {
+        totalBars: dataList.length,
+        barIndex: 0,
+        isReplaying: true,
+        isPaused: false,
+      },
+    });
 
     // Clear chart data
     (state.chart as any).clearData?.();
 
     // Start the playback interval
     startInterval(speed);
-  }, [state.chart, speed, startInterval]);
+  }, [state.chart, speed, startInterval, replaySavedDataRef, replayIndexRef, dispatch]);
 
   const stopReplay = useCallback(() => {
     if (!state.chart) return;
@@ -112,7 +120,7 @@ export function useReplay(): UseReplayReturn {
     clearInterval_();
 
     // Restore original data
-    const data = savedDataRef.current;
+    const data = replaySavedDataRef.current;
     if (data.length > 0) {
       (state.chart as any).clearData?.();
       for (const bar of data) {
@@ -120,14 +128,14 @@ export function useReplay(): UseReplayReturn {
       }
     }
 
-    savedDataRef.current = [];
-    currentIndexRef.current = 0;
+    replaySavedDataRef.current = [];
+    replayIndexRef.current = 0;
 
-    setIsReplaying(false);
-    setIsPaused(false);
-    setBarIndex(0);
-    setTotalBars(0);
-  }, [state.chart, clearInterval_]);
+    dispatch({
+      type: "SET_REPLAY",
+      replay: { isReplaying: false, isPaused: false, barIndex: 0, totalBars: 0 },
+    });
+  }, [state.chart, clearInterval_, replaySavedDataRef, replayIndexRef, dispatch]);
 
   const togglePause = useCallback(() => {
     if (!isReplaying) return;
@@ -135,13 +143,13 @@ export function useReplay(): UseReplayReturn {
     if (isPaused) {
       // Resume
       startInterval(speed);
-      setIsPaused(false);
+      dispatch({ type: "SET_REPLAY", replay: { isPaused: false } });
     } else {
       // Pause
       clearInterval_();
-      setIsPaused(true);
+      dispatch({ type: "SET_REPLAY", replay: { isPaused: true } });
     }
-  }, [isReplaying, isPaused, speed, startInterval, clearInterval_]);
+  }, [isReplaying, isPaused, speed, startInterval, clearInterval_, dispatch]);
 
   const stepForward = useCallback(() => {
     if (!isReplaying || !isPaused) return;
@@ -150,58 +158,53 @@ export function useReplay(): UseReplayReturn {
 
   const stepBackward = useCallback(() => {
     if (!isReplaying || !isPaused || !state.chart) return;
-    const idx = currentIndexRef.current;
+    const idx = replayIndexRef.current;
     if (idx <= 1) return;
 
     // Remove the last bar by rebuilding data up to idx-1
-    const data = savedDataRef.current;
+    const data = replaySavedDataRef.current;
     (state.chart as any).clearData?.();
     for (let i = 0; i < idx - 1; i++) {
       (state.chart as any).updateData?.(data[i]);
     }
-    currentIndexRef.current = idx - 1;
-    setBarIndex(idx - 1);
-  }, [isReplaying, isPaused, state.chart]);
+    replayIndexRef.current = idx - 1;
+    dispatch({ type: "SET_REPLAY", replay: { barIndex: idx - 1 } });
+  }, [isReplaying, isPaused, state.chart, replaySavedDataRef, replayIndexRef, dispatch]);
 
   const seekTo = useCallback(
     (targetIndex: number) => {
       if (!isReplaying || !state.chart) return;
-      const data = savedDataRef.current;
+      const data = replaySavedDataRef.current;
       const clamped = Math.max(0, Math.min(targetIndex, data.length));
 
       // Pause if playing
       clearInterval_();
-      setIsPaused(true);
 
       // Rebuild chart data up to the target index
       (state.chart as any).clearData?.();
       for (let i = 0; i < clamped; i++) {
         (state.chart as any).updateData?.(data[i]);
       }
-      currentIndexRef.current = clamped;
-      setBarIndex(clamped);
+      replayIndexRef.current = clamped;
+      dispatch({
+        type: "SET_REPLAY",
+        replay: { isPaused: true, barIndex: clamped },
+      });
     },
-    [isReplaying, state.chart, clearInterval_],
+    [isReplaying, state.chart, clearInterval_, replaySavedDataRef, replayIndexRef, dispatch],
   );
 
   const setSpeed = useCallback(
     (newSpeed: ReplaySpeed) => {
-      setSpeedState(newSpeed);
+      dispatch({ type: "SET_REPLAY", replay: { speed: newSpeed } });
 
       // If currently playing, restart the interval with the new speed
       if (isReplaying && !isPaused) {
         startInterval(newSpeed);
       }
     },
-    [isReplaying, isPaused, startInterval]
+    [isReplaying, isPaused, startInterval, dispatch],
   );
-
-  // Clean up interval on unmount
-  useEffect(() => {
-    return () => {
-      clearInterval_();
-    };
-  }, [clearInterval_]);
 
   return {
     isReplaying,

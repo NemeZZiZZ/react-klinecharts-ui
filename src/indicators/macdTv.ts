@@ -14,15 +14,17 @@ const macdTv: IndicatorTemplate = {
       styles: (data: any) => {
         const current = data.current?.histogram ?? 0;
         const pre = data.prev?.histogram ?? 0;
-        let color = "#26A69A";
 
-        if (current > 0) {
-          color = current > pre ? "#26A69A" : "#B2DFDB";
-        } else if (current < 0) {
-          color = current < pre ? "#FF5252" : "#FFCDD2";
-        } else {
-          color = "#B2DFDB";
-        }
+        const color =
+          current > 0
+            ? current > pre
+              ? "#26A69A"
+              : "#B2DFDB"
+            : current < 0
+              ? current < pre
+                ? "#FF5252"
+                : "#FFCDD2"
+              : "#B2DFDB";
 
         return { color };
       },

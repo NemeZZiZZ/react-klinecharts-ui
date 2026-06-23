@@ -4,6 +4,31 @@ All notable changes to **react-klinecharts-ui** are documented in this file.
 
 ---
 
+## 0.5.0 — 2026-06-23
+
+### New Features
+
+- **Reactive indicator visibility** (`useIndicators`). Visibility was previously write-only: `setIndicatorVisible` pushed the flag into klinecharts via `overrideIndicator`, but there was no way to read it back through the hook — a UI building an indicator dialog had to mirror the state locally or reach into the chart instance, and that copy silently drifted whenever `collapseSubIndicator` / `expandSubIndicator` changed visibility behind its back. Visibility is now mirrored in provider state and exposed for reading:
+
+  - `isIndicatorVisible(name, isMain)` — the reactive read counterpart to `setIndicatorVisible`. Returns `true` for the default (un-toggled) state and for inactive indicators.
+  - `IndicatorInfo.visible` — the `mainIndicators` / `subIndicators` arrays now carry a `visible` field alongside `isActive`, so a dialog can render the eye/checkbox state directly from the hook.
+  - `indicatorVisibility` — the raw map (keyed by indicator id `main_<name>` / `sub_<name>`), exposed as the live source of truth for layout/rendering.
+
+  A new additive `indicatorVisibility` field (keyed by indicator id) was added to the provider state, following the existing `indicatorAxes` pattern. The map is kept **sparse** — only indicators hidden away from the default are stored; an absent key means visible. `setIndicatorVisible`, `collapseSubIndicator` and `expandSubIndicator` all update it through the new `SET_INDICATOR_VISIBILITY` action (so collapse/expand no longer desync from the dialog), `removeMainIndicator` / `removeSubIndicator` drop the key to avoid stale entries, and `useLayoutManager` rebuilds the map when a preset is restored so the mirror never drifts from the chart.
+
+- **Shared state for `useAlerts` / `useMeasure` / `useReplay`.** These hooks previously kept their state in per-instance `useState` / `useRef` and only read `state.chart` from the shared store. Mounting a hook in more than one component (e.g. a toolbar control + a bottom panel + a status bar) therefore created **independent copies** that silently diverged — replay "wouldn't start" when the controlling component and the displaying component were different instances, and each `useAlerts` / `useReplay` spawned its own polling/playback interval. The observable state now lives in the provider store, and the imperative machinery has a single owner:
+
+  - **`useAlerts`** — the alert list moved to `state.alerts`. The 1s crossing poller and the `onAlertTriggered` listener are now owned by the provider; the poller runs only while there is a chart and at least one alert. Any number of `useAlerts()` instances observe one list and share one poller.
+  - **`useMeasure`** — `isActive` / `fromPoint` / `result` moved to `state.measure`. The toolbar toggle and a separate result-readout panel now stay in sync wherever each is mounted. (Dropped a dead `clickCountRef` that was assigned but never read.)
+  - **`useReplay`** — control state (`isReplaying`, `isPaused`, `speed`, `barIndex`, `totalBars`) moved to `state.replay`. The playback `setInterval` and the saved-data / current-index buffers are owned by the provider (shared via stable refs), so there is exactly one playback session regardless of how many instances are mounted — starting in one component and stepping in another drives the same timer.
+
+  This makes the app-level workaround of instantiating each hook once in a shared context **optional rather than required**: the hooks are now safe to call from multiple components directly. Public hook APIs and exported types (`Alert`, `AlertCondition`, `MeasurePoint`, `MeasureResult`, `ReplaySpeed`) are unchanged; the shared domain types moved to a neutral `src/provider/featureTypes.ts` and are re-exported from the hooks.
+
+### Internal / API
+
+- Added `SET_INDICATOR_VISIBILITY` reducer action and the `indicatorVisibility: Record<string, boolean>` field to `KlinechartsUIState` (defaults to `{}`). Purely additive — no breaking changes.
+- Added `alerts: Alert[]`, `measure: MeasureState`, and `replay: ReplayState` fields to `KlinechartsUIState`, with `SET_ALERTS` / `SET_MEASURE` / `SET_REPLAY` reducer actions (the latter two merge a partial). The `KlinechartsUIDispatchValue` (dispatch context) gained provider-owned refs: `alertTriggeredListenerRef`, `replayIntervalRef`, `replaySavedDataRef`, `replayIndexRef`. Purely additive — no breaking changes.
+
 ## 0.4.0 — 2026-06-01
 
 Compatibility release for **react-klinecharts 0.2.0** / **klinecharts 10.0.0-beta2**. Adopts the new klinecharts v10 chart-instance API and exposes the new **multiple Y-axes** feature through `useIndicators`.

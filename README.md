@@ -211,6 +211,10 @@ interface KlinechartsUIState {
   mainIndicators: string[]; // Active main chart indicators
   subIndicators: Record<string, string>; // Active sub-indicators: { name → paneId }
   indicatorAxes: Record<string, string>; // Custom Y-axis bindings: { indicatorId → yAxisId }
+  indicatorVisibility: Record<string, boolean>; // Visibility overrides: { indicatorId → false } (sparse)
+  alerts: Alert[]; // Price alerts (useAlerts) — shared across all consumers
+  measure: MeasureState; // Measure-tool state (useMeasure): { isActive, fromPoint, result }
+  replay: ReplayState; // Replay control state (useReplay): { isReplaying, isPaused, speed, barIndex, totalBars }
   styles: DeepPartial<Styles> | undefined; // Custom klinecharts styles
   screenshotUrl: string | null; // URL of the last screenshot
 }
@@ -231,6 +235,10 @@ type KlinechartsUIAction =
   | { type: "SET_MAIN_INDICATORS"; indicators: string[] }
   | { type: "SET_SUB_INDICATORS"; indicators: Record<string, string> }
   | { type: "SET_INDICATOR_AXES"; axes: Record<string, string> }
+  | { type: "SET_INDICATOR_VISIBILITY"; visibility: Record<string, boolean> }
+  | { type: "SET_ALERTS"; alerts: Alert[] }
+  | { type: "SET_MEASURE"; measure: Partial<MeasureState> }
+  | { type: "SET_REPLAY"; replay: Partial<ReplayState> }
   | { type: "SET_STYLES"; styles: DeepPartial<Styles> | undefined }
   | { type: "SET_LOCALE"; locale: string }
   | { type: "SET_SCREENSHOT_URL"; url: string | null };
@@ -461,12 +469,14 @@ const {
   moveToMain,
   moveToSub,
   setIndicatorVisible,
+  isIndicatorVisible,
   updateIndicatorParams,
   getIndicatorParams,
   isMainIndicatorActive,
   isSubIndicatorActive,
   indicatorAxes,
   getIndicatorAxis,
+  indicatorVisibility,
   bindIndicatorToNewAxis,
 } = useIndicators();
 ```
@@ -475,17 +485,20 @@ const {
 
 | Field                     | Type                     | Description                                |
 | ------------------------- | ------------------------ | ------------------------------------------ |
-| `mainIndicators`          | `IndicatorInfo[]`        | All main indicators with `isActive` flag   |
-| `subIndicators`           | `IndicatorInfo[]`        | All sub-indicators with `isActive` flag    |
+| `mainIndicators`          | `IndicatorInfo[]`        | All main indicators with `isActive` + `visible` flags |
+| `subIndicators`           | `IndicatorInfo[]`        | All sub-indicators with `isActive` + `visible` flags  |
 | `activeMainIndicators`    | `string[]`               | Active main indicator names only           |
 | `activeSubIndicators`     | `Record<string, string>` | Active sub-indicators: `{ name → paneId }` |
 | `availableMainIndicators` | `string[]`               | Full list from `MAIN_INDICATORS`           |
 | `availableSubIndicators`  | `string[]`               | Full list from `SUB_INDICATORS`            |
+| `indicatorAxes`           | `Record<string, string>` | Custom Y-axis bindings: `{ indicatorId → yAxisId }` |
+| `indicatorVisibility`     | `Record<string, boolean>`| Visibility overrides: `{ indicatorId → false }` (sparse — only hidden indicators; absent means visible) |
 
 ```typescript
 interface IndicatorInfo {
   name: string; // "MA", "MACD", "RSI", etc.
   isActive: boolean; // Whether it is currently on the chart
+  visible: boolean; // Whether it is currently shown (vs hidden); true when inactive
 }
 ```
 
@@ -501,7 +514,8 @@ interface IndicatorInfo {
 | `toggleSubIndicator(name)`                    | Same for sub-indicators                                       |
 | `moveToMain(name)`                            | Moves from sub-pane to `candle_pane`                          |
 | `moveToSub(name)`                             | Moves from `candle_pane` to a new sub-pane                    |
-| `setIndicatorVisible(name, isMain, visible)`  | Show/hide indicator via `chart.overrideIndicator`             |
+| `setIndicatorVisible(name, isMain, visible)`  | Show/hide indicator via `chart.overrideIndicator`; mirrors the flag into `indicatorVisibility` |
+| `isIndicatorVisible(name, isMain)`            | Reactive read counterpart to `setIndicatorVisible`; returns `true` for the default/inactive state |
 | `updateIndicatorParams(name, paneId, params)` | Update `calcParams` via `chart.overrideIndicator`             |
 | `getIndicatorParams(name)`                    | Returns `[{ label, defaultValue }]` or `[]` if no parameters  |
 | `isMainIndicatorActive(name)`                 | Quick active check                                            |
@@ -1026,6 +1040,8 @@ const {
 
 Measure price changes, percentage swings, bar count, and time intervals between two points on the chart.
 
+> **Multi-instance safe.** State lives in the shared provider store (`state.measure`), so calling `useMeasure()` in several components (e.g. a toolbar toggle and a separate result panel) keeps them in sync — no need to hoist a single instance.
+
 ```typescript
 import { useMeasure } from "react-klinecharts-ui";
 
@@ -1099,6 +1115,8 @@ const {
 
 Replay historical candles at various speeds with play/pause/step controls and progress tracking.
 
+> **Multi-instance safe.** Control state lives in the shared store (`state.replay`) and the playback timer + data buffers are owned by the provider, so there is exactly one replay session no matter how many `useReplay()` instances are mounted — start in one component and step in another, and they drive the same session.
+
 ```typescript
 import { useReplay } from "react-klinecharts-ui";
 
@@ -1134,6 +1152,8 @@ const {
 ### useAlerts
 
 Client-side price alerts. Draws a locked horizontal line on the chart for each alert and polls the latest candle once per second, firing a callback when the close price crosses the alert level. This is the primary hook for reacting to price events — e.g. forwarding a buy/sell signal to your backend or triggering a push notification (see [Backend Signals & Notifications](#backend-signals--notifications)).
+
+> **Multi-instance safe.** The alert list lives in the shared store (`state.alerts`) and the crossing poller is owned by the provider (one poller, active only while alerts exist), so multiple `useAlerts()` instances share one list. Note: `onAlertTriggered` registers a **single** listener — the last registration wins.
 
 ```typescript
 import { useAlerts } from "react-klinecharts-ui";

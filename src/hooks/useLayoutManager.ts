@@ -220,6 +220,7 @@ export function useLayoutManager(): UseLayoutManagerReturn {
       const newMainIndicators: string[] = [];
       const newSubIndicators: Record<string, string> = {};
       const restoredAxes: Record<string, string> = {};
+      const restoredVisibility: Record<string, boolean> = {};
 
       if (chartState.indicators) {
         for (const ind of chartState.indicators) {
@@ -253,6 +254,12 @@ export function useLayoutManager(): UseLayoutManagerReturn {
             restoredAxes[id] = ind.yAxisId;
           }
 
+          // Mirror visibility into the sparse map (only when hidden) so the
+          // useIndicators getter reflects the restored preset.
+          if (ind.visible === false) {
+            restoredVisibility[id] = false;
+          }
+
           if (isMain) {
             newMainIndicators.push(ind.name);
           } else {
@@ -272,6 +279,10 @@ export function useLayoutManager(): UseLayoutManagerReturn {
       dispatch({
         type: "SET_INDICATOR_AXES",
         axes: restoredAxes,
+      });
+      dispatch({
+        type: "SET_INDICATOR_VISIBILITY",
+        visibility: restoredVisibility,
       });
 
       // Restore drawings

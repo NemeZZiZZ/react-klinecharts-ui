@@ -42,6 +42,14 @@ function reducer(
       return { ...state, subIndicators: action.indicators };
     case "SET_INDICATOR_AXES":
       return { ...state, indicatorAxes: action.axes };
+    case "SET_INDICATOR_VISIBILITY":
+      return { ...state, indicatorVisibility: action.visibility };
+    case "SET_ALERTS":
+      return { ...state, alerts: action.alerts };
+    case "SET_MEASURE":
+      return { ...state, measure: { ...state.measure, ...action.measure } };
+    case "SET_REPLAY":
+      return { ...state, replay: { ...state.replay, ...action.replay } };
     case "SET_STYLES":
       return { ...state, styles: action.styles };
     case "SET_LOCALE":
@@ -107,6 +115,16 @@ export function KlinechartsUIProvider({
         {} as Record<string, string>,
       ),
       indicatorAxes: {},
+      indicatorVisibility: {},
+      alerts: [],
+      measure: { isActive: false, fromPoint: null, result: null },
+      replay: {
+        isReplaying: false,
+        isPaused: false,
+        speed: 1 as const,
+        barIndex: 0,
+        totalBars: 0,
+      },
       styles: opts.styles,
       screenshotUrl: null,
     }),
@@ -114,6 +132,16 @@ export function KlinechartsUIProvider({
 
   const fullscreenContainerRef = useRef<HTMLElement | null>(null);
   const undoRedoListenerRef = useRef<import("./types").UndoRedoListener | null>(null);
+
+  // Provider-owned feature resources (single owner across all hook instances).
+  const alertTriggeredListenerRef = useRef<
+    ((alert: import("./featureTypes").Alert) => void) | null
+  >(null);
+  const replayIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const replaySavedDataRef = useRef<import("react-klinecharts").KLineData[]>([]);
+  const replayIndexRef = useRef<number>(0);
+  // Last seen close price, used by the alerts poller to detect crossings.
+  const alertPrevCloseRef = useRef<number | null>(null);
 
   // Tracks the current state so enhancedDispatch can compute the new state
   // synchronously (reducer is pure, so we can call it before dispatch).
@@ -192,6 +220,73 @@ export function KlinechartsUIProvider({
     }
   }, [state.chart, state.styles]);
 
+  // Provider-owned price-alert poller (single owner). Runs one 1s interval —
+  // only while there is a chart and at least one alert — reads the live alert
+  // list from stateRef, marks crossings triggered, and notifies the listener
+  // registered via useAlerts.onAlertTriggered. Replaces the per-hook interval
+  // so multiple useAlerts instances can no longer each spawn a poller.
+  const hasAlerts = state.alerts.length > 0;
+  useEffect(() => {
+    const chart = state.chart;
+    if (!chart || !hasAlerts) return;
+
+    // Seed on (re)start so the first tick never fires a spurious crossing.
+    alertPrevCloseRef.current = null;
+
+    const interval = setInterval(() => {
+      const dataList = chart.getDataList();
+      if (!dataList || dataList.length === 0) return;
+
+      const currentClose = dataList[dataList.length - 1].close;
+      const prevClose = alertPrevCloseRef.current;
+      alertPrevCloseRef.current = currentClose;
+      if (prevClose === null) return;
+
+      const alerts = stateRef.current.alerts;
+      let changed = false;
+      const next = alerts.map((alert) => {
+        if (alert.triggered) return alert;
+
+        const crossedUp =
+          prevClose < alert.price && currentClose >= alert.price;
+        const crossedDown =
+          prevClose > alert.price && currentClose <= alert.price;
+        const shouldTrigger =
+          alert.condition === "crossing_up"
+            ? crossedUp
+            : alert.condition === "crossing_down"
+              ? crossedDown
+              : crossedUp || crossedDown;
+
+        if (shouldTrigger) {
+          changed = true;
+          const triggered = { ...alert, triggered: true };
+          alertTriggeredListenerRef.current?.(triggered);
+          return triggered;
+        }
+        return alert;
+      });
+
+      if (changed) {
+        enhancedDispatch({ type: "SET_ALERTS", alerts: next });
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [state.chart, hasAlerts, enhancedDispatch]);
+
+  // Provider owns the replay playback interval — clear it if the provider
+  // unmounts (the hook no longer clears it on its own unmount, since the timer
+  // is shared across instances).
+  useEffect(() => {
+    return () => {
+      if (replayIntervalRef.current !== null) {
+        clearInterval(replayIntervalRef.current);
+        replayIntervalRef.current = null;
+      }
+    };
+  }, []);
+
   // Dispatch context is stable — only recreated if datafeed/onSettingsChange
   // reference changes (which should be rare / memoised by the consumer).
   const dispatchValue = useMemo(
@@ -201,6 +296,10 @@ export function KlinechartsUIProvider({
       onSettingsChange,
       fullscreenContainerRef,
       undoRedoListenerRef,
+      alertTriggeredListenerRef,
+      replayIntervalRef,
+      replaySavedDataRef,
+      replayIndexRef,
     }),
     [enhancedDispatch, datafeed, onSettingsChange],
   );

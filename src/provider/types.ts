@@ -8,6 +8,11 @@ import type {
   OverlayTemplate,
 } from "react-klinecharts";
 import type { TerminalPeriod } from "../data/periods";
+import type {
+  Alert,
+  MeasureState,
+  ReplayState,
+} from "./featureTypes";
 
 /**
  * Explicit partial symbol type — avoids `PickPartial<SymbolInfo, ...>` which
@@ -93,6 +98,37 @@ export interface KlinechartsUIState {
    * undo/redo and layout presets.
    */
   indicatorAxes: Record<string, string>;
+  /**
+   * Visibility overrides for indicators, keyed by indicator id
+   * (`main_<name>` / `sub_<name>`), value is whether the indicator is shown.
+   * Mirrors the `visible` flag held inside klinecharts so `useIndicators` can
+   * expose a reactive getter (the chart instance has no React-friendly read
+   * path). Only populated for indicators whose visibility has been toggled
+   * away from the default; an absent key means visible (`true`). Updated by
+   * `setIndicatorVisible` and the collapse/expand helpers, and rebuilt when a
+   * layout preset is restored so the mirror never drifts from the chart.
+   */
+  indicatorVisibility: Record<string, boolean>;
+  /**
+   * Price alerts (`useAlerts`). Lives in the shared store rather than per-hook
+   * local state so every consumer (toolbar, list panel, status bar, sound
+   * trigger) observes one synchronized list. The crossing poller and the
+   * `onAlertTriggered` listener are owned by the provider, not the hook.
+   */
+  alerts: Alert[];
+  /**
+   * Measure-tool state (`useMeasure`). Shared so the toolbar toggle and the
+   * result readout panel stay in sync regardless of where each is mounted.
+   */
+  measure: MeasureState;
+  /**
+   * Historical-replay control state (`useReplay`). Shared so play/pause/step
+   * controls in different components drive one session. The playback interval
+   * and data buffers are owned by the provider (see the `replay*Ref` fields on
+   * the dispatch value), guaranteeing a single timer no matter how many hook
+   * instances are mounted.
+   */
+  replay: ReplayState;
   styles: DeepPartial<Styles> | undefined;
   screenshotUrl: string | null;
 }
@@ -107,6 +143,10 @@ export type KlinechartsUIAction =
   | { type: "SET_MAIN_INDICATORS"; indicators: string[] }
   | { type: "SET_SUB_INDICATORS"; indicators: Record<string, string> }
   | { type: "SET_INDICATOR_AXES"; axes: Record<string, string> }
+  | { type: "SET_INDICATOR_VISIBILITY"; visibility: Record<string, boolean> }
+  | { type: "SET_ALERTS"; alerts: Alert[] }
+  | { type: "SET_MEASURE"; measure: Partial<MeasureState> }
+  | { type: "SET_REPLAY"; replay: Partial<ReplayState> }
   | { type: "SET_STYLES"; styles: DeepPartial<Styles> | undefined }
   | { type: "SET_LOCALE"; locale: string }
   | { type: "SET_SCREENSHOT_URL"; url: string | null };
@@ -122,6 +162,20 @@ export interface KlinechartsUIDispatchValue {
   fullscreenContainerRef: RefObject<HTMLElement | null>;
   /** Ref populated by useUndoRedo; other hooks call it to record actions. */
   undoRedoListenerRef: RefObject<UndoRedoListener | null>;
+  /**
+   * Listener set by `useAlerts.onAlertTriggered`; invoked by the provider-owned
+   * crossing poller when an alert fires. Last writer wins (one active listener).
+   */
+  alertTriggeredListenerRef: RefObject<((alert: Alert) => void) | null>;
+  /**
+   * Provider-owned replay resources, shared across every `useReplay` instance
+   * so there is exactly one playback timer and one data buffer. The hook reads
+   * and writes these instead of its own refs; the provider clears the interval
+   * on unmount.
+   */
+  replayIntervalRef: RefObject<ReturnType<typeof setInterval> | null>;
+  replaySavedDataRef: RefObject<KLineData[]>;
+  replayIndexRef: RefObject<number>;
 }
 
 /** Combined context value returned by `useKlinechartsUI()`. */

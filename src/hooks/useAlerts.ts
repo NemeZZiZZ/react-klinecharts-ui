@@ -1,15 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useKlinechartsUI } from "../provider/ChartTerminalContext";
+import { useCallback } from "react";
+import {
+  useKlinechartsUI,
+  useKlinechartsUIDispatch,
+} from "../provider/ChartTerminalContext";
+import type { Alert, AlertCondition } from "../provider/featureTypes";
 
-export type AlertCondition = "crossing_up" | "crossing_down" | "crossing";
-
-export interface Alert {
-  id: string;
-  price: number;
-  condition: AlertCondition;
-  message?: string;
-  triggered: boolean;
-}
+export type { Alert, AlertCondition } from "../provider/featureTypes";
 
 export interface UseAlertsReturn {
   alerts: Alert[];
@@ -25,11 +21,19 @@ export interface UseAlertsReturn {
 
 let alertCounter = 0;
 
+/**
+ * Headless hook for price-crossing alerts.
+ *
+ * The alert list lives in the shared provider store, and the 1s crossing
+ * poller + the `onAlertTriggered` listener are owned by the provider. This
+ * means several `useAlerts()` instances (toolbar, list panel, sound trigger)
+ * observe and mutate one synchronized list and share a single poller — they no
+ * longer drift apart or each spawn their own interval.
+ */
 export function useAlerts(): UseAlertsReturn {
-  const { state } = useKlinechartsUI();
-  const [alerts, setAlerts] = useState<Alert[]>([]);
-  const callbackRef = useRef<((alert: Alert) => void) | null>(null);
-  const prevCloseRef = useRef<number | null>(null);
+  const { state, dispatch } = useKlinechartsUI();
+  const { alertTriggeredListenerRef } = useKlinechartsUIDispatch();
+  const alerts = state.alerts;
 
   const addAlert = useCallback(
     (price: number, condition: AlertCondition, message?: string): string => {
@@ -43,7 +47,7 @@ export function useAlerts(): UseAlertsReturn {
         triggered: false,
       };
 
-      setAlerts((prev) => [...prev, alert]);
+      dispatch({ type: "SET_ALERTS", alerts: [...state.alerts, alert] });
 
       if (state.chart) {
         state.chart.createOverlay({
@@ -64,85 +68,33 @@ export function useAlerts(): UseAlertsReturn {
 
       return id;
     },
-    [state.chart],
+    [state.chart, state.alerts, dispatch],
   );
 
   const removeAlert = useCallback(
     (id: string) => {
-      setAlerts((prev) => prev.filter((a) => a.id !== id));
+      dispatch({
+        type: "SET_ALERTS",
+        alerts: state.alerts.filter((a) => a.id !== id),
+      });
       state.chart?.removeOverlay({ id });
     },
-    [state.chart],
+    [state.chart, state.alerts, dispatch],
   );
 
   const clearAlerts = useCallback(() => {
-    setAlerts((prev) => {
-      for (const alert of prev) {
-        state.chart?.removeOverlay({ id: alert.id });
-      }
-      return [];
-    });
-  }, [state.chart]);
+    for (const alert of state.alerts) {
+      state.chart?.removeOverlay({ id: alert.id });
+    }
+    dispatch({ type: "SET_ALERTS", alerts: [] });
+  }, [state.chart, state.alerts, dispatch]);
 
   const onAlertTriggered = useCallback(
     (callback: (alert: Alert) => void) => {
-      callbackRef.current = callback;
+      alertTriggeredListenerRef.current = callback;
     },
-    [],
+    [alertTriggeredListenerRef],
   );
-
-  // Poll for price crossings every second
-  useEffect(() => {
-    if (!state.chart) return;
-
-    const interval = setInterval(() => {
-      const dataList = state.chart?.getDataList();
-      if (!dataList || dataList.length === 0) return;
-
-      const lastBar = dataList[dataList.length - 1];
-      const currentClose = lastBar.close;
-      const prevClose = prevCloseRef.current;
-
-      if (prevClose === null) {
-        prevCloseRef.current = currentClose;
-        return;
-      }
-
-      prevCloseRef.current = currentClose;
-
-      setAlerts((prev) => {
-        let changed = false;
-        const next = prev.map((alert) => {
-          if (alert.triggered) return alert;
-
-          let shouldTrigger = false;
-
-          if (alert.condition === "crossing_up") {
-            shouldTrigger = prevClose < alert.price && currentClose >= alert.price;
-          } else if (alert.condition === "crossing_down") {
-            shouldTrigger = prevClose > alert.price && currentClose <= alert.price;
-          } else if (alert.condition === "crossing") {
-            shouldTrigger =
-              (prevClose < alert.price && currentClose >= alert.price) ||
-              (prevClose > alert.price && currentClose <= alert.price);
-          }
-
-          if (shouldTrigger) {
-            changed = true;
-            const triggered = { ...alert, triggered: true };
-            callbackRef.current?.(triggered);
-            return triggered;
-          }
-
-          return alert;
-        });
-
-        return changed ? next : prev;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [state.chart]);
 
   return {
     alerts,
