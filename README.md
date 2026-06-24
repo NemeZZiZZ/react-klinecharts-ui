@@ -2,7 +2,7 @@
 
 **react-klinecharts-ui** is a headless React library for building financial trading terminals on top of [klinecharts](https://github.com/liihuu/KLineChart). It provides a state provider, a set of hooks, and overlay templates. No UI components are included — use any UI framework you prefer.
 
-**[Live Demo](https://nemezzizz.github.io/react-klinecharts-ui/)**
+**[Live Demo](https://nemezzizz.github.io/tradedash/)** · **[Examples](https://nemezzizz.github.io/react-klinecharts-ui/examples/)**
 
 ### Acknowledgments
 

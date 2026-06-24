@@ -33,9 +33,15 @@ export default defineConfig({
       sidebar: [
         {
           label: "Live Demo ↗",
-          link: "https://nemezzizz.github.io/react-klinecharts-ui/examples/",
+          link: "https://nemezzizz.github.io/tradedash/",
           attrs: { target: "_blank", rel: "noopener" },
           badge: { text: "app", variant: "success" },
+        },
+        {
+          label: "Examples ↗",
+          link: "https://nemezzizz.github.io/react-klinecharts-ui/examples/",
+          attrs: { target: "_blank", rel: "noopener" },
+          badge: { text: "code", variant: "note" },
         },
         {
           label: "Getting Started",
