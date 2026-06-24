@@ -65,19 +65,23 @@ import { registerExtensions } from "react-klinecharts-ui";
 registerExtensions(); // repeated calls are ignored
 ```
 
-## Order lines & depth overlays
+## Feature overlays
 
-Two overlays are **not** registered automatically — pass them via the provider's
-`overlays` prop:
+The feature overlays `orderLine`, `alertLine` and `depthOverlay` are **registered
+automatically** by `registerExtensions()` (default), so `useOrderLines` and
+`useAlerts` work out of the box with no provider wiring. Passing them via the
+provider's `overlays` prop still works and is harmless:
 
 ```tsx
 import { orderLine } from "react-klinecharts-ui";
 import { depthOverlay } from "react-klinecharts-ui/extensions";
 
+// Optional — these are already auto-registered.
 <KlinechartsUIProvider overlays={[orderLine, depthOverlay]}>…</KlinechartsUIProvider>;
 ```
 
 `orderLine` is the building block for [`useOrderLines`](../../hooks/use-order-lines/);
-`depthOverlay` renders order-book liquidity bars at each price level (update via
+`alertLine` is drawn by [`useAlerts`](../../hooks/use-alerts/); `depthOverlay`
+renders order-book liquidity bars at each price level (update via
 `chart.overrideOverlay({ id, extendData })`). See the
 [Order lines guide](../../guides/order-lines/) for a worked example.

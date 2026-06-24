@@ -57,6 +57,19 @@ export {
   type UseScreenshotReturn,
 } from "./hooks/useScreenshot";
 export {
+  useHotkeys,
+  type UseHotkeysReturn,
+  type HotkeyTemplate,
+  type Hotkey,
+  type HotkeyActionParams,
+} from "./hooks/useHotkeys";
+export {
+  useChartAxes,
+  type UseChartAxesReturn,
+  type XAxisOverride,
+  type YAxisOverride,
+} from "./hooks/useChartAxes";
+export {
   useFullscreen,
   type UseFullscreenReturn,
 } from "./hooks/useFullscreen";
@@ -92,6 +105,7 @@ export {
   type UseAlertsReturn,
   type Alert,
   type AlertCondition,
+  type AlertLineExtendData,
 } from "./hooks/useAlerts";
 export {
   useDataExport,
@@ -170,6 +184,7 @@ export {
   indicators,
   orderLine,
   depthOverlay,
+  alertLine,
 } from "./extensions";
 export type {
   OrderLineExtendData,

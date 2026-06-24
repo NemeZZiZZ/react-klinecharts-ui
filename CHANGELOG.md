@@ -4,6 +4,34 @@ All notable changes to **react-klinecharts-ui** are documented in this file.
 
 ---
 
+## 0.6.0 — 2026-06-24
+
+### New Features
+
+- **Labelled price alerts (`useAlerts`).** Alerts previously drew a bare `horizontalStraightLine` with no text — the `message` was stored on the `Alert` but never rendered, and there was no way to style the line. Alerts now draw a dedicated **`alertLine`** overlay (modelled on `orderLine`) that shows a Y-axis price mark plus a bell-marked caption above the line, and they accept a style object:
+
+  - `addAlert(price, condition, message?, extendData?)` — new optional 4th argument typed `AlertLineExtendData` (`color`, `text`, `line`, `mark`, `label`, `showBell`). The `line` / `mark` / `label` sub-types are reused from `orderLine`. When `extendData.text` is omitted, the caption falls back to `message ?? formatted price` using the symbol's `pricePrecision`. Older positional calls (`addAlert(price, condition)` / `addAlert(price, condition, message)`) are unchanged.
+  - `Alert` gained an optional `extendData?: AlertLineExtendData` field, persisted in `state.alerts` so the alert's look survives undo/redo and layout presets.
+  - New `alertLine` overlay template + `AlertLineExtendData` type are exported from the package root and the `extensions` entry point.
+
+- **Automatic feature-overlay registration.** `registerExtensions()` now also registers the feature overlays `orderLine`, `alertLine` and `depthOverlay`, not just the drawing tools. Previously these had to be passed manually via the provider's `overlays` prop — an easy-to-miss step that silently caused `createOrderLine` to draw nothing. `useAlerts` additionally registers `alertLine` lazily (idempotently) before creating its first overlay, so it works even when provider registration is disabled. Passing the overlays through `overlays={[...]}` still works and is harmless.
+
+- **Keyboard shortcuts (`useHotkeys`).** New headless hook wrapping klinecharts 10.0.0-beta3's hotkey system. `registerHotkey(template)` registers a custom shortcut globally (its `action` receives `{ chart, event, key, hotkey }`), `getHotkey(name)` / `supportedHotkeys` introspect the registry, and `setHotkeysEnabled(enabled, exclude?)` / `getHotkeysConfig()` toggle hotkey handling per chart (with an optional name exclude-list). Exports `HotkeyTemplate`, `Hotkey`, `HotkeyActionParams`.
+
+- **Freehand drawing / `brush` tool.** klinecharts beta3 adds a built-in `brush` overlay with continuous (freehand) drawing mode. It is already listed in the drawing-tool menu (`useDrawingTools`, `annotation` category), so it now works end-to-end — select it and draw freehand. No API change required.
+
+- **Axis overrides (`useChartAxes`).** New headless hook exposing klinecharts' `overrideXAxis` / `overrideYAxis` instance methods (added in beta2) — flip the price scale (`reverse`), draw labels inside the pane (`inside`), toggle `scrollZoomEnabled`, or supply a custom `createRange` / `createTicks`. Exports `XAxisOverride`, `YAxisOverride`. (klinecharts beta3 ships these two methods with their parameter types swapped in its published typings; the hook shields consumers behind semantically-correct signatures.)
+
+### Internal / API
+
+- Added `featureOverlays` and `ensureAlertLineRegistered()` to `src/extensions`. `Alert.extendData` is additive — no breaking changes.
+
+### Dependencies & upstream notes
+
+- Tested against **react-klinecharts 0.2.1** (which bumps **klinecharts** to `10.0.0-beta3`). The `react-klinecharts` peer range stays `>=0.2.0` — beta3 is **not** required to keep existing features working, and consumers on `0.2.0` / beta2 keep running. The dev/example/docs pins moved to `0.2.1`; alert/order-line overlays were verified rendering on beta3. (`useHotkeys`, `useChartAxes` and the `brush` tool require beta3 / beta2 respectively.)
+- **Locked overlays no longer block chart scrolling** (klinecharts beta3 fix). The cursor can now sit on a locked `alertLine` / `orderLine` (or any locked drawing) without freezing the chart's scroll — a free UX win on beta3.
+- **Built-in `RSI` recalculated** (klinecharts beta3). klinecharts adjusted the calculation of its built-in `RSI` indicator, so values for the menu's `RSI` entry shift slightly on beta3. The bundled custom `RSI_TV` indicator (computed via `TA`) is unaffected.
+
 ## 0.5.0 — 2026-06-23
 
 ### New Features

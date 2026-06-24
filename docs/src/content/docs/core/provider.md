@@ -13,7 +13,6 @@ import { KlinechartsUIProvider } from "react-klinecharts-ui";
   datafeed={myDatafeed}
   defaultSymbol={{ ticker: "BTCUSDT", pricePrecision: 2 }}
   defaultTheme="dark"
-  overlays={[orderLine]}
   onSymbolChange={(symbol) => saveToStorage("symbol", symbol)}
 >
   <App />
@@ -34,8 +33,8 @@ import { KlinechartsUIProvider } from "react-klinecharts-ui";
 | `defaultLocale`          | `string`                                       | `"en-US"`          | Locale passed to klinecharts                                     |
 | `periods`                | `TerminalPeriod[]`                             | `DEFAULT_PERIODS`  | List of available timeframes                                     |
 | `styles`                 | `DeepPartial<Styles>`                          | —                  | Custom klinecharts styles (applied when the chart is ready)      |
-| `registerExtensions`     | `boolean`                                      | `true`             | Whether to register built-in drawing overlays                    |
-| `overlays`               | `OverlayTemplate[]`                            | —                  | Additional overlay templates (e.g. `orderLine`, custom overlays) |
+| `registerExtensions`     | `boolean`                                      | `true`             | Whether to register built-in drawing overlays + feature overlays (`orderLine`, `alertLine`, `depthOverlay`) |
+| `overlays`               | `OverlayTemplate[]`                            | —                  | Extra custom overlay templates. The built-in feature overlays are already auto-registered |
 | `onStateChange`          | `(action, nextState, prevState) => void`       | —                  | Called synchronously on every dispatched action                  |
 | `onSymbolChange`         | `(symbol) => void`                             | —                  | Called when the symbol changes                                   |
 | `onPeriodChange`         | `(period) => void`                             | —                  | Called when the period changes                                   |

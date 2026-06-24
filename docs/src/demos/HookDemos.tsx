@@ -9,6 +9,8 @@ import { MeasureToolbar } from "./MeasureToolbar";
 import { ReplayToolbar } from "./ReplayToolbar";
 import { DataExportToolbar } from "./DataExportToolbar";
 import { CrosshairPanel } from "./CrosshairPanel";
+import { HotkeysToolbar } from "./HotkeysToolbar";
+import { ChartAxesToolbar } from "./ChartAxesToolbar";
 
 // Each export is a single self-contained React island. Astro client directives
 // only apply to components Astro renders directly, so a toolbar passed as a prop
@@ -89,6 +91,24 @@ export function DataExportDemo() {
     <DemoFrame
       toolbar={<DataExportToolbar />}
       note="Triggers a real file download from the bars currently loaded in the chart."
+    />
+  );
+}
+
+export function HotkeysDemo() {
+  return (
+    <DemoFrame
+      toolbar={<HotkeysToolbar />}
+      note="Draw a few overlays, then press Alt+C to clear them. Toggle hotkeys off to disable the shortcut."
+    />
+  );
+}
+
+export function ChartAxesDemo() {
+  return (
+    <DemoFrame
+      toolbar={<ChartAxesToolbar />}
+      note="Override the built-in axes: flip the price scale, move labels inside the pane, or lock time-axis zoom."
     />
   );
 }

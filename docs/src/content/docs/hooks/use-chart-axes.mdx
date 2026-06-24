@@ -1,0 +1,45 @@
+---
+title: useChartAxes
+description: Override the chart's built-in X (time) and Y (value) axes.
+sidebar:
+  order: 25
+---
+
+import { ChartAxesDemo } from "../../../demos/HookDemos";
+
+Override the chart's built-in X (time) and Y (value) axes — flip the price scale,
+draw labels inside the pane, lock zoom, or supply custom range / tick generators.
+Wraps klinecharts' `overrideXAxis` / `overrideYAxis` (added in **beta2**).
+
+:::tip[Indicator axes vs. chart axes]
+This hook targets the main pane's built-in axes. To give an **indicator** its own
+secondary Y-axis, use [useIndicators](../use-indicators/) (`addMainIndicator(name, { yAxis })`).
+:::
+
+```ts
+import { useChartAxes } from "react-klinecharts-ui";
+
+const { overrideXAxis, overrideYAxis } = useChartAxes();
+
+overrideYAxis({ reverse: true });            // flip the price scale
+overrideYAxis({ inside: true });             // draw price labels inside the pane
+overrideXAxis({ scrollZoomEnabled: false }); // lock time-axis zoom
+```
+
+## Try it
+
+<ChartAxesDemo client:only="react" />
+
+## API
+
+| Property | Type | Description |
+| -------- | ---- | ----------- |
+| `overrideXAxis` | `(override: XAxisOverride) => void` | Override the main X (time) axis (`name`, `scrollZoomEnabled`, `createTicks`) |
+| `overrideYAxis` | `(override: YAxisOverride) => void` | Override a Y (value) axis (`reverse`, `inside`, `position`, `scrollZoomEnabled`, `createRange`, `createTicks`; pass `id` / `paneId` to target one) |
+
+:::note[Upstream typing quirk]
+klinecharts beta3 ships `overrideXAxis` / `overrideYAxis` with their parameter
+types **crossed** in its published typings. This hook shields you behind
+semantically-correct signatures — `overrideYAxis` takes `YAxisOverride` and
+`overrideXAxis` takes `XAxisOverride`, as you'd expect.
+:::

@@ -7,6 +7,7 @@ const TOOLS: { id: string; label: string }[] = [
   { id: "priceLine", label: "Price" },
   { id: "fibRetracement", label: "Fib" },
   { id: "rect", label: "Rect" },
+  { id: "brush", label: "Brush" },
 ];
 
 /** Select a drawing tool and clear the canvas — showcases `useDrawingTools`. */

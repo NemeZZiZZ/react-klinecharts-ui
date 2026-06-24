@@ -7,7 +7,8 @@ sidebar:
 
 import { AlertsDemo } from "../../../demos/AlertsDemo";
 
-Client-side price alerts. Draws a locked horizontal line for each alert and polls
+Client-side price alerts. Draws a **labelled** locked horizontal line for each
+alert (a Y-axis price mark plus a bell-marked caption above the line) and polls
 the latest candle once per second, firing a callback when the close price crosses
 the alert level. This is the primary hook for reacting to price events — e.g.
 forwarding a buy/sell signal to your backend or triggering a push notification.
@@ -18,13 +19,26 @@ is owned by the provider (one poller, active only while alerts exist). Note:
 `onAlertTriggered` registers a **single** listener — the last registration wins.
 :::
 
+:::tip[No overlay setup needed]
+The `alertLine` overlay template the hook draws with is registered automatically
+(by `registerExtensions()` and lazily inside `useAlerts`) — you don't need to pass
+it through the provider's `overlays` prop.
+:::
+
 ```ts
 import { useAlerts } from "react-klinecharts-ui";
 
 const { alerts, addAlert, removeAlert, clearAlerts, onAlertTriggered } =
   useAlerts();
 
+// Default: orange dashed line, bell + price/message caption.
 const id = addAlert(65000, "crossing_up", "BTC broke 65k");
+
+// Customize the look via the optional 4th argument (AlertLineExtendData).
+addAlert(70000, "crossing_up", "Take profit", {
+  color: "#e91e63",
+  showBell: true,
+});
 
 onAlertTriggered((alert) => {
   console.log("Alert fired:", alert.message, alert.price);
@@ -40,7 +54,7 @@ onAlertTriggered((alert) => {
 | Property | Type | Description |
 | -------- | ---- | ----------- |
 | `alerts` | `Alert[]` | Current alerts (active and triggered) |
-| `addAlert` | `(price, condition, message?) => string` | Create an alert; returns its id |
+| `addAlert` | `(price, condition, message?, extendData?) => string` | Create an alert; returns its id. `extendData` (`AlertLineExtendData`) customizes the line/label |
 | `removeAlert` | `(id: string) => void` | Remove a single alert and its line |
 | `clearAlerts` | `() => void` | Remove all alerts |
 | `onAlertTriggered` | `(cb: (alert: Alert) => void) => void` | Register a single fire callback |
@@ -54,6 +68,23 @@ interface Alert {
   condition: AlertCondition;
   message?: string;
   triggered: boolean;
+  /** Line/label style; persisted so it survives undo/redo & layout presets. */
+  extendData?: AlertLineExtendData;
+}
+
+interface AlertLineExtendData {
+  /** Line / mark bg / label color. Default: "#ff9800" */
+  color?: string;
+  /** Caption text. Defaults to `message ?? formatted price` (symbol precision). */
+  text?: string;
+  /** Line style overrides (shared with orderLine). */
+  line?: OrderLineLineStyle;
+  /** Y-axis price mark style overrides. */
+  mark?: OrderLineMarkStyle;
+  /** Caption text style overrides. */
+  label?: OrderLineLabelStyle;
+  /** Show a 🔔 marker before the caption. Default: true */
+  showBell?: boolean;
 }
 ```
 

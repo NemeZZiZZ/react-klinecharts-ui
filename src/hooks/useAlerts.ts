@@ -4,8 +4,11 @@ import {
   useKlinechartsUIDispatch,
 } from "../provider/ChartTerminalContext";
 import type { Alert, AlertCondition } from "../provider/featureTypes";
+import { ensureAlertLineRegistered } from "../extensions";
+import type { AlertLineExtendData } from "../extensions/overlays/alertLine";
 
 export type { Alert, AlertCondition } from "../provider/featureTypes";
+export type { AlertLineExtendData } from "../extensions/overlays/alertLine";
 
 export interface UseAlertsReturn {
   alerts: Alert[];
@@ -13,6 +16,7 @@ export interface UseAlertsReturn {
     price: number,
     condition: AlertCondition,
     message?: string,
+    extendData?: AlertLineExtendData,
   ) => string;
   removeAlert: (id: string) => void;
   clearAlerts: () => void;
@@ -36,8 +40,21 @@ export function useAlerts(): UseAlertsReturn {
   const alerts = state.alerts;
 
   const addAlert = useCallback(
-    (price: number, condition: AlertCondition, message?: string): string => {
+    (
+      price: number,
+      condition: AlertCondition,
+      message?: string,
+      extendData?: AlertLineExtendData,
+    ): string => {
       const id = `alert_${++alertCounter}`;
+
+      // Default label: explicit text → message → formatted price (using the
+      // symbol's precision when available).
+      const precision = state.chart?.getSymbol()?.pricePrecision ?? 2;
+      const resolvedExtendData: AlertLineExtendData = {
+        ...extendData,
+        text: extendData?.text ?? message ?? price.toFixed(precision),
+      };
 
       const alert: Alert = {
         id,
@@ -45,23 +62,21 @@ export function useAlerts(): UseAlertsReturn {
         condition,
         message,
         triggered: false,
+        extendData: resolvedExtendData,
       };
 
       dispatch({ type: "SET_ALERTS", alerts: [...state.alerts, alert] });
 
       if (state.chart) {
+        // Make sure the alertLine template is registered even when the
+        // provider skipped automatic extension registration.
+        ensureAlertLineRegistered();
         state.chart.createOverlay({
-          name: "horizontalStraightLine",
+          name: "alertLine",
           id,
           groupId: "price_alerts",
           points: [{ value: price }],
-          styles: {
-            line: {
-              style: "dashed",
-              color: "#ff9800",
-              size: 1,
-            },
-          },
+          extendData: resolvedExtendData,
           lock: true,
         });
       }

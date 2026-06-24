@@ -25,6 +25,7 @@ function Toolbar() {
       level,
       direction === "up" ? "crossing_up" : "crossing_down",
       `Crossed ${level}`,
+      { color: direction === "up" ? "#26a69a" : "#ef5350" },
     );
   }
 

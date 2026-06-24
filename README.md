@@ -44,6 +44,8 @@ Many features in this library — including 11 TradingView-style indicators, 9 d
    - [useAlerts](#usealerts)
    - [useCrosshair](#usecrosshair)
    - [useDataExport](#usedataexport)
+   - [useHotkeys](#usehotkeys)
+   - [useChartAxes](#usechartaxes)
 6. [Utilities](#utilities)
    - [createDataLoader](#createdataloader)
    - [TA (Technical Analysis)](#ta-technical-analysis)
@@ -620,6 +622,9 @@ interface DrawingCategoryItem {
 | `polygon`        | circle, rect, parallelogram, triangle                                                                                                                                  |
 | `fibonacci`      | fibonacciLine, fibonacciSegment, fibonacciCircle, fibonacciSpiral, fibonacciSpeedResistanceFan, fibonacciExtension, gannBox                                            |
 | `wave`           | xabcd, abcd, threeWaves, fiveWaves, eightWaves, anyWaves                                                                                                               |
+| `annotation`     | brush                                                                                                                                                                  |
+
+> **Freehand drawing.** The `brush` tool (category `annotation`) uses klinecharts' continuous (freehand) drawing mode — hold and drag to sketch. It is a built-in overlay added in **klinecharts 10.0.0-beta3**, so it requires beta3+ to render.
 
 ---
 
@@ -752,7 +757,7 @@ const { containerRef, toggle, isFullscreen } = useFullscreen();
 
 Create and manage horizontal price level lines (order lines).
 
-> **Requirement:** The `orderLine` overlay must be registered via `overlays={[orderLine]}` on the provider.
+> **No setup required.** The `orderLine` overlay is registered automatically by `registerExtensions()` (enabled by default). Passing `overlays={[orderLine]}` to the provider still works and is harmless, but is no longer necessary.
 
 ```typescript
 const {
@@ -1177,9 +1182,11 @@ const {
 
 ### useAlerts
 
-Client-side price alerts. Draws a locked horizontal line on the chart for each alert and polls the latest candle once per second, firing a callback when the close price crosses the alert level. This is the primary hook for reacting to price events — e.g. forwarding a buy/sell signal to your backend or triggering a push notification (see [Backend Signals & Notifications](#backend-signals--notifications)).
+Client-side price alerts. Draws a **labelled** locked horizontal line (price tag on the Y-axis + a bell-marked caption above the line) on the chart for each alert and polls the latest candle once per second, firing a callback when the close price crosses the alert level. This is the primary hook for reacting to price events — e.g. forwarding a buy/sell signal to your backend or triggering a push notification (see [Backend Signals & Notifications](#backend-signals--notifications)).
 
 > **Multi-instance safe.** The alert list lives in the shared store (`state.alerts`) and the crossing poller is owned by the provider (one poller, active only while alerts exist), so multiple `useAlerts()` instances share one list. Note: `onAlertTriggered` registers a **single** listener — the last registration wins.
+
+> **No manual overlay registration.** The `alertLine` overlay template the hook draws with is registered automatically (both by `registerExtensions()` and lazily inside `useAlerts` before the first overlay is created) — you don't need to pass it through the provider's `overlays` prop.
 
 ```typescript
 import { useAlerts } from "react-klinecharts-ui";
@@ -1192,7 +1199,14 @@ const {
   onAlertTriggered,
 } = useAlerts();
 
+// Default: orange dashed line, bell + price/message caption.
 const id = addAlert(65000, "crossing_up", "BTC broke 65k");
+
+// Customize the look via the optional 4th argument (AlertLineExtendData).
+addAlert(70000, "crossing_up", "Take profit", {
+  color: "#e91e63",
+  showBell: true,
+});
 
 onAlertTriggered((alert) => {
   console.log("Alert fired:", alert.message, alert.price);
@@ -1204,7 +1218,7 @@ onAlertTriggered((alert) => {
 | Property | Type | Description |
 |----------|------|-------------|
 | `alerts` | `Alert[]` | Current alerts (active and triggered) |
-| `addAlert` | `(price: number, condition: AlertCondition, message?: string) => string` | Create an alert at a price level; returns its id |
+| `addAlert` | `(price: number, condition: AlertCondition, message?: string, extendData?: AlertLineExtendData) => string` | Create an alert at a price level; returns its id. The optional `extendData` customizes the line/label look |
 | `removeAlert` | `(id: string) => void` | Remove a single alert and its chart line |
 | `clearAlerts` | `() => void` | Remove all alerts |
 | `onAlertTriggered` | `(callback: (alert: Alert) => void) => void` | Register a callback fired once when an alert's condition is met |
@@ -1220,8 +1234,27 @@ interface Alert {
   condition: AlertCondition;
   message?: string;
   triggered: boolean;
+  /** Visual style of the alert line; persisted so it survives undo/redo & layout presets. */
+  extendData?: AlertLineExtendData;
+}
+
+interface AlertLineExtendData {
+  /** Primary color for the line, the Y-axis mark bg, and label fallback. Default: "#ff9800" */
+  color?: string;
+  /** Caption above the line. Defaults to `message ?? formatted price` (symbol precision). */
+  text?: string;
+  /** Line style overrides (style / width / dashedValue). Default: dashed. */
+  line?: OrderLineLineStyle;
+  /** Y-axis price mark style overrides. */
+  mark?: OrderLineMarkStyle;
+  /** Caption text style overrides. */
+  label?: OrderLineLabelStyle;
+  /** Show a 🔔 marker before the caption. Default: true */
+  showBell?: boolean;
 }
 ```
+
+The `line` / `mark` / `label` style types are shared with [`useOrderLines`](#useorderlines) (`OrderLineLineStyle`, `OrderLineMarkStyle`, `OrderLineLabelStyle`).
 
 | Condition | Fires when |
 |-----------|------------|
@@ -1294,6 +1327,83 @@ type ExportFormat = "csv" | "json";
 ```
 
 > No-op when the chart is not ready or holds no data.
+
+---
+
+### useHotkeys
+
+Keyboard shortcuts (klinecharts v10, requires **klinecharts 10.0.0-beta3+**). Register custom hotkeys globally and toggle hotkey handling per chart. The `action` callback receives the chart instance, the keyboard event, the matched key, and the hotkey template.
+
+```typescript
+import { useHotkeys } from "react-klinecharts-ui";
+
+const { registerHotkey, setHotkeysEnabled, supportedHotkeys } = useHotkeys();
+
+// Register a custom shortcut — Ctrl/Cmd+L removes all overlays.
+registerHotkey({
+  name: "remove-all-overlays",
+  keys: ["ctrl+l", "meta+l"],
+  preventDefault: true,
+  action: ({ chart }) => chart.removeOverlay(),
+});
+
+// Disable all built-in shortcuts except undo/redo.
+setHotkeysEnabled(true, ["undo", "redo"]);
+```
+
+#### Return type: `UseHotkeysReturn`
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `registerHotkey` | `(template: HotkeyTemplate) => void` | Register a custom hotkey globally (idempotent per `name`) |
+| `getHotkey` | `(name: string) => HotkeyTemplate \| null` | Look up a registered hotkey by name |
+| `supportedHotkeys` | `string[]` | Names of every registered hotkey (built-in + custom) |
+| `setHotkeysEnabled` | `(enabled: boolean, exclude?: string[]) => void` | Enable/disable hotkey handling for the chart; optionally exclude names |
+| `getHotkeysConfig` | `() => Hotkey \| null` | Current `{ enabled, exclude }` config for the chart |
+
+```typescript
+interface HotkeyTemplate {
+  name: string;
+  keys: string | string[];
+  preventDefault?: boolean;
+  stopPropagation?: boolean;
+  check?: (params: HotkeyActionParams) => boolean;
+  action: (params: HotkeyActionParams) => void;
+  extendData?: unknown;
+}
+
+interface Hotkey {
+  enabled: boolean;
+  exclude: string[];
+}
+```
+
+> Custom hotkeys register **globally** (shared by every chart on the page); the enable/exclude switches are per-chart. klinecharts exposes no removal API, so a registered hotkey lives for the page session.
+
+---
+
+### useChartAxes
+
+Override the chart's built-in X (time) and Y (value) axes (klinecharts v10 `overrideXAxis` / `overrideYAxis`, added in **beta2**). For binding indicators to additional secondary Y-axes, use [useIndicators](#useindicators) instead.
+
+```typescript
+import { useChartAxes } from "react-klinecharts-ui";
+
+const { overrideXAxis, overrideYAxis } = useChartAxes();
+
+overrideYAxis({ reverse: true });            // flip the price scale
+overrideYAxis({ inside: true });             // draw price labels inside the pane
+overrideXAxis({ scrollZoomEnabled: false }); // lock time-axis zoom
+```
+
+#### Return type: `UseChartAxesReturn`
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `overrideXAxis` | `(override: XAxisOverride) => void` | Override the main X (time) axis (`name`, `scrollZoomEnabled`, `createTicks`) |
+| `overrideYAxis` | `(override: YAxisOverride) => void` | Override a Y (value) axis (`reverse`, `inside`, `position`, `scrollZoomEnabled`, `createRange`, `createTicks`, `id`/`paneId` to target one) |
+
+> klinecharts beta3 ships these two methods with their parameter types **crossed** in its published typings; this hook shields you behind semantically-correct signatures, so `overrideYAxis` takes `YAxisOverride` and `overrideXAxis` takes `XAxisOverride` as expected.
 
 ---
 
@@ -1539,7 +1649,7 @@ import { indicators } from "react-klinecharts-ui";
 
 ### registerExtensions
 
-Registers all built-in drawing overlays via `registerOverlay`. Called automatically by the provider when `registerExtensions: true`.
+Registers all built-in drawing overlays plus the feature overlays (`orderLine`, `alertLine`, `depthOverlay`) via `registerOverlay`. Called automatically by the provider when `registerExtensions: true`.
 
 ```typescript
 import { registerExtensions } from "react-klinecharts-ui";
@@ -1548,12 +1658,11 @@ registerExtensions(); // Idempotent — repeated calls are ignored
 
 ### orderLine
 
-Overlay template for horizontal price level lines. **Not registered automatically** — must be passed explicitly to the provider.
+Overlay template for horizontal price level lines. **Registered automatically** by `registerExtensions()` (default), so `useOrderLines` works out of the box. Passing it through `overlays={[orderLine]}` is optional.
 
 ```typescript
-import { orderLine, KlinechartsUIProvider } from "react-klinecharts-ui";
-
-<KlinechartsUIProvider overlays={[orderLine]}>...</KlinechartsUIProvider>;
+import { orderLine } from "react-klinecharts-ui";
+// No provider wiring needed — registered automatically.
 ```
 
 **Implementation details:**
@@ -1619,14 +1728,24 @@ interface OrderLinePadding {
 
 All sub-interfaces (`OrderLineLineStyle`, `OrderLineMarkStyle`, `OrderLineLabelStyle`, `OrderLineFontStyle`, `OrderLinePadding`) are exported as named types from both the main and `extensions` entry points.
 
-### depthOverlay
+### alertLine
 
-Overlay template for visualizing order book depth as horizontal liquidity bars at each price level. Shows cumulative buy/sell volume at price levels, useful for understanding support/resistance zones.
+Overlay template drawn by [`useAlerts`](#usealerts) for price alerts: a locked horizontal line with a Y-axis price mark and a bell-marked caption above the line. **Registered automatically** by `registerExtensions()` and lazily by `useAlerts` itself, so no provider wiring is required.
 
 ```typescript
-import { depthOverlay, KlinechartsUIProvider } from "react-klinecharts-ui/extensions";
+import { alertLine } from "react-klinecharts-ui";
+// Used internally by useAlerts; exported for advanced/manual overlay use.
+```
 
-<KlinechartsUIProvider overlays={[depthOverlay]}>...</KlinechartsUIProvider>;
+Its `extendData` shape is [`AlertLineExtendData`](#types) — it reuses the `OrderLineLineStyle` / `OrderLineMarkStyle` / `OrderLineLabelStyle` sub-types from `orderLine` and adds `showBell?: boolean` (default `true`). When no `text` is supplied the caption falls back to the formatted price (using `chart.getSymbol()?.pricePrecision`).
+
+### depthOverlay
+
+Overlay template for visualizing order book depth as horizontal liquidity bars at each price level. Shows cumulative buy/sell volume at price levels, useful for understanding support/resistance zones. **Registered automatically** by `registerExtensions()` (default); explicit `overlays={[depthOverlay]}` wiring is optional.
+
+```typescript
+import { depthOverlay } from "react-klinecharts-ui/extensions";
+// No provider wiring needed — registered automatically.
 ```
 
 **Implementation details:**
@@ -1952,7 +2071,7 @@ export {
 export * from "./indicators";
 
 // Extensions
-export { registerExtensions, overlays, indicators, orderLine, depthOverlay };
+export { registerExtensions, overlays, indicators, orderLine, alertLine, depthOverlay };
 export type {
   OrderLineExtendData,
   OrderLineLineStyle,
@@ -1960,6 +2079,7 @@ export type {
   OrderLineLabelStyle,
   OrderLineFontStyle,
   OrderLinePadding,
+  AlertLineExtendData,
   DepthOverlayExtendData,
   DepthOverlayRow,
 };

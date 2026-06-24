@@ -17,3 +17,5 @@ docs/node_modules/
 
 # TypeScript incremental build cache
 *.tsbuildinfo
+
+.playwright-mcp

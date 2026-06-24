@@ -9,6 +9,8 @@
  * stays unchanged.
  */
 
+import type { AlertLineExtendData } from "../extensions/overlays/alertLine";
+
 // --- Alerts -----------------------------------------------------------------
 
 export type AlertCondition = "crossing_up" | "crossing_down" | "crossing";
@@ -19,6 +21,12 @@ export interface Alert {
   condition: AlertCondition;
   message?: string;
   triggered: boolean;
+  /**
+   * Visual style for the alert line overlay (color, label text, line/mark
+   * styling, bell marker). Persisted in the store so it survives undo/redo
+   * and layout presets.
+   */
+  extendData?: AlertLineExtendData;
 }
 
 // --- Measure ----------------------------------------------------------------

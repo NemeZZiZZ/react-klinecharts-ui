@@ -10,9 +10,10 @@ import { OrderLinesDemo } from "../../../demos/OrderLinesDemo";
 Create and manage horizontal price-level lines (order lines) — for entries,
 stops, targets and live orders.
 
-:::caution[Requires the orderLine overlay]
-The `orderLine` overlay must be registered via `overlays={[orderLine]}` on the
-provider.
+:::tip[No overlay setup needed]
+The `orderLine` overlay is registered automatically by `registerExtensions()`
+(enabled by default). Passing `overlays={[orderLine]}` to the provider still works
+but is no longer required.
 :::
 
 ```ts

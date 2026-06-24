@@ -1,0 +1,71 @@
+---
+title: useHotkeys
+description: Register custom keyboard shortcuts and toggle hotkey handling.
+sidebar:
+  order: 24
+---
+
+import { HotkeysDemo } from "../../../demos/HookDemos";
+
+Keyboard shortcuts for the chart. Register custom hotkeys globally and enable or
+disable hotkey handling per chart. Wraps the klinecharts v10 hotkey system.
+
+:::note[Requires klinecharts beta3+]
+The hotkey API was added in **klinecharts 10.0.0-beta3** (react-klinecharts
+0.2.1). On older versions these methods are unavailable.
+:::
+
+```ts
+import { useHotkeys } from "react-klinecharts-ui";
+
+const { registerHotkey, setHotkeysEnabled, supportedHotkeys } = useHotkeys();
+
+// Ctrl/Cmd+L removes every overlay.
+registerHotkey({
+  name: "remove-all-overlays",
+  keys: ["ctrl+l", "meta+l"],
+  preventDefault: true,
+  action: ({ chart }) => chart.removeOverlay(),
+});
+
+// Keep hotkeys on, but silence the built-in undo/redo shortcuts.
+setHotkeysEnabled(true, ["undo", "redo"]);
+```
+
+## Try it
+
+<HotkeysDemo client:only="react" />
+
+## API
+
+| Property | Type | Description |
+| -------- | ---- | ----------- |
+| `registerHotkey` | `(template: HotkeyTemplate) => void` | Register a custom hotkey globally (idempotent per `name`) |
+| `getHotkey` | `(name: string) => HotkeyTemplate \| null` | Look up a registered hotkey by name |
+| `supportedHotkeys` | `string[]` | Names of every registered hotkey (built-in + custom) |
+| `setHotkeysEnabled` | `(enabled: boolean, exclude?: string[]) => void` | Enable/disable hotkey handling for the chart; optionally exclude names |
+| `getHotkeysConfig` | `() => Hotkey \| null` | Current `{ enabled, exclude }` config for the chart |
+
+```ts
+interface HotkeyTemplate {
+  name: string;
+  keys: string | string[];
+  preventDefault?: boolean;
+  stopPropagation?: boolean;
+  check?: (params: HotkeyActionParams) => boolean;
+  action: (params: HotkeyActionParams) => void;
+  extendData?: unknown;
+}
+
+interface Hotkey {
+  enabled: boolean;
+  exclude: string[];
+}
+```
+
+:::caution[Global registration]
+Custom hotkeys register **globally** — a shortcut is shared by every chart on the
+page, and the `action` receives the chart it fired on via its params. The
+enable/exclude switches are per-chart. klinecharts exposes no removal API, so a
+registered hotkey lives for the page session.
+:::
