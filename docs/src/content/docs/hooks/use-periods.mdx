@@ -1,0 +1,48 @@
+---
+title: usePeriods
+description: Manage timeframes.
+sidebar:
+  order: 4
+---
+
+import { PeriodsDemo } from "../../../demos/HookDemos";
+
+Manage timeframes.
+
+```ts
+const { periods, activePeriod, setPeriod } = usePeriods();
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `periods` | `TerminalPeriod[]` | Full list of available timeframes |
+| `activePeriod` | `TerminalPeriod` | Currently selected timeframe |
+| `setPeriod` | `(period: TerminalPeriod) => void` | Change the timeframe |
+
+`TerminalPeriod` extends the klinecharts period with a `label: string` field.
+**Default timeframes:** 1m, 5m, 15m, 1H, 2H, 4H, D, W, M, Y.
+
+## Try it
+
+<PeriodsDemo client:only="react" />
+
+## Usage
+
+```tsx
+const { periods, activePeriod, setPeriod } = usePeriods();
+
+<div className="flex gap-1">
+  {periods.map((p) => (
+    <button
+      key={p.label}
+      onClick={() => setPeriod(p)}
+      className={activePeriod.label === p.label ? "active" : ""}
+    >
+      {p.label}
+    </button>
+  ))}
+</div>;
+```
+
+Customize the list via the provider's `periods` prop (defaults to
+`DEFAULT_PERIODS`).

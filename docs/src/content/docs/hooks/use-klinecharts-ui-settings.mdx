@@ -1,0 +1,68 @@
+---
+title: useKlinechartsUISettings
+description: Chart appearance — candle type, colors, price marks, axes, grid, tooltips.
+sidebar:
+  order: 9
+---
+
+import { SettingsDemo } from "../../../demos/HookDemos";
+
+Manage chart appearance: candle type, colors, price marks, axes, grid,
+crosshair and tooltips.
+
+```ts
+const settings = useKlinechartsUISettings();
+```
+
+## Try it
+
+<SettingsDemo client:only="react" />
+
+## State
+
+| Field | Type | Default | Description |
+| ----- | ---- | ------- | ----------- |
+| `candleType` | `string` | `"candle_solid"` | Candle display type |
+| `candleUpColor` | `string` | `"#2DC08E"` | Bullish candle color |
+| `candleDownColor` | `string` | `"#F92855"` | Bearish candle color |
+| `showLastPrice` | `boolean` | `true` | Last price mark on Y-axis |
+| `showHighPrice` | `boolean` | `true` | High price mark |
+| `showLowPrice` | `boolean` | `true` | Low price mark |
+| `showIndicatorLastValue` | `boolean` | `true` | Indicator last value mark |
+| `priceAxisType` | `PriceAxisType` | `"normal"` | Y-axis scale type |
+| `reverseCoordinate` | `boolean` | `false` | Invert Y-axis |
+| `showTimeAxis` | `boolean` | `true` | Show X-axis |
+| `showGrid` | `boolean` | `true` | Show grid |
+| `showCrosshair` | `boolean` | `true` | Show crosshair |
+| `showCandleTooltip` | `boolean` | `true` | OHLCV tooltip |
+| `showIndicatorTooltip` | `boolean` | `true` | Indicator tooltip |
+
+**Candle types:** `candle_solid`, `candle_stroke`, `candle_up_stroke`,
+`candle_down_stroke`, `ohlc`, `area`.
+**Price axis types:** `"normal"`, `"percentage"`, `"log"`.
+
+## Extra fields
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `candleTypes` | `CandleTypeItem[]` | `{ key, localeKey }` list for a selector |
+| `priceAxisTypes` | `{ key: PriceAxisType; localeKey: string }[]` | List for a selector |
+
+## Setters
+
+Each field has a setter: `setCandleType`, `setCandleUpColor`,
+`setCandleDownColor`, `setShowLastPrice`, `setShowHighPrice`, `setShowLowPrice`,
+`setShowIndicatorLastValue`, `setPriceAxisType`, `setReverseCoordinate`,
+`setShowTimeAxis`, `setShowGrid`, `setShowCrosshair`, `setShowCandleTooltip`,
+`setShowIndicatorTooltip`. All apply immediately via `chart.setStyles(...)`.
+
+| Method | Description |
+| ------ | ----------- |
+| `resetToDefaults()` | Reset all settings via `chart.setStyles(theme)` |
+
+:::caution[Call it unconditionally]
+Settings live in local `useState` inside the hook — **not** in the provider
+reducer. Call `useKlinechartsUISettings()` unconditionally (not only when a
+dialog is open) so settings survive open/close cycles. Changes trigger the
+provider's `onSettingsChange`.
+:::

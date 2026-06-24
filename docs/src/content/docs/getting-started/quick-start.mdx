@@ -1,0 +1,91 @@
+---
+title: Quick Start
+description: A minimal, runnable trading chart with a live datafeed.
+---
+
+import { BasicChartDemo } from "../../../demos/HookDemos";
+
+This page builds the smallest possible working chart: a datafeed, the provider,
+and a chart view. The demo below is **live** — it streams real Binance data over
+WebSocket.
+
+## 1. Implement a datafeed
+
+The datafeed is your bridge to market data. Implement four methods —
+`searchSymbols`, `getHistoryKLineData`, `subscribe`, `unsubscribe`. See the
+[Datafeed reference](../../core/datafeed/) for the full contract.
+
+```ts
+import type { Datafeed } from "react-klinecharts-ui";
+
+export const datafeed: Datafeed = {
+  async searchSymbols(query) {
+    /* return matching symbols */
+  },
+  async getHistoryKLineData(symbol, period, from, to) {
+    /* return historical bars */
+  },
+  subscribe(symbol, period, callback) {
+    /* push live bars to callback */
+  },
+  unsubscribe(symbol, period) {
+    /* stop the stream */
+  },
+};
+```
+
+## 2. Wrap your app in the provider
+
+```tsx
+import { KlinechartsUIProvider } from "react-klinecharts-ui";
+import { datafeed } from "./datafeed";
+
+export function App() {
+  return (
+    <KlinechartsUIProvider
+      datafeed={datafeed}
+      defaultSymbol={{ ticker: "BTCUSDT", pricePrecision: 2 }}
+      defaultTheme="dark"
+    >
+      <ChartView />
+    </KlinechartsUIProvider>
+  );
+}
+```
+
+## 3. Render the chart
+
+`createDataLoader` adapts your datafeed to klinecharts; `useKlinechartsUI`
+exposes state and `dispatch`.
+
+```tsx
+import { useMemo } from "react";
+import { KLineChart } from "react-klinecharts";
+import { useKlinechartsUI, createDataLoader } from "react-klinecharts-ui";
+
+function ChartView() {
+  const { state, dispatch, datafeed } = useKlinechartsUI();
+  const dataLoader = useMemo(
+    () => createDataLoader(datafeed, dispatch),
+    [datafeed, dispatch],
+  );
+
+  return (
+    <KLineChart
+      dataLoader={dataLoader}
+      symbol={state.symbol ?? undefined}
+      period={state.period}
+      styles={state.theme}
+      onReady={(chart) => dispatch({ type: "SET_CHART", chart })}
+    />
+  );
+}
+```
+
+## Result
+
+<BasicChartDemo client:only="react" />
+
+That's the whole foundation. Every other feature — indicators, drawing tools,
+order lines, alerts — is a hook you call inside the provider. Continue with the
+[Concept](../concept/) page to understand how the pieces fit together.

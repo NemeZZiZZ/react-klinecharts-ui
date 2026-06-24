@@ -1,4 +1,4 @@
-name: Deploy Examples to GitHub Pages
+name: Deploy Docs & Demo to GitHub Pages
 
 on:
   push:
@@ -33,13 +33,27 @@ jobs:
       - name: Build library
         run: pnpm build
 
+      # Docs are the default site (served at the Pages root).
+      - name: Build docs
+        working-directory: docs
+        run: pnpm build
+
+      # The example app is deployed alongside the docs under /examples/.
       - name: Build example
         working-directory: examples
         run: pnpm build
 
+      # Assemble a single Pages artifact: docs at the root, demo under /examples/.
+      - name: Assemble site
+        run: |
+          mkdir -p site
+          cp -r docs/dist/. site/
+          mkdir -p site/examples
+          cp -r examples/dist/. site/examples/
+
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: examples/dist
+          path: site
 
   deploy:
     needs: build

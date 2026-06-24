@@ -1,0 +1,83 @@
+---
+title: Drawing Overlays
+description: Overlay templates for drawing tools — Fibonacci, waves, Gann, positions and more.
+---
+
+import { DrawingDemo } from "../../../demos/HookDemos";
+
+Drawing overlays are `OverlayTemplate` instances. The built-in set is registered
+automatically when `registerExtensions: true` (the default), so you can select
+any of them through [`useDrawingTools`](../../hooks/use-drawing-tools/).
+
+## Try it
+
+Pick a tool, then click on the chart to draw. Press the same button again to
+deactivate.
+
+<DrawingDemo client:only="react" />
+
+## Built-in overlays
+
+| Export | Overlay name | Description |
+| ------ | ------------ | ----------- |
+| `arrow` | `"arrow"` | Arrow |
+| `circle` | `"circle"` | Circle |
+| `rect` | `"rect"` | Rectangle |
+| `triangle` | `"triangle"` | Triangle |
+| `parallelogram` | `"parallelogram"` | Parallelogram |
+| `fibonacciCircle` | `"fibonacciCircle"` | Fibonacci circle |
+| `fibonacciSegment` | `"fibonacciSegment"` | Fibonacci segment |
+| `fibonacciSpiral` | `"fibonacciSpiral"` | Fibonacci spiral |
+| `fibonacciSpeedResistanceFan` | `"fibonacciSpeedResistanceFan"` | Fibonacci fan |
+| `fibonacciExtension` | `"fibonacciExtension"` | Fibonacci extension |
+| `fibRetracement` | `"fibRetracement"` | Fibonacci retracement levels |
+| `gannBox` | `"gannBox"` | Gann box |
+| `gannFan` | `"gannFan"` | Gann fan (1x1, 1x2, …) |
+| `threeWaves` | `"threeWaves"` | 3-wave pattern |
+| `fiveWaves` | `"fiveWaves"` | 5-wave pattern |
+| `eightWaves` | `"eightWaves"` | 8-wave pattern |
+| `anyWaves` | `"anyWaves"` | Custom wave pattern |
+| `elliottWave` | `"elliottWave"` | Elliott wave (5-wave cycle, numbered vertices) |
+| `abcd` | `"abcd"` | ABCD pattern |
+| `xabcd` | `"xabcd"` | XABCD pattern |
+| `parallelChannel` | `"parallelChannel"` | Parallel channel |
+| `longPosition` | `"longPosition"` | Long position risk/reward (TP/SL with % labels) |
+| `shortPosition` | `"shortPosition"` | Short position risk/reward (TP/SL with % labels) |
+| `measure` | `"measure"` | Measure tool (price %, bar count, time delta) |
+| `brush` | `"brush"` | Freehand brush (Bézier smoothing) |
+| `ray` | `"ray"` | Infinite ray from a point |
+
+Access the full list programmatically:
+
+```ts
+import { overlays } from "react-klinecharts-ui";
+// overlays === [arrow, circle, rect, triangle, …] (26 items)
+```
+
+## Manual registration
+
+If you disable the default extensions (`registerExtensions={false}`), register
+them yourself — `registerExtensions()` is idempotent:
+
+```ts
+import { registerExtensions } from "react-klinecharts-ui";
+
+registerExtensions(); // repeated calls are ignored
+```
+
+## Order lines & depth overlays
+
+Two overlays are **not** registered automatically — pass them via the provider's
+`overlays` prop:
+
+```tsx
+import { orderLine } from "react-klinecharts-ui";
+import { depthOverlay } from "react-klinecharts-ui/extensions";
+
+<KlinechartsUIProvider overlays={[orderLine, depthOverlay]}>…</KlinechartsUIProvider>;
+```
+
+`orderLine` is the building block for [`useOrderLines`](../../hooks/use-order-lines/);
+`depthOverlay` renders order-book liquidity bars at each price level (update via
+`chart.overrideOverlay({ id, extendData })`). See the
+[Order lines guide](../../guides/order-lines/) for a worked example.

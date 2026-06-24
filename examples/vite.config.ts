@@ -4,7 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 
 export default defineConfig({
-  base: "/react-klinecharts-ui/",
+  base: "/react-klinecharts-ui/examples/",
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

@@ -10,5 +10,10 @@ examples/node_modules/
 examples/dist/
 examples/.vite/
 
+# Astro docs build cache & output
+docs/.astro/
+docs/dist/
+docs/node_modules/
+
 # TypeScript incremental build cache
 *.tsbuildinfo

@@ -1,0 +1,34 @@
+---
+title: useKlinechartsUITheme
+description: Manage the chart theme.
+sidebar:
+  order: 2
+---
+
+import { ThemeDemo } from "../../../demos/HookDemos";
+
+Manage the chart theme.
+
+```ts
+const { theme, setTheme, toggleTheme } = useKlinechartsUITheme();
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `theme` | `string` | Current theme: `"light"` or `"dark"` |
+| `setTheme` | `(theme: string) => void` | Set a specific theme |
+| `toggleTheme` | `() => void` | Toggle between `"light"` and `"dark"` |
+
+## Try it
+
+<ThemeDemo client:only="react" />
+
+## Usage
+
+```tsx
+const { theme, toggleTheme } = useKlinechartsUITheme();
+
+<button onClick={toggleTheme}>
+  {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+</button>;
+```

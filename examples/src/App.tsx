@@ -31,6 +31,7 @@ const EXAMPLES = [
       "useCompare",
       "useMeasure",
       "useAnnotations",
+      "useAlerts",
       "useWatchlist",
       "createDataLoader",
       "orderLine",

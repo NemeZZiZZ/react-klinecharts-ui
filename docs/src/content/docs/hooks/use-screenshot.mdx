@@ -1,0 +1,43 @@
+---
+title: useScreenshot
+description: Capture and download a chart screenshot.
+sidebar:
+  order: 10
+---
+
+import { ScreenshotDemo } from "../../../demos/HookDemos";
+
+Capture and download a chart screenshot.
+
+```ts
+const { screenshotUrl, capture, download, clear } = useScreenshot();
+```
+
+| Field/Method | Type | Description |
+| ------------ | ---- | ----------- |
+| `screenshotUrl` | `string \| null` | JPEG data URL of the last screenshot |
+| `capture()` | `() => void` | Capture the current chart state |
+| `download(filename?)` | `(filename?: string) => void` | Download as a file (default `"chart-screenshot.jpg"`) |
+| `clear()` | `() => void` | Clear `screenshotUrl` from state |
+
+The screenshot is produced via `chart.getConvertPictureUrl(true, "jpeg", bgColor)`.
+Background depends on the theme: `#151517` (dark) / `#ffffff` (light).
+
+## Try it
+
+<ScreenshotDemo client:only="react" />
+
+## Usage
+
+```tsx
+const { screenshotUrl, capture, download, clear } = useScreenshot();
+
+<button onClick={capture}>Capture</button>;
+{screenshotUrl && (
+  <>
+    <img src={screenshotUrl} alt="chart" />
+    <button onClick={() => download()}>Download</button>
+    <button onClick={clear}>Close</button>
+  </>
+)}
+```

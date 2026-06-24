@@ -1,0 +1,40 @@
+---
+title: useDataExport
+description: Export chart candle data to CSV or JSON.
+sidebar:
+  order: 23
+---
+
+import { DataExportDemo } from "../../../demos/HookDemos";
+
+Export chart candle data to a downloaded file in CSV or JSON format. Columns:
+`Date` (ISO), `Open`, `High`, `Low`, `Close`, `Volume`. The file is named
+`<ticker>_<YYYY-MM-DD>.<format>`.
+
+```ts
+import { useDataExport } from "react-klinecharts-ui";
+
+const { exportAll, exportVisible } = useDataExport();
+
+exportAll("csv"); // every loaded bar
+exportVisible("json"); // only the currently visible range
+```
+
+## Try it
+
+<DataExportDemo client:only="react" />
+
+## API
+
+| Property | Type | Description |
+| -------- | ---- | ----------- |
+| `exportAll` | `(format: ExportFormat) => void` | Download all loaded candles |
+| `exportVisible` | `(format: ExportFormat) => void` | Download the visible range (falls back to all bars) |
+
+```ts
+type ExportFormat = "csv" | "json";
+```
+
+:::note
+No-op when the chart is not ready or holds no data.
+:::

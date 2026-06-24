@@ -1,0 +1,76 @@
+---
+title: useDrawingTools
+description: Manage drawing tools (chart overlays).
+sidebar:
+  order: 8
+---
+
+import { DrawingDemo } from "../../../demos/HookDemos";
+
+Manage drawing tools (chart overlays) — selection, magnet snapping, lock,
+visibility and clearing.
+
+```ts
+const {
+  categories,
+  activeTool,
+  magnetMode,
+  isLocked,
+  isVisible,
+  autoRetrigger,
+  selectTool,
+  clearActiveTool,
+  setMagnetMode,
+  toggleLock,
+  toggleVisibility,
+  removeAllDrawings,
+  setAutoRetrigger,
+} = useDrawingTools();
+```
+
+## Try it
+
+<DrawingDemo client:only="react" />
+
+## Fields & methods
+
+| Field/Method | Type | Description |
+| ------------ | ---- | ----------- |
+| `categories` | `DrawingCategoryItem[]` | Tool categories with nested tools |
+| `activeTool` | `string \| null` | Name of the last selected tool |
+| `magnetMode` | `"normal" \| "weak" \| "strong"` | Snap-to-OHLC mode |
+| `isLocked` | `boolean` | Whether all drawings are locked |
+| `isVisible` | `boolean` | Whether all drawings are visible |
+| `autoRetrigger` | `boolean` | Re-arm the tool after finishing a shape (default `true`) |
+| `selectTool(name)` | — | Start drawing via `chart.createOverlay` |
+| `clearActiveTool()` | — | Deselect the tool (local state only) |
+| `setMagnetMode(mode)` | — | Change magnet mode for all drawings |
+| `toggleLock()` | — | Toggle lock on all drawings |
+| `toggleVisibility()` | — | Show/hide all drawings |
+| `removeAllDrawings()` | — | Remove all drawings in the `drawing_tools` group |
+| `setAutoRetrigger(v)` | — | Enable/disable auto re-arming |
+
+```ts
+interface DrawingToolItem {
+  name: string; // klinecharts overlay name, e.g. "arrow", "fibRetracement"
+  localeKey: string; // localization key
+}
+
+interface DrawingCategoryItem {
+  key: string; // "singleLine" | "moreLine" | "polygon" | "fibonacci" | "wave"
+  tools: DrawingToolItem[];
+}
+```
+
+## Categories and tools
+
+| Category (`key`) | Tools |
+| ---------------- | ----- |
+| `singleLine` | horizontalStraightLine, horizontalRayLine, horizontalSegment, verticalStraightLine, verticalRayLine, verticalSegment, straightLine, rayLine, segment, arrow, priceLine |
+| `moreLine` | priceChannelLine, parallelStraightLine |
+| `polygon` | circle, rect, parallelogram, triangle |
+| `fibonacci` | fibonacciLine, fibonacciSegment, fibonacciCircle, fibonacciSpiral, fibonacciSpeedResistanceFan, fibonacciExtension, gannBox |
+| `wave` | xabcd, abcd, threeWaves, fiveWaves, eightWaves, anyWaves |
+
+The overlay templates behind these tools are documented in
+[Drawing Overlays](../../overlays/overview/).

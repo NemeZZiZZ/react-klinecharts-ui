@@ -1,0 +1,77 @@
+---
+title: useOrderLines
+description: Create and manage horizontal price-level lines (order lines).
+sidebar:
+  order: 12
+---
+
+import { OrderLinesDemo } from "../../../demos/OrderLinesDemo";
+
+Create and manage horizontal price-level lines (order lines) — for entries,
+stops, targets and live orders.
+
+:::caution[Requires the orderLine overlay]
+The `orderLine` overlay must be registered via `overlays={[orderLine]}` on the
+provider.
+:::
+
+```ts
+const {
+  createOrderLine,
+  updateOrderLine,
+  removeOrderLine,
+  removeAllOrderLines,
+} = useOrderLines();
+```
+
+## Try it
+
+<OrderLinesDemo client:only="react" />
+
+## createOrderLine
+
+```ts
+createOrderLine(options: OrderLineOptions): string | null
+```
+
+Returns the `id` of the created line, or `null` if the chart is not ready.
+
+```ts
+interface OrderLineOptions extends OrderLineExtendData {
+  id?: string; // auto-generated if omitted
+  price: number; // price level
+  draggable?: boolean; // allow drag to change price (default false)
+  onPriceChange?: (price: number) => void; // called when drag ends
+}
+```
+
+All `OrderLineExtendData` styling fields (`color`, `text`, `line`, `mark`,
+`label`) are accepted directly and flow through as overlay `extendData` — see
+[Drawing Overlays → order lines](../../overlays/overview/#order-lines--depth-overlays).
+
+## updateOrderLine / removeOrderLine
+
+```ts
+updateOrderLine(id: string, options: Partial<Omit<OrderLineOptions, "id">>): void
+removeOrderLine(id: string): void
+removeAllOrderLines(): void // removes all overlays with name="orderLine"
+```
+
+## Usage
+
+```tsx
+const { createOrderLine, updateOrderLine, removeOrderLine } = useOrderLines();
+
+const id = createOrderLine({
+  price: 45000,
+  color: "#ff9900",
+  text: "Target",
+  line: { style: "dashed" },
+  mark: { bg: "#ff9900", color: "#fff" },
+  draggable: true,
+  onPriceChange: (newPrice) => console.log("Moved to:", newPrice),
+});
+
+updateOrderLine(id!, { color: "#00ff00" });
+removeOrderLine(id!);
+```

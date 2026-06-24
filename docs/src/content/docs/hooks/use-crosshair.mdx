@@ -1,0 +1,46 @@
+---
+title: useCrosshair
+description: Track OHLCV of the bar under the crosshair for a live legend.
+sidebar:
+  order: 22
+---
+
+import { CrosshairDemo } from "../../../demos/HookDemos";
+
+Tracks the OHLCV data of the bar currently under the crosshair. Returns `null`
+when the cursor is off-chart. Updates are throttled with `requestAnimationFrame`,
+making it suitable for driving a live data panel / legend that follows the
+cursor.
+
+```ts
+import { useCrosshair } from "react-klinecharts-ui";
+
+const { barData } = useCrosshair();
+
+if (barData) {
+  console.log(barData.close, barData.changePercent);
+}
+```
+
+## Try it
+
+<CrosshairDemo client:only="react" />
+
+## API
+
+| Property | Type | Description |
+| -------- | ---- | ----------- |
+| `barData` | `CrosshairBarData \| null` | OHLCV of the hovered bar, or `null` off-chart |
+
+```ts
+interface CrosshairBarData {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  timestamp: number; // ms
+  change: number; // close - open, rounded to price precision
+  changePercent: number; // percent change vs open, 2 decimals
+}
+```

@@ -520,6 +520,10 @@ interface IndicatorInfo {
 | `getIndicatorParams(name)`                    | Returns `[{ label, defaultValue }]` or `[]` if no parameters  |
 | `isMainIndicatorActive(name)`                 | Quick active check                                            |
 | `isSubIndicatorActive(name)`                  | Quick active check                                            |
+| `collapseSubIndicator(name)`                  | Collapse a sub-indicator pane to minimal height (30px)        |
+| `expandSubIndicator(name)`                    | Expand a previously collapsed sub-indicator pane              |
+| `isSubIndicatorCollapsed(name)`               | Whether the given sub-indicator pane is currently collapsed   |
+| `reorderSubIndicator(name, direction)`        | Reorder a sub-indicator pane `"up"` or `"down"`               |
 | `getIndicatorAxis(name, isMain)`              | Returns the custom `yAxisId` an indicator is bound to, or `undefined` for the default axis |
 | `bindIndicatorToNewAxis(name, isMain, yAxis?)`| Rebinds an existing indicator to a different Y-axis (omit `yAxis` to return it to the default axis) |
 
@@ -568,12 +572,14 @@ const {
   magnetMode,
   isLocked,
   isVisible,
+  autoRetrigger,
   selectTool,
   clearActiveTool,
   setMagnetMode,
   toggleLock,
   toggleVisibility,
   removeAllDrawings,
+  setAutoRetrigger,
 } = useDrawingTools();
 ```
 
@@ -584,12 +590,14 @@ const {
 | `magnetMode`          | `"normal" \| "weak" \| "strong"` | Snap-to-OHLC mode                                       |
 | `isLocked`            | `boolean`                        | Whether all drawings are locked                         |
 | `isVisible`           | `boolean`                        | Whether all drawings are visible                        |
+| `autoRetrigger`       | `boolean`                        | Re-arm the tool after finishing a shape (default `true`) |
 | `selectTool(name)`    | —                                | Start drawing via `chart.createOverlay`                 |
 | `clearActiveTool()`   | —                                | Deselect tool (local state only)                        |
 | `setMagnetMode(mode)` | —                                | Change magnet mode for all existing and future drawings |
 | `toggleLock()`        | —                                | Toggle lock on all drawings                             |
 | `toggleVisibility()`  | —                                | Show/hide all drawings                                  |
 | `removeAllDrawings()` | —                                | Remove all drawings in the `drawing_tools` group        |
+| `setAutoRetrigger(enabled)` | —                          | Enable/disable auto re-arming                           |
 
 ```typescript
 interface DrawingToolItem {
@@ -627,20 +635,25 @@ const settings = useKlinechartsUISettings();
 
 | Field                    | Type            | Default          | Description               |
 | ------------------------ | --------------- | ---------------- | ------------------------- |
-| `candleType`             | `string`        | `"candle_solid"` | Candle display type       |
-| `candleUpColor`          | `string`        | `"#2DC08E"`      | Bullish candle color      |
-| `candleDownColor`        | `string`        | `"#F92855"`      | Bearish candle color      |
-| `showLastPrice`          | `boolean`       | `true`           | Last price mark on Y-axis |
-| `showHighPrice`          | `boolean`       | `true`           | High price mark           |
-| `showLowPrice`           | `boolean`       | `true`           | Low price mark            |
-| `showIndicatorLastValue` | `boolean`       | `true`           | Indicator last value mark |
-| `priceAxisType`          | `PriceAxisType` | `"normal"`       | Y-axis scale type         |
-| `reverseCoordinate`      | `boolean`       | `false`          | Invert Y-axis             |
-| `showTimeAxis`           | `boolean`       | `true`           | Show X-axis               |
-| `showGrid`               | `boolean`       | `true`           | Show grid                 |
-| `showCrosshair`          | `boolean`       | `true`           | Show crosshair            |
-| `showCandleTooltip`      | `boolean`       | `true`           | OHLCV tooltip             |
-| `showIndicatorTooltip`   | `boolean`       | `true`           | Indicator tooltip         |
+| `candleType`             | `string`         | `"candle_solid"`  | Candle display type           |
+| `candleUpColor`          | `string`         | `"#2DC08E"`       | Bullish candle color          |
+| `candleDownColor`        | `string`         | `"#F92855"`       | Bearish candle color          |
+| `compareRule`            | `CompareRule`    | `"current_open"`  | Baseline rule for compared symbols |
+| `showLastPrice`          | `boolean`        | `true`            | Last price mark on Y-axis     |
+| `showLastPriceLine`      | `boolean`        | `true`            | Last price horizontal line    |
+| `showHighPrice`          | `boolean`        | `true`            | High price mark               |
+| `showLowPrice`           | `boolean`        | `true`            | Low price mark                |
+| `showIndicatorLastValue` | `boolean`        | `true`            | Indicator last value mark     |
+| `priceAxisType`          | `PriceAxisType`  | `"normal"`        | Y-axis scale type             |
+| `yAxisPosition`          | `YAxisPosition`  | `"right"`         | Y-axis side (`"left" \| "right"`) |
+| `yAxisInside`            | `boolean`        | `false`           | Draw the Y-axis inside the pane |
+| `reverseCoordinate`      | `boolean`        | `false`           | Invert Y-axis                 |
+| `showTimeAxis`           | `boolean`        | `true`            | Show X-axis                   |
+| `showGrid`               | `boolean`        | `true`            | Show grid                     |
+| `showCrosshair`          | `boolean`        | `true`            | Show crosshair                |
+| `showCandleTooltip`      | `boolean`        | `true`            | OHLCV tooltip                 |
+| `showIndicatorTooltip`   | `boolean`        | `true`            | Indicator tooltip             |
+| `tooltipShowRule`        | `TooltipShowRule`| `"always"`        | When to show tooltips         |
 
 **Candle types:** `candle_solid`, `candle_stroke`, `candle_up_stroke`, `candle_down_stroke`, `ohlc`, `area`
 
@@ -648,14 +661,17 @@ const settings = useKlinechartsUISettings();
 
 #### Extra fields
 
-| Field            | Type                                          | Description                                           |
-| ---------------- | --------------------------------------------- | ----------------------------------------------------- |
-| `candleTypes`    | `CandleTypeItem[]`                            | List of `{ key, localeKey }` for rendering a selector |
-| `priceAxisTypes` | `{ key: PriceAxisType; localeKey: string }[]` | List for rendering a selector                         |
+| Field              | Type                                            | Description                                           |
+| ------------------ | ----------------------------------------------- | ----------------------------------------------------- |
+| `candleTypes`      | `CandleTypeItem[]`                              | List of `{ key, localeKey }` for rendering a selector |
+| `priceAxisTypes`   | `{ key: PriceAxisType; localeKey: string }[]`   | List for rendering a selector                         |
+| `yAxisPositions`   | `{ key: YAxisPosition; localeKey: string }[]`   | List for rendering a selector                         |
+| `compareRules`     | `{ key: CompareRule; localeKey: string }[]`     | List for rendering a selector                         |
+| `tooltipShowRules` | `{ key: TooltipShowRule; localeKey: string }[]` | List for rendering a selector                         |
 
 #### Setters
 
-Each field has a corresponding setter: `setCandleType`, `setCandleUpColor`, `setCandleDownColor`, `setShowLastPrice`, `setShowHighPrice`, `setShowLowPrice`, `setShowIndicatorLastValue`, `setPriceAxisType`, `setReverseCoordinate`, `setShowTimeAxis`, `setShowGrid`, `setShowCrosshair`, `setShowCandleTooltip`, `setShowIndicatorTooltip`.
+Each field has a corresponding setter: `setCandleType`, `setCandleUpColor`, `setCandleDownColor`, `setCompareRule`, `setShowLastPrice`, `setShowLastPriceLine`, `setShowHighPrice`, `setShowLowPrice`, `setShowIndicatorLastValue`, `setPriceAxisType`, `setYAxisPosition`, `setYAxisInside`, `setReverseCoordinate`, `setShowTimeAxis`, `setShowGrid`, `setShowCrosshair`, `setShowCandleTooltip`, `setShowIndicatorTooltip`, `setTooltipShowRule`.
 
 All setters immediately apply changes via `chart.setStyles(...)`.
 
@@ -1021,7 +1037,7 @@ const {
 | Property | Type | Description |
 |----------|------|-------------|
 | `symbols` | `CompareSymbol[]` | Array of comparison symbols with metadata |
-| `addSymbol` | `(ticker: string) => void` | Add a symbol to compare |
+| `addSymbol` | `(ticker: string, color?: string) => Promise<void>` | Add a symbol to compare (optional line color) |
 | `removeSymbol` | `(ticker: string) => void` | Remove a comparison symbol |
 | `toggleSymbol` | `(ticker: string) => void` | Toggle visibility of a symbol |
 | `clearAll` | `() => void` | Remove all comparison symbols |
@@ -1050,6 +1066,8 @@ const {
   startMeasure,
   cancelMeasure,
   result,
+  clearResult,
+  fromPoint,
 } = useMeasure();
 ```
 
@@ -1061,6 +1079,8 @@ const {
 | `startMeasure` | `() => void` | Enter measurement mode (click two points) |
 | `cancelMeasure` | `() => void` | Exit measurement mode |
 | `result` | `MeasureResult \| null` | Measurement data (null if not measured yet) |
+| `clearResult` | `() => void` | Clear the current measurement result |
+| `fromPoint` | `MeasurePoint \| null` | The first picked point while measuring (null when inactive) |
 
 #### MeasureResult
 
@@ -1121,14 +1141,17 @@ Replay historical candles at various speeds with play/pause/step controls and pr
 import { useReplay } from "react-klinecharts-ui";
 
 const {
-  isPlaying,
+  isReplaying,
+  isPaused,
   speed,
-  currentIndex,
+  barIndex,
   totalBars,
-  play,
-  pause,
-  stop,
-  step,
+  startReplay,
+  stopReplay,
+  togglePause,
+  stepForward,
+  stepBackward,
+  seekTo,
   setSpeed,
 } = useReplay();
 ```
@@ -1137,15 +1160,18 @@ const {
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `isPlaying` | `boolean` | Whether replay is running |
-| `speed` | `number` | Current playback speed (0.25, 0.5, 1, 2, 4) |
-| `currentIndex` | `number` | Current bar index being displayed |
-| `totalBars` | `number` | Total bars in the dataset |
-| `play` | `() => void` | Start replay from current position |
-| `pause` | `() => void` | Pause replay (can resume with play) |
-| `stop` | `() => void` | Stop replay and reset to start |
-| `step` | `() => void` | Advance one bar when paused |
-| `setSpeed` | `(speed: number) => void` | Set playback speed multiplier |
+| `isReplaying` | `boolean` | Whether a replay session is active |
+| `isPaused` | `boolean` | Whether the replay is currently paused |
+| `speed` | `ReplaySpeed` | Current playback speed multiplier (`1 \| 2 \| 5 \| 10`) |
+| `barIndex` | `number` | Current bar index in the replay |
+| `totalBars` | `number` | Total bars in the saved dataset |
+| `startReplay` | `() => void` | Start replaying from the beginning |
+| `stopReplay` | `() => void` | Stop replay and restore the original data |
+| `togglePause` | `() => void` | Toggle play/pause |
+| `stepForward` | `() => void` | Advance one bar while paused |
+| `stepBackward` | `() => void` | Go back one bar while paused |
+| `seekTo` | `(index: number) => void` | Seek to a specific bar index (pauses playback) |
+| `setSpeed` | `(speed: ReplaySpeed) => void` | Change the playback speed |
 
 ---
 

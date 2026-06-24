@@ -21,6 +21,7 @@ import { ReplayControls } from "../../components/ReplayControls";
 import { CompareDialog } from "../../components/CompareDialog";
 import { MeasureButton } from "../../components/MeasureButton";
 import { AnnotationsButton } from "../../components/AnnotationsButton";
+import { AlertsButton } from "../../components/AlertsButton";
 import { WatchlistPanel } from "../../components/WatchlistPanel";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
@@ -102,6 +103,7 @@ function TerminalLayout() {
           <Separator orientation="vertical" className="mx-1 h-5" />
           <MeasureButton />
           <AnnotationsButton />
+          <AlertsButton />
           <Separator orientation="vertical" className="mx-1 h-5" />
           <CompareDialog />
           <ReplayControls />

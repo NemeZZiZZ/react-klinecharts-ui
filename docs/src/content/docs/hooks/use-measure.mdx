@@ -1,0 +1,48 @@
+---
+title: useMeasure
+description: Measure price, percentage, bar count and time between two points.
+sidebar:
+  order: 18
+---
+
+import { MeasureDemo } from "../../../demos/HookDemos";
+
+Measure price changes, percentage swings, bar count and time intervals between
+two points on the chart.
+
+:::note[Multi-instance safe]
+State lives in the shared provider store (`state.measure`), so calling
+`useMeasure()` in several components (e.g. a toolbar toggle and a separate result
+panel) keeps them in sync.
+:::
+
+```ts
+import { useMeasure } from "react-klinecharts-ui";
+
+const { isActive, startMeasure, cancelMeasure, result, clearResult, fromPoint } =
+  useMeasure();
+```
+
+## Try it
+
+<MeasureDemo client:only="react" />
+
+## API
+
+| Property | Type | Description |
+| -------- | ---- | ----------- |
+| `isActive` | `boolean` | Whether measurement mode is enabled |
+| `startMeasure` | `() => void` | Enter measurement mode (click two points) |
+| `cancelMeasure` | `() => void` | Exit measurement mode |
+| `result` | `MeasureResult \| null` | Measurement data (null until measured) |
+| `clearResult` | `() => void` | Clear the current measurement result |
+| `fromPoint` | `MeasurePoint \| null` | First picked point while measuring (null when inactive) |
+
+```ts
+interface MeasureResult {
+  priceDiff: number; // absolute price difference
+  pricePercent: number; // percentage change
+  bars: number; // number of bars between points
+  timeDiff: number; // time difference in ms
+}
+```

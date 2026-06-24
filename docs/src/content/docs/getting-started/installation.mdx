@@ -1,0 +1,49 @@
+---
+title: Installation
+description: Install react-klinecharts-ui and its peer dependencies.
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+react-klinecharts-ui ships as ESM + CJS with TypeScript types. Install it
+alongside its peer dependencies `react`, `react-dom` and `react-klinecharts`.
+
+<Tabs syncKey="pkg">
+  <TabItem label="npm">
+    ```bash
+    npm install react-klinecharts-ui react-klinecharts
+    ```
+  </TabItem>
+  <TabItem label="pnpm">
+    ```bash
+    pnpm add react-klinecharts-ui react-klinecharts
+    ```
+  </TabItem>
+  <TabItem label="yarn">
+    ```bash
+    yarn add react-klinecharts-ui react-klinecharts
+    ```
+  </TabItem>
+</Tabs>
+
+## Peer dependencies
+
+| Package            | Version    |
+| ------------------ | ---------- |
+| `react`            | `>= 17.0.0` |
+| `react-dom`        | `>= 17.0.0` |
+| `react-klinecharts`| `>= 0.2.0`  |
+
+## Entry points
+
+The package exposes two entry points:
+
+```ts
+// Main: provider, hooks, overlays, indicators, utils, data/constants
+import { KlinechartsUIProvider, useIndicators } from "react-klinecharts-ui";
+
+// Extensions: low-level registration + order line / depth overlays
+import { registerExtensions, orderLine } from "react-klinecharts-ui/extensions";
+```
+
+Next: build a working chart in the [Quick Start](../quick-start/).

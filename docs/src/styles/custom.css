@@ -1,0 +1,64 @@
+/* Brand accent tuned for a trading/charting product. */
+:root {
+  --sl-color-accent-low: #11243a;
+  --sl-color-accent: #2563eb;
+  --sl-color-accent-high: #bcd2ff;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #d6e4ff;
+  --sl-color-accent: #1d4ed8;
+  --sl-color-accent-high: #0b2a66;
+}
+
+/* Live demo container shared by interactive examples. */
+.kc-demo {
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  margin-block: 1.25rem;
+  background: var(--sl-color-black);
+}
+
+.kc-demo__bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--sl-color-gray-5);
+  background: var(--sl-color-gray-7, var(--sl-color-gray-6));
+}
+
+.kc-demo__bar button {
+  font: inherit;
+  font-size: 0.8125rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--sl-color-gray-5);
+  background: var(--sl-color-gray-6);
+  color: var(--sl-color-white);
+  cursor: pointer;
+}
+
+.kc-demo__bar button:hover {
+  border-color: var(--sl-color-accent);
+}
+
+.kc-demo__bar button[data-active="true"] {
+  background: var(--sl-color-accent);
+  border-color: var(--sl-color-accent);
+  color: #fff;
+}
+
+.kc-demo__chart {
+  height: 380px;
+  width: 100%;
+}
+
+.kc-demo__note {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+  color: var(--sl-color-gray-3);
+  border-top: 1px solid var(--sl-color-gray-5);
+}

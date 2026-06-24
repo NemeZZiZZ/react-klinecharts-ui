@@ -1,6 +1,10 @@
 # react-klinecharts-ui — Example Application
 
-A fully working trading terminal built with `react-klinecharts-ui` using live Binance data. The UI is implemented with [shadcn/ui](https://ui.shadcn.com/) and Tailwind CSS.
+A collection of working examples built with `react-klinecharts-ui` using live Binance data. The UI is implemented with [shadcn/ui](https://ui.shadcn.com/) and Tailwind CSS.
+
+`App.tsx` is a tiny hash-router that lazy-loads one page per example. The
+**Trading Terminal** page is the flagship demo and wires up nearly every hook;
+the other pages are focused, minimal demonstrations of a single capability.
 
 ---
 
@@ -8,10 +12,23 @@ A fully working trading terminal built with `react-klinecharts-ui` using live Bi
 
 ```
 examples/src/
-├── App.tsx                          # Root: provider + layout + sidebar toggle
+├── App.tsx                          # Hash-router: lazy-loads example pages + index
+├── main.tsx                         # React entry point
 ├── datafeed.ts                      # Datafeed implementation via Binance API
+├── pages/
+│   ├── quick-start/                 # Minimal provider + chart
+│   ├── terminal/                    # Full trading terminal (flagship demo)
+│   ├── multi-chart/                 # Two synced charts (crosshair + scroll)
+│   ├── secondary-axis/              # Multiple y-axes / bindIndicatorToNewAxis
+│   ├── depth/                       # Live order book / depth overlay
+│   ├── indicator-builder/           # Custom indicator script editor
+│   └── mobile/                      # Compact mobile layout
 ├── hooks/
-│   └── use-modal-state.ts           # Dialog state helper
+│   ├── use-modal-state.ts           # Dialog open/close state helper
+│   ├── use-sync-theme.ts            # Mirrors chart theme onto <html class="dark">
+│   └── use-mobile.ts                # Viewport breakpoint helper
+├── lib/
+│   └── utils.ts                     # cn() class-name helper
 └── components/
     ├── ChartView.tsx                # KLineChart init + dataLoader
     ├── Toolbar.tsx                  # Top toolbar: symbol, periods, actions
@@ -24,6 +41,20 @@ examples/src/
     ├── OrderLineDialog.tsx          # Order line create/manage dialog
     ├── LayoutManagerDialog.tsx      # Save/load/manage chart layouts dialog
     ├── ScriptEditorDialog.tsx       # Custom indicator script editor dialog
+    ├── CompareDialog.tsx            # Compare/overlay a second symbol
+    ├── ReplayControls.tsx           # Bar-replay playback controls
+    ├── MeasureButton.tsx            # Measure tool toggle + result readout
+    ├── AnnotationsButton.tsx        # Quick text annotations on the chart
+    ├── AlertsButton.tsx             # Price-crossing alerts (useAlerts)
+    ├── WatchlistPanel.tsx           # Symbol watchlist side panel
+    ├── OrderBookPanel.tsx           # Live order book side panel
+    ├── DepthOverlayToggle.tsx       # Depth overlay manager
+    ├── StatusBar.tsx                # Bottom status bar (crosshair OHLC)
+    ├── CrosshairDataPanel.tsx       # Floating crosshair OHLCV readout
+    ├── ChartContextMenu.tsx         # Right-click context menu
+    ├── KeyboardShortcuts.tsx        # Global keyboard shortcut handler
+    ├── Watermark.tsx                # Symbol watermark behind the chart
+    ├── OrderLineAlertSound.tsx      # Beeps when price crosses an order line
     ├── IndicatorPaneOverlays.tsx    # React overlay on each pane (indicator name controls)
     └── OrderLineOverlays.tsx        # React overlay on pane root (order line hover controls)
 ```
@@ -32,16 +63,54 @@ examples/src/
 
 ## App.tsx
 
-Application entry point. Configures `KlinechartsUIProvider` and composes the layout.
+A minimal hash-router. Each example is a lazily-imported page; the current
+route is read from `window.location.hash`, and an index screen lists every
+example with the features it demonstrates. No routing library is used.
 
 ```tsx
+const TerminalExample = lazy(() => import("./pages/terminal"));
+const QuickStartExample = lazy(() => import("./pages/quick-start"));
+// …one lazy import per page
+
 export default function App() {
+  const [route, setRoute] = useState(getRoute);
+
+  useEffect(() => {
+    const handler = () => setRoute(getRoute());
+    window.addEventListener("hashchange", handler);
+    return () => window.removeEventListener("hashchange", handler);
+  }, []);
+
+  const example = EXAMPLES.find((e) => e.id === route);
+  if (!example) return <IndexPage onNavigate={(id) => (location.hash = id)} />;
+
+  const Component = example.component;
+  return (
+    <Suspense fallback={<Loader />}>
+      <Component />
+    </Suspense>
+  );
+}
+```
+
+The rest of this document focuses on the **Trading Terminal** page
+(`pages/terminal`), which composes nearly every component below.
+
+---
+
+## pages/terminal
+
+The flagship example. The page module wires the provider; `TerminalLayout`
+composes the shell.
+
+```tsx
+export default function TerminalExample() {
   return (
     <KlinechartsUIProvider
       datafeed={binanceDatafeed}
       defaultSymbol={defaultSymbol}   // { ticker: 'BTCUSDT', pricePrecision: 2 }
       defaultTheme="dark"
-      overlays={[orderLine]}           // Register the orderLine extension
+      overlays={[orderLine, depthOverlay]}  // Register overlay extensions
       onStateChange={(action, nextState, prevState) => {
         console.log(action, nextState, prevState);
       }}
@@ -54,7 +123,9 @@ export default function App() {
 
 ### TerminalLayout
 
-Inner component that uses library hooks to synchronise the CSS theme and render the shell. Includes a toggle button to show/hide the `DrawingSidebar`.
+Inner component that uses library hooks to render the shell and synchronise the
+CSS theme via the `useSyncTheme` helper. The header hosts panel toggles, the
+measure/annotation/alert tools, compare/replay controls and the main `Toolbar`.
 
 ```tsx
 function TerminalLayout() {
@@ -63,41 +134,31 @@ function TerminalLayout() {
   const { isLoading } = useKlinechartsUILoading();
   const [showDrawingSidebar, setShowDrawingSidebar] = useState(true);
 
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
-  }, [theme]);
+  useSyncTheme(theme); // mirrors theme onto <html class="dark">
 
   return (
     <TooltipProvider delayDuration={0}>
       <div ref={containerRef} className="flex flex-col h-svh bg-background">
         <header className="flex h-10 shrink-0 items-center border-b px-1">
-          <Button
-            variant={showDrawingSidebar ? "secondary" : "ghost"}
-            size="icon-sm"
-            onClick={() => setShowDrawingSidebar((v) => !v)}
-          >
-            <Menu className="size-4" />
-          </Button>
-          <Separator orientation="vertical" className="mx-1 h-5" />
-          <Toolbar />
+          {/* panel toggles + MeasureButton + AnnotationsButton + AlertsButton */}
+          {/* CompareDialog + ReplayControls + <Toolbar /> */}
         </header>
 
-        <div className={cn("flex-1 grid", showDrawingSidebar && "grid-cols-[auto_1fr]")}>
+        <div className="flex-1 flex overflow-hidden">
           {showDrawingSidebar && <DrawingSidebar />}
-          <div className="grid relative">
-            <ChartView className="absolute inset-0" />
-            {isLoading && <LoadingSpinner />}
-          </div>
+          <ChartView className="…" />
         </div>
+
+        <StatusBar />
+        <KeyboardShortcuts />
+        <OrderLineAlertSound />
       </div>
     </TooltipProvider>
   );
 }
 ```
 
-**Drawing sidebar toggle:** A `Menu` button in the header toggles the sidebar visibility. The grid layout switches between `grid-cols-[auto_1fr]` (with sidebar) and single-column (without).
-
-**Why `theme` is synchronised with `<html>`:** Radix UI creates portals directly inside `document.body`. For dark-mode CSS variables to work in dialogs and tooltips, the `dark` class must be on `<html>`, not only on the chart container.
+**Why `theme` is synchronised with `<html>`:** Radix UI creates portals directly inside `document.body`. For dark-mode CSS variables to work in dialogs and tooltips, the `dark` class must be on `<html>`, not only on the chart container. `useSyncTheme` (in `hooks/use-sync-theme.ts`) encapsulates this.
 
 ---
 
@@ -506,6 +567,53 @@ Each entry shows:
 - Remove button → `removeOrderLine(id)` + increment tick
 
 > **Note:** `OrderLineDialog` uses `useKlinechartsUI().state.chart` (not `useKLineChart()`) because it renders outside `<KLineChart>` — in the Toolbar as a Radix Dialog portal.
+
+---
+
+## AlertsButton.tsx
+
+A self-contained Bell button + dialog demonstrating `useAlerts`. Lives in the
+terminal header next to the measure/annotation tools.
+
+```typescript
+const { alerts, addAlert, removeAlert, clearAlerts, onAlertTriggered } =
+  useAlerts();
+```
+
+### Creating alerts
+
+The form prefills `price` with the latest close (read from
+`state.chart.getDataList()`) when the dialog opens, picks one of three
+conditions, and creates the alert. The hook draws a locked dashed horizontal
+line on the chart for each alert.
+
+```typescript
+addAlert(parseFloat(price), condition, message.trim() || undefined);
+// condition: "crossing_up" | "crossing_down" | "crossing"
+```
+
+### Reacting to triggers
+
+The crossing poller lives in the provider; the component only registers a
+listener. Here it plays a beep and raises a browser notification (after
+requesting permission on first alert):
+
+```typescript
+useEffect(() => {
+  onAlertTriggered((alert) => {
+    playBeep();
+    if (Notification.permission === "granted")
+      new Notification("Price alert", { body: alert.message ?? "" });
+  });
+}, [onAlertTriggered]);
+```
+
+The Bell button shows a destructive badge with the count of not-yet-triggered
+alerts; the list marks fired alerts with a `triggered` badge.
+
+> **Difference from `OrderLineAlertSound`:** that component manually polls order
+> line overlays for a beep-only effect, whereas `useAlerts` owns a shared alert
+> list, the crossing poller, and the chart lines for you.
 
 ---
 

@@ -1,0 +1,58 @@
+---
+title: Custom Indicators
+description: TradingView-style indicator templates registered on the chart.
+---
+
+import { IndicatorsDemo } from "../../../demos/HookDemos";
+
+The library ships 11 TradingView-style indicator templates, all registered
+automatically via `registerExtensions`. Each uses the [`TA`](../../utilities/ta/)
+library for calculations and custom `draw` functions for TradingView-like
+styling (gradient fills, dashed level lines, multi-color histograms).
+
+```ts
+import { indicators } from "react-klinecharts-ui";
+// indicators === [bollTv, cci, hma, ichimoku, maRibbon, macdTv,
+//                 pivotPoints, rsiTv, stochastic, superTrend, vwap]
+```
+
+Add and remove them with [`useIndicators`](../../hooks/use-indicators/). Note the
+demo below uses the **built-in klinecharts** indicators (MA, BOLL, MACD, …); the
+custom templates use the names in the tables below (`BOLL_TV`, `MACD_TV`, …).
+
+## Try it
+
+<IndicatorsDemo client:only="react" />
+
+## Main-chart templates
+
+| Template | Name | Default params | Description |
+| -------- | ---- | -------------- | ----------- |
+| `bollTv` | `BOLL_TV` | `[20, 2]` | Bollinger Bands, TradingView style — filled band area, SMA midline, upper/lower bands |
+| `hma` | `HMA` | `[9]` | Hull Moving Average — high smoothing, minimal lag |
+| `ichimoku` | `ICHIMOKU` | `[9, 26, 52, 26]` | Ichimoku Cloud — Tenkan, Kijun, Senkou A/B (filled cloud), Chikou |
+| `maRibbon` | `MA_RIBBON` | `[5, 10, 20, 30, 50, 100]` | 6 EMAs with distinct colors |
+| `pivotPoints` | `PIVOT_POINTS` | `[1]` | Pivot + R1/R2/S1/S2 as dashed lines |
+| `superTrend` | `SUPERTREND` | `[10, 3]` | ATR-based trend with green/red coloring |
+| `vwap` | `VWAP` | `[]` | Volume Weighted Average Price — single line |
+
+## Sub-pane templates
+
+| Template | Name | Default params | Description |
+| -------- | ---- | -------------- | ----------- |
+| `macdTv` | `MACD_TV` | `[12, 26, 9]` | 4-color histogram + MACD/Signal lines |
+| `rsiTv` | `RSI_TV` | `[14, 14]` | RSI + MA, dashed 70/50/30 levels, gradient OB/OS zones |
+| `cci` | `CCI` | `[20]` | Commodity Channel Index, dashed +100/0/-100 |
+| `stochastic` | `STOCHASTIC` | `[14, 1, 3]` | %K / %D lines, dashed 80/50/20 levels |
+
+## Registering custom indicators
+
+The templates are registered with the chart automatically. To add one to the
+chart, use the imperative `useIndicators` actions or the chart API directly:
+
+```tsx
+const { addMainIndicator, addSubIndicator } = useIndicators();
+
+addMainIndicator("SUPERTREND");
+addSubIndicator("MACD_TV");
+```

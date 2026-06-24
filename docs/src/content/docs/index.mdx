@@ -1,0 +1,59 @@
+---
+title: react-klinecharts-ui
+description: Headless React hooks and overlay templates for building financial trading terminals with klinecharts.
+template: splash
+hero:
+  tagline: Headless React building blocks for financial trading terminals — a state provider, 25+ hooks, drawing overlays and TradingView-style indicators on top of klinecharts. Bring your own UI.
+  image:
+    alt: A trading terminal chart with candlesticks, a moving average, an order line and volume — built with react-klinecharts-ui.
+    file: ../../assets/hero.svg
+  actions:
+    - text: Get started
+      link: getting-started/introduction/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/NemeZZiZZ/react-klinecharts-ui
+      icon: external
+      variant: minimal
+    - text: Live demo
+      link: https://nemezzizz.github.io/react-klinecharts-ui/examples/
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+## Why react-klinecharts-ui?
+
+<CardGrid stagger>
+  <Card title="Headless by design" icon="puzzle">
+    No UI components ship with the library. You get a state provider and hooks —
+    render them with Tailwind, shadcn, Radix, MUI or anything else.
+  </Card>
+  <Card title="Composable hooks" icon="seti:react">
+    25+ focused hooks: periods, symbol search, indicators, drawing tools, order
+    lines, alerts, replay, layouts, undo/redo and more.
+  </Card>
+  <Card title="Pro-grade overlays" icon="pencil">
+    Drawing-tool overlay templates — Fibonacci, Elliott waves, Gann, harmonic
+    patterns, position tools — ready to register on the chart.
+  </Card>
+  <Card title="TradingView-style indicators" icon="bars">
+    Custom indicator templates (Ichimoku, SuperTrend, VWAP, HMA, MA Ribbon, TV
+    MACD/RSI/BOLL) plus a TA math library.
+  </Card>
+</CardGrid>
+
+## Quick taste
+
+```tsx
+import { KlinechartsUIProvider } from "react-klinecharts-ui";
+import { KLineChart } from "react-klinecharts";
+
+<KlinechartsUIProvider datafeed={datafeed} defaultSymbol={symbol} defaultTheme="dark">
+  <MyTerminalUI />
+</KlinechartsUIProvider>;
+```
+
+Head to the [Quick Start](getting-started/quick-start/) for a complete, runnable example with a live chart.

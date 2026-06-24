@@ -1,0 +1,73 @@
+---
+title: useAlerts
+description: Client-side price alerts that fire when the close crosses a level.
+sidebar:
+  order: 21
+---
+
+import { AlertsDemo } from "../../../demos/AlertsDemo";
+
+Client-side price alerts. Draws a locked horizontal line for each alert and polls
+the latest candle once per second, firing a callback when the close price crosses
+the alert level. This is the primary hook for reacting to price events — e.g.
+forwarding a buy/sell signal to your backend or triggering a push notification.
+
+:::note[Multi-instance safe]
+The alert list lives in the shared store (`state.alerts`) and the crossing poller
+is owned by the provider (one poller, active only while alerts exist). Note:
+`onAlertTriggered` registers a **single** listener — the last registration wins.
+:::
+
+```ts
+import { useAlerts } from "react-klinecharts-ui";
+
+const { alerts, addAlert, removeAlert, clearAlerts, onAlertTriggered } =
+  useAlerts();
+
+const id = addAlert(65000, "crossing_up", "BTC broke 65k");
+
+onAlertTriggered((alert) => {
+  console.log("Alert fired:", alert.message, alert.price);
+});
+```
+
+## Try it
+
+<AlertsDemo client:only="react" />
+
+## API
+
+| Property | Type | Description |
+| -------- | ---- | ----------- |
+| `alerts` | `Alert[]` | Current alerts (active and triggered) |
+| `addAlert` | `(price, condition, message?) => string` | Create an alert; returns its id |
+| `removeAlert` | `(id: string) => void` | Remove a single alert and its line |
+| `clearAlerts` | `() => void` | Remove all alerts |
+| `onAlertTriggered` | `(cb: (alert: Alert) => void) => void` | Register a single fire callback |
+
+```ts
+type AlertCondition = "crossing_up" | "crossing_down" | "crossing";
+
+interface Alert {
+  id: string;
+  price: number;
+  condition: AlertCondition;
+  message?: string;
+  triggered: boolean;
+}
+```
+
+| Condition | Fires when |
+| --------- | ---------- |
+| `crossing_up` | Previous close `<` price **and** current close `>=` price |
+| `crossing_down` | Previous close `>` price **and** current close `<=` price |
+| `crossing` | Either direction |
+
+:::caution[Fires once]
+Detection is based on the **latest candle's close**, polled every second from
+`chart.getDataList()`. An alert fires at most once (its `triggered` flag flips to
+`true`); recreate it to re-arm.
+:::
+
+See the [Backend signals guide](../../guides/backend-signals/) for wiring alerts
+to a server or notifications.

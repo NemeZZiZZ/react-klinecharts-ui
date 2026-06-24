@@ -1,0 +1,57 @@
+---
+title: useReplay
+description: Replay historical candles with play/pause/step controls.
+sidebar:
+  order: 20
+---
+
+import { ReplayDemo } from "../../../demos/HookDemos";
+
+Replay historical candles at various speeds with play/pause/step controls and
+progress tracking.
+
+:::note[Multi-instance safe]
+Control state lives in the shared store (`state.replay`) and the playback timer
+and data buffers are owned by the provider, so there is exactly one replay
+session no matter how many `useReplay()` instances are mounted.
+:::
+
+```ts
+import { useReplay } from "react-klinecharts-ui";
+
+const {
+  isReplaying,
+  isPaused,
+  speed,
+  barIndex,
+  totalBars,
+  startReplay,
+  stopReplay,
+  togglePause,
+  stepForward,
+  stepBackward,
+  seekTo,
+  setSpeed,
+} = useReplay();
+```
+
+## Try it
+
+<ReplayDemo client:only="react" />
+
+## API
+
+| Property | Type | Description |
+| -------- | ---- | ----------- |
+| `isReplaying` | `boolean` | Whether a replay session is active |
+| `isPaused` | `boolean` | Whether the replay is currently paused |
+| `speed` | `ReplaySpeed` | Playback speed multiplier (`1 \| 2 \| 5 \| 10`) |
+| `barIndex` | `number` | Current bar index in the replay |
+| `totalBars` | `number` | Total bars in the saved dataset |
+| `startReplay` | `() => void` | Start replaying from the beginning |
+| `stopReplay` | `() => void` | Stop and restore the original data |
+| `togglePause` | `() => void` | Toggle play/pause |
+| `stepForward` | `() => void` | Advance one bar while paused |
+| `stepBackward` | `() => void` | Go back one bar while paused |
+| `seekTo` | `(index: number) => void` | Seek to a bar index (pauses playback) |
+| `setSpeed` | `(speed: ReplaySpeed) => void` | Change the playback speed |

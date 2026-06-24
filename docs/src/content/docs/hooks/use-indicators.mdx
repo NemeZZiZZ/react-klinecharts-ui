@@ -1,0 +1,132 @@
+---
+title: useIndicators
+description: Full indicator management — add/remove, visibility, params, panes, axes.
+sidebar:
+  order: 7
+---
+
+import { IndicatorsDemo } from "../../../demos/HookDemos";
+
+Full indicator management: add/remove, visibility, parameters, moving between
+panes, and binding to secondary Y-axes.
+
+```ts
+const {
+  mainIndicators,
+  subIndicators,
+  activeMainIndicators,
+  activeSubIndicators,
+  availableMainIndicators,
+  availableSubIndicators,
+  addMainIndicator,
+  removeMainIndicator,
+  addSubIndicator,
+  removeSubIndicator,
+  toggleMainIndicator,
+  toggleSubIndicator,
+  moveToMain,
+  moveToSub,
+  setIndicatorVisible,
+  isIndicatorVisible,
+  updateIndicatorParams,
+  getIndicatorParams,
+  isMainIndicatorActive,
+  isSubIndicatorActive,
+  indicatorAxes,
+  getIndicatorAxis,
+  indicatorVisibility,
+  bindIndicatorToNewAxis,
+} = useIndicators();
+```
+
+## Try it
+
+<IndicatorsDemo client:only="react" />
+
+## Fields
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `mainIndicators` | `IndicatorInfo[]` | All main indicators with `isActive` + `visible` flags |
+| `subIndicators` | `IndicatorInfo[]` | All sub-indicators with `isActive` + `visible` flags |
+| `activeMainIndicators` | `string[]` | Active main indicator names only |
+| `activeSubIndicators` | `Record<string, string>` | Active sub-indicators: `{ name → paneId }` |
+| `availableMainIndicators` | `string[]` | Full list from `MAIN_INDICATORS` |
+| `availableSubIndicators` | `string[]` | Full list from `SUB_INDICATORS` |
+| `indicatorAxes` | `Record<string, string>` | Custom Y-axis bindings: `{ indicatorId → yAxisId }` |
+| `indicatorVisibility` | `Record<string, boolean>` | Visibility overrides (sparse; absent means visible) |
+
+```ts
+interface IndicatorInfo {
+  name: string; // "MA", "MACD", "RSI", …
+  isActive: boolean; // currently on the chart
+  visible: boolean; // currently shown (true when inactive)
+}
+```
+
+## Methods
+
+| Method | Description |
+| ------ | ----------- |
+| `addMainIndicator(name, options?)` | Create on `candle_pane` with id `main_${name}`. Pass `{ yAxis }` to bind a secondary axis |
+| `removeMainIndicator(name)` | Remove the indicator |
+| `addSubIndicator(name, options?)` | Create on a new sub-pane with id `sub_${name}`. Also accepts `{ yAxis }` |
+| `removeSubIndicator(name)` | Remove the sub-indicator and its pane |
+| `toggleMainIndicator(name)` | Add if inactive, remove if active |
+| `toggleSubIndicator(name)` | Same for sub-indicators |
+| `moveToMain(name)` | Move from sub-pane to `candle_pane` |
+| `moveToSub(name)` | Move from `candle_pane` to a new sub-pane |
+| `setIndicatorVisible(name, isMain, visible)` | Show/hide via `chart.overrideIndicator` |
+| `isIndicatorVisible(name, isMain)` | Reactive read of visibility |
+| `updateIndicatorParams(name, paneId, params)` | Update `calcParams` |
+| `getIndicatorParams(name)` | Returns `[{ label, defaultValue }]` or `[]` |
+| `isMainIndicatorActive(name)` | Quick active check |
+| `isSubIndicatorActive(name)` | Quick active check |
+| `collapseSubIndicator(name)` | Collapse a sub-indicator pane to minimal height |
+| `expandSubIndicator(name)` | Expand a collapsed sub-indicator pane |
+| `isSubIndicatorCollapsed(name)` | Whether the sub-indicator pane is collapsed |
+| `reorderSubIndicator(name, direction)` | Reorder a sub-pane `"up"` / `"down"` |
+| `getIndicatorAxis(name, isMain)` | Custom `yAxisId`, or `undefined` for default |
+| `bindIndicatorToNewAxis(name, isMain, yAxis?)` | Rebind to a different Y-axis (omit to reset) |
+
+## Secondary Y-axis binding
+
+klinecharts v10 supports several independent Y-axes on one pane, so an indicator
+whose value range differs sharply from price (RSI 0–100, volume, …) can get its
+own scale instead of distorting the shared price axis.
+
+```ts
+// Add RSI on the main pane, on its own left axis
+addMainIndicator("RSI", { yAxis: { id: "rsi_axis", position: "left" } });
+
+// Move it back to the shared price axis
+bindIndicatorToNewAxis("RSI", true);
+
+// Move an existing indicator onto a dedicated right axis
+bindIndicatorToNewAxis("VOL", true, { id: "vol_axis", position: "right" });
+```
+
+`yAxis` is a klinecharts `YAxisOverride`; the key field is **`id`** — indicators
+sharing an `id` share one axis. Extras: `position` (`"left" | "right"`), `name`
+(`"normal" | "percentage" | "log"`), `inside`, `needWidget` (`false` for an
+invisible axis).
+
+This binding is a **persistent property**, tracked in `indicatorAxes` and
+preserved across [undo/redo](../use-undo-redo/) and
+[layout presets](../use-layout-manager/).
+
+:::note
+`bindIndicatorToNewAxis` removes and recreates the indicator (v10
+`overrideIndicator` cannot rebind an axis), preserving calc params, styles and
+visibility. The rebind itself is not pushed onto the undo stack.
+:::
+
+## Available indicators
+
+- **Main chart (`MAIN_INDICATORS`):** MA, EMA, SMA, BOLL, SAR, BBI
+- **Sub-panes (`SUB_INDICATORS`):** MA, EMA, VOL, MACD, BOLL, KDJ, RSI, BIAS,
+  BRAR, CCI, DMI, CR, PSY, DMA, TRIX, OBV, VR, WR, MTM, EMV, SAR, SMA, ROC, PVT,
+  BBI, AO
+
+For TradingView-style templates (BOLL_TV, MACD_TV, …) see
+[Custom Indicators](../../indicators/overview/).
