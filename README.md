@@ -62,11 +62,11 @@ Many features in this library — including 11 TradingView-style indicators, 9 d
 ## Installation
 
 ```bash
-npm install react-klinecharts-ui react-klinecharts
+npm install react-klinecharts-ui klinecharts
 # or with pnpm
-pnpm add react-klinecharts-ui react-klinecharts
+pnpm add react-klinecharts-ui klinecharts
 # or with yarn
-yarn add react-klinecharts-ui react-klinecharts
+yarn add react-klinecharts-ui klinecharts
 ```
 
 ---
@@ -1480,7 +1480,6 @@ import { TA } from "react-klinecharts-ui";
 | `TA.atr` | `(highs: number[], lows: number[], closes: number[], period: number)` | `number[]` — Average True Range |
 | `TA.vwap` | `(highs: number[], lows: number[], closes: number[], volumes: number[])` | `number[]` — Volume Weighted Average Price |
 | `TA.cci` | `(highs: number[], lows: number[], closes: number[], period: number)` | `number[]` — Commodity Channel Index |
-| `TA.stoch` | `(highs: number[], lows: number[], closes: number[], kPeriod?, kSmooth?, dPeriod?)` | `{ k, d }` — each `(number \| null)[]` |
 
 ---
 
@@ -1692,7 +1691,9 @@ interface OrderLineExtendData {
 }
 
 interface OrderLineLineStyle {
-  style?: "solid" | "dashed" | "dotted"; // Default: "dashed"
+  // klinecharts only supports "solid" and "dashed"; a dotted effect is done
+  // via `dashedValue` (e.g. [2, 2]).
+  style?: "solid" | "dashed"; // Default: "dashed"
   width?: number; // Default: 1
   dashedValue?: [number, number]; // Default: [4, 2]
 }

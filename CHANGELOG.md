@@ -4,6 +4,75 @@ All notable changes to **react-klinecharts-ui** are documented in this file.
 
 ---
 
+## 1.0.0 — 2026-07-07
+
+### Breaking Changes
+
+- **Peer dependency switched from `react-klinecharts` to `klinecharts`.** The library never used any React export of `react-klinecharts` (the `KLineChart` component, `useIndicator` / `useOverlay` hooks, `Widget`, `KLineChartContext`, etc.) — every type and function it consumed (`OverlayTemplate`, `IndicatorTemplate`, `Chart`, `registerOverlay`, `registerIndicator`, `registerFigure`, `utils`, `registerHotkey`, `getHotkey`, `getSupportedHotkeys`, and the supporting types) originates in `klinecharts` and only reached the code through `react-klinecharts`'s blanket `export * from "klinecharts"`. All imports now come directly from `klinecharts`, so `react-klinecharts` is no longer required to use this library.
+
+  - `peerDependencies`: `react-klinecharts >= 0.3.0` → `klinecharts >= 10.0.0-beta3`. `react-klinecharts` is removed from both `peerDependencies` and `devDependencies`.
+  - **Migration for consumers:** install `klinecharts` directly. Drop `react-klinecharts` unless you render the chart with its `<KLineChart>` component (which this library does not — it is headless). A typical install becomes `npm install react-klinecharts-ui klinecharts`.
+  - The library's public API (exported hooks, types, overlays, indicators, extensions, utils) is **unchanged** — no symbol was added, removed, or renamed. This is purely a dependency-graph correction that makes the package's actual dependency explicit.
+
+### Internal / API
+
+- `tsup.config.ts` `external` array: `"react-klinecharts"` → `"klinecharts"`. This keeps `klinecharts` out of the published bundle (treated as external, like `react` / `react-dom`) instead of inlining a duplicate copy into consumers' apps.
+- All ~60 imports across `src/overlays/**`, `src/indicators/**`, `src/extensions/**`, `src/hooks/**`, `src/provider/**`, `src/utils/**` and `src/data/**` were repointed from `react-klinecharts` to `klinecharts`. Because `react-klinecharts` only re-exports these symbols, the change is type- and value-equivalent.
+- `examples/` and `docs/` keep their `react-klinecharts` dependency because their demos render `<KLineChart>` / use `Widget` / `useKLineChart`; only their type-only imports (`Chart`, `KLineData`, `SymbolInfo`) were repointed to `klinecharts` for consistency.
+- **Lint compliance with React 19.** All ref mutations that happened during render (`stateRef.current = state`, `callbacksRef`, the drawing-tool refs, `createOverlayForToolRef`) moved to commit-phase `useEffect`s — required by `eslint-plugin-react-hooks` v7's `react-hooks/refs` rule. `examples/OrderBookPanel` and `useLayoutManager`'s mount-effects that triggered cascading renders were replaced with lazy `useState` initializers / deferred microtasks.
+- **`dispatchValue` is now referentially stable** even when the consumer passes inline `datafeed` / `onSettingsChange` props. Both are mirrored into refs (mirroring the existing `extraOverlaysRef` pattern), so inline object/function props no longer recreate the dispatch context and re-render every hook consumer on each provider render.
+- **New internal reducer actions** `ADD_ALERT` / `REMOVE_ALERT` / `CLEAR_ALERTS` / `MARK_ALERT_TRIGGERED` (the full-replace `SET_ALERTS` is kept for preset restore). These compose instead of clobbering, fixing the alert lost-update race (see Bug Fixes).
+- `eslint.config.js` `ignores` extended with `docs/.astro` (generated) and `examples/src/components/ui` (shadcn-generated) so lint no longer reports on files that should not be hand-edited.
+
+### Bug Fixes
+
+This release also resolves a broad set of correctness bugs uncovered in a full audit. Grouped by area:
+
+**State synchronization & React correctness**
+
+- **`useAlerts` lost-update race.** The hook mutators (`addAlert` / `removeAlert` / `clearAlerts`) dispatched `SET_ALERTS` with a list read from their `useCallback` closure, while the provider's crossing poller dispatched off `stateRef.current.alerts`. A trigger followed by a quick `addAlert` (before React re-rendered the hook) reverted the just-set `triggered: true` flag, so an alert could fire again. Now the poller dispatches the granular `MARK_ALERT_TRIGGERED { ids }` action and the mutators use `ADD_ALERT` / `REMOVE_ALERT` / `CLEAR_ALERTS`, which compose and never revert each other.
+- **Alert poller baseline not reset on symbol/period change.** Because the `KLineChart` component is reused (not remounted) across symbol changes, the poller effect did not re-run and `alertPrevCloseRef` kept the old symbol's last close — producing spurious triggers or missed crossings right after a symbol switch. A separate effect now resets the baseline on `state.symbol` / `state.period` change.
+- **`useReplay` corrupted chart data on symbol/period change mid-session.** The playback interval kept pushing the OLD symbol's saved bars onto the chart after the dataLoader reloaded the new symbol, silently mixing two symbols' candles. A session now auto-stops when the symbol or period changes.
+- **`useReplay` double-`startReplay` truncated the saved dataset.** Calling `startReplay` while a session was already running overwrote the saved buffer with the partially-played (truncated) chart data, permanently losing the unplayed tail. Guarded with `if (isReplaying) return`.
+- **`useLayoutManager` save/load was a no-op for indicators.** It called `chart.getIndicatorByPaneId()`, which is not part of the klinecharts public API — the optional-chain `?.()` silently returned `undefined`, so neither the save nor the load path ever ran. Migrated to the public `chart.getIndicators()` (flat `Indicator[]`) in both paths.
+- **`useLayoutManager` load inverted `isStack` for main indicators.** After the `getIndicators()` fix above, main indicators were recreated with `isStack: false` on the candle pane, which replaced the candle series instead of overlaying it. Now matches `useIndicators` (`isStack: true` for main).
+- **`useScriptEditor.hasActiveScript` was not reactive** — it read `activeNameRef.current` during render, so toggling a script on/off did not update the UI until an unrelated re-render. Backed by `useState` now.
+- **`useAnnotations.clearAnnotations` performed side effects inside a `setState` updater** (calling `removeOverlay`), which double-runs under React 18/19 StrictMode. Side effects moved out of the updater.
+- **`useFullscreen` swallowed an unhandled Promise rejection** from `requestFullscreen()` / `exitFullscreen()` (they reject on missing user gesture, cross-origin iframe, or browser denial). Added `.catch(() => {})`.
+
+**Indicator math**
+
+- **`ichimoku` Chikou Span had look-ahead bias.** It read `dataList[index + offset].close`, i.e. a FUTURE close, instead of the current close displaced into the past. Fixed to `dataList[index - offset].close`, matching TradingView's Chikou.
+- **`rsiTv` RSI-MA was corrupted during warm-up.** The RSI moving average was computed over `null → 0` substitutions, pulling the MA toward zero for the first `rsiPeriod + maPeriod` bars. The SMA now runs only over valid RSI values and propagates `null` through warm-up, matching TradingView.
+- **`vwap` / `pivotPoints` day boundary used the host's local timezone.** `toLocaleDateString()` resolved against the runtime timezone (browser or server), so the VWAP reset and pivot levels shifted with the machine's TZ. Replaced with a deterministic UTC day key (`toISOString().slice(0,10)`).
+
+**Drawing overlays**
+
+- **`measure` overlay drew a solid line instead of dashed.** The style `"dash"` is not a valid klinecharts `LineType` (only `"solid"` / `"dashed"`), so the measurement diagonal was always solid. Fixed to `"dashed"`.
+- **`measure` overlay showed `NaN` / `Infinity` labels** when a point had no `value` or the start value was `0`. Added guards with a `0` fallback for the percentage.
+- **`longPosition` / `shortPosition` stop price was unreachable.** `totalStep: 3` only collects 2 points interactively (entry + target), so the stop was always a hardcoded 40px offset and the R/R ratio was meaningless. Bumped to `totalStep: 4` so the user places the stop.
+- **`orderLine` line style accepted `"dotted"`**, which klinecharts does not support (renders as solid). Removed from the `OrderLineLineStyle.style` type.
+- **`depthOverlay` `maxQty || 1` replaced a legitimately-zero maxQty** with `1`, blowing out bar widths. Changed to `?? 1`.
+
+**Lifecycle & leaks**
+
+- **`useOrderLines` did not clean up its overlays on unmount**, leaving orphaned lines on the chart. Now tracks created ids in a `Set` and removes them on unmount.
+- **`useCompare` / `useScriptEditor` leaked a new indicator template into klinecharts' global registry on every run** (there is no unregister API). Both now use a stable template name (per-ticker for compare, `_custom_script_active` for the script editor) so `registerIndicator` overwrites instead of accumulating. The compare name is additionally salted per hook instance (`useId()`) so two terminals comparing the same ticker on one page don't overwrite each other's `calc` closure.
+- **`useCompare` line broke (`NaN`) as soon as bars streamed in** because `calc` closed over a one-time snapshot. Replaced with a `calc` that recomputes from the live `dataList`, carrying forward the last known % for bars with no compare-symbol quote yet.
+- **`useUndoRedo` rapid double-undo applied the same action's side effects twice.** The keyboard handler read the top of the stack from a stale closure within one frame. Now reads the current top via ref-mirrored stacks.
+- **`useLayoutManager` crashed under SSR** — the lazy `useState` initializer touched `localStorage` during render. Guarded with `typeof localStorage === "undefined"`.
+
+**Documentation**
+
+- README listed `TA.stoch` in the TA function table, but no such function exists. Removed the row.
+
+### Dependencies & upstream notes
+
+- Pinned and tested against **klinecharts `10.0.0-beta3`** (the exact version `react-klinecharts 0.3.0` depended on, so behaviour is identical to the previous release's effective resolution). `react-klinecharts 0.3.0` remains a dev dependency of the `examples` and `docs` workspace packages.
+- Supersedes the stale 0.6.0 note that claimed the peer range "stays `>=0.2.0`" — the range had already drifted to `>=0.3.0` in `package.json` at that time.
+
+---
+
 ## 0.6.0 — 2026-06-24
 
 ### New Features

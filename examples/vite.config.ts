@@ -16,7 +16,10 @@ export default defineConfig({
       output: {
         manualChunks: {
           react: ["react", "react-dom"],
-          klinecharts: ["react-klinecharts", "react-klinecharts-ui"],
+          // react-klinecharts-ui now imports klinecharts directly (external),
+          // so include the bare "klinecharts" module in the same chunk as the
+          // wrapper and the UI library to avoid it landing in a default chunk.
+          klinecharts: ["klinecharts", "react-klinecharts", "react-klinecharts-ui"],
           ui: ["radix-ui", "lucide-react"],
         },
       },
