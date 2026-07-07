@@ -18,4 +18,7 @@ docs/node_modules/
 # TypeScript incremental build cache
 *.tsbuildinfo
 
+# Vitest coverage output
+coverage/
+
 .playwright-mcp

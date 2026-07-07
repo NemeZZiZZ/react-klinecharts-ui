@@ -19,7 +19,7 @@ import { DEFAULT_PERIODS } from "../data/periods";
 import { registerExtensions } from "../extensions";
 import { registerOverlay } from "klinecharts";
 
-function reducer(
+export function reducer(
   state: KlinechartsUIState,
   action: KlinechartsUIAction,
 ): KlinechartsUIState {

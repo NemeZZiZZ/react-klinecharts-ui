@@ -39,6 +39,9 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Unit tests
+        run: pnpm test
+
       - name: Build library
         run: pnpm build
 

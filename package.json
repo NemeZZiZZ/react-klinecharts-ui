@@ -46,7 +46,10 @@
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "format": "prettier --write \"src/**/*.{ts,tsx}\""
+    "format": "prettier --write \"src/**/*.{ts,tsx}\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "peerDependencies": {
     "klinecharts": ">=10.0.0-beta3",
@@ -55,18 +58,24 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^10.0.2",
     "eslint-plugin-react-hooks": "^7.0.1",
     "globals": "^17.4.0",
+    "happy-dom": "^20.10.6",
+    "klinecharts": "^10.0.0-beta3",
     "prettier": "^3.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "klinecharts": "^10.0.0-beta3",
     "tsup": "^8.0.0",
     "typescript": "^5.7.0",
-    "typescript-eslint": "^8.56.1"
+    "typescript-eslint": "^8.56.1",
+    "vitest": "^4.1.10"
   },
   "license": "Apache-2.0",
   "packageManager": "pnpm@10.24.0",

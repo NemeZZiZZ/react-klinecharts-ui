@@ -12,11 +12,11 @@
     "declarationMap": true,
     "sourceMap": true,
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": ".",
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "resolveJsonModule": true,
     "isolatedModules": true
   },
-  "include": ["src"],
+  "include": ["src", "test"],
   "exclude": ["node_modules", "dist", "examples"]
 }
