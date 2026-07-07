@@ -69,7 +69,11 @@ function generateId(): string {
   );
 }
 
+// Guard against non-browser environments (SSR/Next.js/Astro). The lazy
+// useState initializer in useLayoutManager calls these during render, so they
+// must not throw when localStorage is undefined.
 function getLayoutIds(): string[] {
+  if (typeof localStorage === "undefined") return [];
   try {
     const raw = localStorage.getItem(INDEX_KEY);
     return raw ? JSON.parse(raw) : [];
@@ -79,6 +83,7 @@ function getLayoutIds(): string[] {
 }
 
 function getEntry(id: string): LayoutEntry | null {
+  if (typeof localStorage === "undefined") return null;
   try {
     const raw = localStorage.getItem(STORAGE_KEY_PREFIX + id);
     return raw ? JSON.parse(raw) : null;
@@ -93,44 +98,46 @@ function getEntry(id: string): LayoutEntry | null {
  */
 export function useLayoutManager(): UseLayoutManagerReturn {
   const { state, dispatch } = useKlinechartsUI();
-  const [layouts, setLayouts] = useState<LayoutEntry[]>([]);
+  // Read saved layouts synchronously during the first render so there is no
+  // mount effect that triggers a cascading re-render.
+  const [layouts, setLayouts] = useState<LayoutEntry[]>(() =>
+    getLayoutIds()
+      .map((id) => getEntry(id))
+      .filter((e): e is LayoutEntry => e !== null),
+  );
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(false);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoSaveIdRef = useRef<string | null>(null);
 
   const refreshLayouts = useCallback(() => {
-    const entries = getLayoutIds()
-      .map((id) => getEntry(id))
-      .filter((e): e is LayoutEntry => e !== null);
-    setLayouts(entries);
+    setLayouts(
+      getLayoutIds()
+        .map((id) => getEntry(id))
+        .filter((e): e is LayoutEntry => e !== null),
+    );
   }, []);
-
-  // Load layouts on mount
-  useEffect(() => {
-    refreshLayouts();
-  }, [refreshLayouts]);
 
   const serializeState = useCallback((): ChartLayoutState | null => {
     const chart = state.chart;
     if (!chart) return null;
 
     const indicators: ChartLayoutState["indicators"] = [];
-    const indicatorMap = (chart as any).getIndicatorByPaneId?.();
-    if (indicatorMap) {
-      indicatorMap.forEach((paneIndicators: any, paneId: string) => {
-        paneIndicators.forEach((indicator: any) => {
-          // Persist a custom axis binding only when it was explicitly tracked
-          // (avoids serializing the pane's default axis id).
-          const yAxisId = state.indicatorAxes[indicator.id];
-          indicators.push({
-            paneId,
-            name: indicator.name,
-            calcParams: indicator.calcParams,
-            visible: indicator.visible,
-            ...(indicator.styles ? { styles: indicator.styles } : {}),
-            ...(yAxisId ? { yAxisId } : {}),
-          });
-        });
+    // Use the public `getIndicators()` API (returns a flat Indicator[]). The
+    // previous code called `getIndicatorByPaneId()`, which is not part of the
+    // klinecharts public API, so its body never ran and indicators were never
+    // serialized.
+    const allIndicators = chart.getIndicators();
+    for (const indicator of allIndicators) {
+      // Persist a custom axis binding only when it was explicitly tracked
+      // (avoids serializing the pane's default axis id).
+      const yAxisId = state.indicatorAxes[indicator.id];
+      indicators.push({
+        paneId: indicator.paneId,
+        name: indicator.name,
+        calcParams: indicator.calcParams,
+        visible: indicator.visible,
+        ...(indicator.styles ? { styles: indicator.styles } : {}),
+        ...(yAxisId ? { yAxisId } : {}),
       });
     }
 
@@ -206,14 +213,11 @@ export function useLayoutManager(): UseLayoutManagerReturn {
       // Clear existing overlays
       chart.removeOverlay();
 
-      // Clear existing indicators (except built-in)
-      const indicatorMap = (chart as any).getIndicatorByPaneId?.();
-      if (indicatorMap) {
-        indicatorMap.forEach((_paneIndicators: any, paneId: string) => {
-          _paneIndicators.forEach((_: any, indicatorName: string) => {
-            chart.removeIndicator({ paneId, name: indicatorName });
-          });
-        });
+      // Clear existing indicators. Use the public `getIndicators()` API
+      // (flat Indicator[]). The previous code relied on `getIndicatorByPaneId`,
+      // which is not a public klinecharts method, so the clear step never ran.
+      for (const indicator of chart.getIndicators()) {
+        chart.removeIndicator({ id: indicator.id });
       }
 
       // Restore indicators
@@ -236,7 +240,12 @@ export function useLayoutManager(): UseLayoutManagerReturn {
               visible: ind.visible,
             },
             {
-              isStack: ind.paneId !== "candle_pane",
+              // Main indicators stack OVER the candle series on the candle
+              // pane (isStack: true), exactly as useIndicators does on the
+              // add path. The previous `ind.paneId !== "candle_pane"` inverted
+              // this, so loading a layout with main indicators replaced the
+              // candles instead of overlaying them.
+              isStack: isMain,
               pane: { id: ind.paneId },
               ...(ind.yAxisId ? { yAxis: { id: ind.yAxisId } } : {}),
             },

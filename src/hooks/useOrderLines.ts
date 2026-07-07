@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useKlinechartsUI } from "../provider/ChartTerminalContext";
 import type { OrderLineExtendData } from "../extensions/overlays/orderLine";
 
@@ -43,6 +43,8 @@ export function useOrderLines(): UseOrderLinesReturn {
   // Map of id → onPriceChange callback. The stable onPressedMoveEnd closure
   // reads from this ref so callbacks can be updated without re-creating overlays.
   const callbacksRef = useRef<Map<string, (price: number) => void>>(new Map());
+  // IDs created by THIS hook instance, so unmount cleanup removes only ours.
+  const ownedIdsRef = useRef<Set<string>>(new Set());
 
   const createOrderLine = useCallback(
     (options: OrderLineOptions): string | null => {
@@ -82,6 +84,7 @@ export function useOrderLines(): UseOrderLinesReturn {
           }
         },
       });
+      ownedIdsRef.current.add(id);
       return id;
     },
     [state.chart],
@@ -120,6 +123,7 @@ export function useOrderLines(): UseOrderLinesReturn {
     (id: string) => {
       state.chart?.removeOverlay({ id });
       callbacksRef.current.delete(id);
+      ownedIdsRef.current.delete(id);
     },
     [state.chart],
   );
@@ -127,6 +131,25 @@ export function useOrderLines(): UseOrderLinesReturn {
   const removeAllOrderLines = useCallback(() => {
     state.chart?.removeOverlay({ name: "orderLine" });
     callbacksRef.current.clear();
+    ownedIdsRef.current.clear();
+  }, [state.chart]);
+
+  // Remove only the overlays created by THIS hook instance on unmount, so a
+  // brief order-line panel doesn't leave orphaned lines on the chart.
+  useEffect(() => {
+    const chart = state.chart;
+    const owned = ownedIdsRef.current;
+    return () => {
+      owned.forEach((id) => {
+        try {
+          chart?.removeOverlay({ id });
+        } catch {
+          // overlay may already be gone
+        }
+      });
+      owned.clear();
+      callbacksRef.current.clear();
+    };
   }, [state.chart]);
 
   return {

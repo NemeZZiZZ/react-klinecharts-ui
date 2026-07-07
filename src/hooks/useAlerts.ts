@@ -65,7 +65,10 @@ export function useAlerts(): UseAlertsReturn {
         extendData: resolvedExtendData,
       };
 
-      dispatch({ type: "SET_ALERTS", alerts: [...state.alerts, alert] });
+      // Use the granular ADD_ALERT action (not SET_ALERTS) so this append
+      // composes with a concurrent trigger from the provider poller instead
+      // of overwriting the list and reverting `triggered: true` flags.
+      dispatch({ type: "ADD_ALERT", alert });
 
       if (state.chart) {
         // Make sure the alertLine template is registered even when the
@@ -83,26 +86,24 @@ export function useAlerts(): UseAlertsReturn {
 
       return id;
     },
-    [state.chart, state.alerts, dispatch],
+    [state.chart, dispatch],
   );
 
   const removeAlert = useCallback(
     (id: string) => {
-      dispatch({
-        type: "SET_ALERTS",
-        alerts: state.alerts.filter((a) => a.id !== id),
-      });
+      dispatch({ type: "REMOVE_ALERT", id });
       state.chart?.removeOverlay({ id });
     },
-    [state.chart, state.alerts, dispatch],
+    [state.chart, dispatch],
   );
 
   const clearAlerts = useCallback(() => {
-    for (const alert of state.alerts) {
-      state.chart?.removeOverlay({ id: alert.id });
-    }
-    dispatch({ type: "SET_ALERTS", alerts: [] });
-  }, [state.chart, state.alerts, dispatch]);
+    // Remove every alert-line overlay at once via the shared groupId, then
+    // clear the store. Avoids depending on `state.alerts` (which would make
+    // this callback recreate whenever any alert changes).
+    state.chart?.removeOverlay({ groupId: "price_alerts" });
+    dispatch({ type: "CLEAR_ALERTS" });
+  }, [state.chart, dispatch]);
 
   const onAlertTriggered = useCallback(
     (callback: (alert: Alert) => void) => {

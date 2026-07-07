@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from "react";
-import { registerIndicator } from "react-klinecharts";
+import { registerIndicator } from "klinecharts";
+import type { KLineData } from "klinecharts";
 import { useKlinechartsUI } from "../provider/ChartTerminalContext";
 import TA from "../utils/TA";
 
@@ -106,9 +107,13 @@ export function useScriptEditor(): UseScriptEditorReturn {
   const [isRunning, setIsRunning] = useState(false);
 
   const activeIdRef = useRef<string | null>(null);
+  // `hasActiveScript` is reactive so the UI (e.g. a "Remove" button) updates
+  // immediately when a script is run/removed. The previous implementation read
+  // `activeNameRef.current` during render, which never triggered a re-render.
+  const [activeName, setActiveName] = useState<string | null>(null);
   const activeNameRef = useRef<string | null>(null);
-
-  const hasActiveScript = activeNameRef.current !== null;
+  activeNameRef.current = activeName;
+  const hasActiveScript = activeName !== null;
 
   const runScript = useCallback(() => {
     const chart = state.chart;
@@ -129,7 +134,11 @@ export function useScriptEditor(): UseScriptEditorReturn {
 
       const dataList = (chart as any).getDataList?.() ?? [];
 
-      // Execute in sandboxed new Function — shadow dangerous globals
+      // Compile the user script once. `calc` (registered below) re-executes
+      // this compiled function against the live `dataList` on every chart data
+      // change, so the indicator extends to streamed/scrolled-in bars. The
+      // previous implementation cached a one-time `result` array in `calc`,
+      // which went stale as data length changed.
       const allArgs = [
         ...SHADOW_KEYS,
         "TA",
@@ -137,22 +146,36 @@ export function useScriptEditor(): UseScriptEditorReturn {
         "params",
         `"use strict";\n${code}`,
       ];
-      const fn = new Function(...allArgs);
+      const compiledFn = new Function(...allArgs);
       const shadowValues = SHADOW_KEYS.map(() => undefined);
-      const result = fn(...shadowValues, TA, dataList, parsedParams);
+      // Run once against the current data to validate the return shape and
+      // surface errors to the user; the registered `calc` re-runs later.
+      const sampleResult = compiledFn(
+        ...shadowValues,
+        TA,
+        dataList,
+        parsedParams,
+      );
 
-      if (!Array.isArray(result)) {
+      if (!Array.isArray(sampleResult)) {
         throw new Error("Script must return an Array.");
       }
 
-      const sample = result.find((v: unknown) => v !== null && v !== undefined);
+      const sample = sampleResult.find(
+        (v: unknown) => v !== null && v !== undefined,
+      );
       const seriesKeys: string[] = sample ? Object.keys(sample) : ["value"];
       if (seriesKeys.length === 0) {
         throw new Error("Returned objects have no keys.");
       }
 
       scriptCounter++;
-      const indicatorName = `_custom_script_${scriptCounter}`;
+      // Use a STABLE indicator template name and let `registerIndicator`
+      // overwrite the previous one. klinecharts exposes no unregister API, so
+      // an incrementing name would leak a template into the global registry on
+      // every Run; the stable name keeps the registry at O(1) for this hook.
+      // `scriptCounter` is still used for display names below.
+      const indicatorName = `_custom_script_active`;
 
       const figures = seriesKeys.map((key, i) => ({
         key,
@@ -168,7 +191,8 @@ export function useScriptEditor(): UseScriptEditorReturn {
           (placement === "main" ? " (Main)" : " (Sub)"),
         calcParams: parsedParams,
         figures: figures as any,
-        calc: () => result,
+        calc: (liveDataList: KLineData[]) =>
+          compiledFn(...shadowValues, TA, liveDataList, parsedParams),
         extendData: {
           isCustomScript: true,
           code,
@@ -203,7 +227,7 @@ export function useScriptEditor(): UseScriptEditorReturn {
       }
 
       activeIdRef.current = typeof paneId === "string" ? paneId : null;
-      activeNameRef.current = indicatorName;
+      setActiveName(indicatorName);
 
       const title = scriptName.trim() || `Script #${scriptCounter}`;
       setStatus(
@@ -228,7 +252,7 @@ export function useScriptEditor(): UseScriptEditorReturn {
         // ignore
       }
       activeIdRef.current = null;
-      activeNameRef.current = null;
+      setActiveName(null);
       setStatus("Indicator removed.");
     }
   }, [state.chart]);

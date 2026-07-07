@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useKlinechartsUI, useKlinechartsUIDispatch } from "../provider/ChartTerminalContext";
 import { DRAWING_CATEGORIES, type MagnetMode } from "../data/drawings";
 
@@ -41,17 +41,22 @@ export function useDrawingTools(): UseDrawingToolsReturn {
   const [isVisible, setIsVisible] = useState(true);
   const [autoRetrigger, setAutoRetrigger] = useState(true);
 
-  // Refs to capture latest state for the onDrawEnd closure
+  // Refs to capture latest state for the onDrawEnd closure. Mutating a ref
+  // during render is not allowed by React 19, so the sync happens in a
+  // commit-phase effect below.
   const activeToolRef = useRef(activeTool);
-  activeToolRef.current = activeTool;
   const autoRetriggerRef = useRef(autoRetrigger);
-  autoRetriggerRef.current = autoRetrigger;
   const isLockedRef = useRef(isLocked);
-  isLockedRef.current = isLocked;
   const isVisibleRef = useRef(isVisible);
-  isVisibleRef.current = isVisible;
   const magnetModeRef = useRef(magnetMode);
-  magnetModeRef.current = magnetMode;
+
+  useEffect(() => {
+    activeToolRef.current = activeTool;
+    autoRetriggerRef.current = autoRetrigger;
+    isLockedRef.current = isLocked;
+    isVisibleRef.current = isVisible;
+    magnetModeRef.current = magnetMode;
+  });
 
   const categories = useMemo(
     () =>
@@ -64,6 +69,11 @@ export function useDrawingTools(): UseDrawingToolsReturn {
       })),
     []
   );
+
+  // Indirection ref so `createOverlayForTool` can reference itself from inside
+  // its own `onDrawEnd` closure (auto-retrigger) without referring to the
+  // `const` before its declaration.
+  const createOverlayForToolRef = useRef<(name: string) => void>(() => {});
 
   const createOverlayForTool = useCallback(
     (name: string) => {
@@ -96,7 +106,7 @@ export function useDrawingTools(): UseDrawingToolsReturn {
           // Auto-retrigger: immediately start another overlay of the same type
           if (autoRetriggerRef.current && activeToolRef.current === name) {
             requestAnimationFrame(() => {
-              createOverlayForTool(name);
+              createOverlayForToolRef.current(name);
             });
           }
         },
@@ -104,6 +114,11 @@ export function useDrawingTools(): UseDrawingToolsReturn {
     },
     [state.chart, undoRedoListenerRef],
   );
+
+  // Keep the indirection ref in sync in the commit phase (not during render).
+  useEffect(() => {
+    createOverlayForToolRef.current = createOverlayForTool;
+  });
 
   const selectTool = useCallback(
     (name: string) => {

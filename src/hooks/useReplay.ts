@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import {
   useKlinechartsUI,
   useKlinechartsUIDispatch,
@@ -89,6 +89,10 @@ export function useReplay(): UseReplayReturn {
 
   const startReplay = useCallback(() => {
     if (!state.chart) return;
+    // Guard against double-start: calling startReplay while a session is
+    // already running would overwrite replaySavedDataRef with the truncated
+    // (partially-played) chart data, permanently losing the unplayed tail.
+    if (isReplaying) return;
 
     const dataList = state.chart.getDataList();
     if (!dataList || dataList.length === 0) return;
@@ -112,7 +116,18 @@ export function useReplay(): UseReplayReturn {
 
     // Start the playback interval
     startInterval(speed);
-  }, [state.chart, speed, startInterval, replaySavedDataRef, replayIndexRef, dispatch]);
+  }, [state.chart, state.symbol, state.period, speed, startInterval, isReplaying, replaySavedDataRef, replayIndexRef, dispatch]);
+
+  // Stop the replay session automatically when the symbol or period changes.
+  // The dataLoader reloads the chart with the new symbol's bars, but without
+  // this guard the playback interval keeps replaying the OLD symbol's saved
+  // data on top of it, silently mixing two symbols' candles.
+  useEffect(() => {
+    if (isReplaying) {
+      stopReplay();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.symbol, state.period]);
 
   const stopReplay = useCallback(() => {
     if (!state.chart) return;

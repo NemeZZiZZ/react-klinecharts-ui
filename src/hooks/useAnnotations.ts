@@ -104,13 +104,14 @@ export function useAnnotations(): UseAnnotationsReturn {
   );
 
   const clearAnnotations = useCallback(() => {
-    setAnnotations((prev) => {
-      for (const annotation of prev) {
-        state.chart?.removeOverlay({ id: annotation.id });
-      }
-      return [];
-    });
-  }, [state.chart]);
+    // Perform chart side effects outside the setState updater: React 18/19 may
+    // invoke updaters more than once (StrictMode, concurrent rendering), which
+    // would otherwise call removeOverlay multiple times.
+    for (const annotation of annotations) {
+      state.chart?.removeOverlay({ id: annotation.id });
+    }
+    setAnnotations([]);
+  }, [state.chart, annotations]);
 
   // Clean up on unmount
   useEffect(() => {

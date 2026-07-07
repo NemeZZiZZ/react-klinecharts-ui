@@ -19,7 +19,7 @@ interface OrderLineDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-const LINE_STYLES = ["solid", "dashed", "dotted"] as const;
+const LINE_STYLES = ["solid", "dashed"] as const;
 
 export function OrderLineDialog({ open, onOpenChange }: OrderLineDialogProps) {
   const { state } = useKlinechartsUI();
@@ -52,7 +52,7 @@ export function OrderLineDialog({ open, onOpenChange }: OrderLineDialogProps) {
   const [color, setColor] = useState("#f59e0b");
   const [text, setText] = useState("");
   const [lineStyle, setLineStyle] =
-    useState<"solid" | "dashed" | "dotted">("dashed");
+    useState<"solid" | "dashed">("dashed");
 
   const handleAdd = () => {
     const priceNum = parseFloat(price);

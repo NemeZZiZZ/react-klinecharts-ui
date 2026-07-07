@@ -44,6 +44,18 @@ export function useUndoRedo(): UseUndoRedoReturn {
   const canUndo = undoStack.length > 0;
   const canRedo = redoStack.length > 0;
 
+  // Ref mirrors of the stacks so undo()/redo() read the CURRENT top element at
+  // call time. Without these, rapid key auto-repeat could invoke a stale
+  // closure twice in one frame and apply the SAME action's side effects twice.
+  const undoStackRef = useRef<UndoRedoAction[]>([]);
+  const redoStackRef = useRef<UndoRedoAction[]>([]);
+  useEffect(() => {
+    undoStackRef.current = undoStack;
+  }, [undoStack]);
+  useEffect(() => {
+    redoStackRef.current = redoStack;
+  }, [redoStack]);
+
   const pushAction = useCallback((action: UndoRedoAction) => {
     if (isProcessingRef.current) return; // skip actions triggered by undo/redo itself
     setUndoStack((prev) => [...prev, action]);
@@ -62,11 +74,14 @@ export function useUndoRedo(): UseUndoRedoReturn {
   }, []);
 
   const undo = useCallback(() => {
-    if (undoStack.length === 0 || !state.chart || isProcessingRef.current)
+    // Read the CURRENT stack via the ref mirror and guard re-entry so rapid
+    // key auto-repeat within one frame cannot pop the same action twice.
+    const stack = undoStackRef.current;
+    if (stack.length === 0 || !state.chart || isProcessingRef.current)
       return;
     isProcessingRef.current = true;
 
-    const action = undoStack[undoStack.length - 1];
+    const action = stack[stack.length - 1];
     setUndoStack((prev) => prev.slice(0, -1));
 
     try {
@@ -193,14 +208,16 @@ export function useUndoRedo(): UseUndoRedoReturn {
     } finally {
       isProcessingRef.current = false;
     }
-  }, [undoStack, state.chart, state.mainIndicators, state.subIndicators, state.indicatorAxes, dispatch]);
+  }, [state.chart, state.mainIndicators, state.subIndicators, state.indicatorAxes, dispatch]);
 
   const redo = useCallback(() => {
-    if (redoStack.length === 0 || !state.chart || isProcessingRef.current)
+    // Read the CURRENT stack via the ref mirror (see undo for rationale).
+    const stack = redoStackRef.current;
+    if (stack.length === 0 || !state.chart || isProcessingRef.current)
       return;
     isProcessingRef.current = true;
 
-    const action = redoStack[redoStack.length - 1];
+    const action = stack[stack.length - 1];
     setRedoStack((prev) => prev.slice(0, -1));
 
     try {
@@ -331,7 +348,7 @@ export function useUndoRedo(): UseUndoRedoReturn {
     } finally {
       isProcessingRef.current = false;
     }
-  }, [redoStack, state.chart, state.mainIndicators, state.subIndicators, state.indicatorAxes, dispatch]);
+  }, [state.chart, state.mainIndicators, state.subIndicators, state.indicatorAxes, dispatch]);
 
   // Keyboard shortcuts
   useEffect(() => {

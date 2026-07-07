@@ -1,5 +1,6 @@
-import { useState, useCallback, useEffect, useRef } from "react";
-import { registerIndicator } from "react-klinecharts";
+import { useState, useCallback, useEffect, useRef, useId } from "react";
+import { registerIndicator } from "klinecharts";
+import type { KLineData } from "klinecharts";
 import { useKlinechartsUI } from "../provider/ChartTerminalContext";
 
 export interface CompareSymbol {
@@ -34,9 +35,6 @@ const DEFAULT_COLORS = [
   "#8bc34a",
 ];
 
-let colorIndex = 0;
-let compareCounter = 0;
-
 /**
  * Headless hook for comparing multiple symbols on the same chart.
  *
@@ -50,14 +48,23 @@ export function useCompare(): UseCompareReturn {
   const indicatorsRef = useRef<
     Map<string, { name: string; paneId: string }>
   >(new Map());
+  // Per-instance salt so two simultaneously-mounted useCompare instances
+  // (e.g. multi-terminal on one page) comparing the SAME ticker don't
+  // overwrite each other's `calc` closure in klinecharts' global registry.
+  // `useId()` is stable for a component instance and unique across instances.
+  const instanceSalt = useId().replace(/[^a-zA-Z0-9]/g, "");
 
   const addSymbol = useCallback(
     async (ticker: string, color?: string) => {
       if (!state.chart || !datafeed) return;
       if (indicatorsRef.current.has(ticker)) return;
 
+      // Derive the color from the current number of comparisons instead of a
+      // monotonically-growing module counter, so it stays stable across
+      // add/remove/clear cycles and re-mounts.
       const assignedColor =
-        color ?? DEFAULT_COLORS[colorIndex++ % DEFAULT_COLORS.length];
+        color ??
+        DEFAULT_COLORS[symbols.length % DEFAULT_COLORS.length];
 
       const mainDataList = state.chart.getDataList();
       if (!mainDataList || mainDataList.length === 0) return;
@@ -65,10 +72,19 @@ export function useCompare(): UseCompareReturn {
       const from = mainDataList[0].timestamp;
       const to = mainDataList[mainDataList.length - 1].timestamp;
 
-      // Fetch compare symbol data
+      // Fetch compare symbol data. The compared ticker's precision is not
+      // generally known here, so fall back to the main symbol's precision
+      // (compare symbols are usually from the same market), then to sane
+      // defaults. The previous `{ ticker } as any` discarded precision entirely.
+      const mainSymbol = state.symbol;
+      const symbol = {
+        ticker,
+        pricePrecision: mainSymbol?.pricePrecision ?? 2,
+        volumePrecision: mainSymbol?.volumePrecision ?? 8,
+      };
       const compareData = await datafeed.getHistoryKLineData(
-        { ticker } as any,
-        { ...state.period!, label: "" },
+        symbol,
+        state.period,
         from,
         to,
       );
@@ -93,16 +109,20 @@ export function useCompare(): UseCompareReturn {
       if (basePrice === null || basePrice === 0) return;
       const bp = basePrice;
 
-      // Build %-change array aligned to main chart timeline
-      const normalizedData = mainDataList.map((mainBar) => {
-        const close = compareMap.get(mainBar.timestamp);
-        return {
-          pct: close != null ? ((close - bp) / bp) * 100 : NaN,
-        };
-      });
-
-      // Register custom indicator
-      const indicatorName = `__cmp_${++compareCounter}_${ticker}`;
+      // Register custom indicator. `calc` recomputes from the live `dataList`
+      // on every call (klinecharts passes the current chart data), so the line
+      // stays aligned as the main chart's bar count changes (history scroll,
+      // realtime). For bars whose timestamp is missing from `compareMap` (e.g.
+      // streamed main bars with no compare-symbol quote yet), we carry forward
+      // the last known % instead of emitting NaN, so the line doesn't visually
+      // break on the right edge. NOTE: a fully live comparison would require
+      // subscribing to the compare symbol's realtime updates — not implemented.
+      // Stable per-ticker template name (salted per hook instance) so repeated
+      // add/remove cycles overwrite the previous registration instead of
+      // leaking a new template on every add (klinecharts has no unregister
+      // API), while keeping different useCompare instances isolated when they
+      // compare the same ticker on the same page.
+      const indicatorName = `__cmp_${instanceSalt}_${ticker}`;
 
       registerIndicator({
         name: indicatorName,
@@ -115,7 +135,16 @@ export function useCompare(): UseCompareReturn {
             styles: () => ({ color: assignedColor }),
           },
         ] as any,
-        calc: () => normalizedData,
+        calc: (dataList: KLineData[]) => {
+          let lastPct: number | null = null;
+          return dataList.map((bar) => {
+            const close = compareMap.get(bar.timestamp);
+            if (close != null) {
+              lastPct = ((close - bp) / bp) * 100;
+            }
+            return { pct: lastPct };
+          });
+        },
       });
 
       // Place on main pane
@@ -137,7 +166,7 @@ export function useCompare(): UseCompareReturn {
         ];
       });
     },
-    [state.chart, state.period, datafeed],
+    [state.chart, state.symbol, state.period, datafeed, symbols.length, instanceSalt],
   );
 
   const removeSymbol = useCallback(

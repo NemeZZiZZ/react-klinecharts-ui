@@ -16,23 +16,30 @@ export function useFullscreen(): UseFullscreenReturn {
   const enter = useCallback(() => {
     const el = fullscreenContainerRef.current;
     if (!el) return;
+    // requestFullscreen() returns a Promise that rejects when the browser
+    // denies the request (missing user gesture, cross-origin iframe, etc.).
+    // Swallow the rejection so it never surfaces as an unhandled rejection.
+    let result: Promise<void> | undefined;
     if (el.requestFullscreen) {
-      el.requestFullscreen();
+      result = el.requestFullscreen();
     } else if ("webkitRequestFullscreen" in el) {
       (el as HTMLElement & { webkitRequestFullscreen: () => void }).webkitRequestFullscreen();
     } else if ("msRequestFullscreen" in el) {
       (el as HTMLElement & { msRequestFullscreen: () => void }).msRequestFullscreen();
     }
+    result?.catch(() => {});
   }, [fullscreenContainerRef]);
 
   const exit = useCallback(() => {
+    let result: Promise<void> | undefined;
     if (document.exitFullscreen) {
-      document.exitFullscreen();
+      result = document.exitFullscreen();
     } else if ("webkitExitFullscreen" in document) {
       (document as Document & { webkitExitFullscreen: () => void }).webkitExitFullscreen();
     } else if ("msExitFullscreen" in document) {
       (document as Document & { msExitFullscreen: () => void }).msExitFullscreen();
     }
+    result?.catch(() => {});
   }, []);
 
   const toggle = useCallback(() => {

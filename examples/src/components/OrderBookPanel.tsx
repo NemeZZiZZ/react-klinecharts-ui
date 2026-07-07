@@ -77,7 +77,10 @@ export function OrderBookPanel() {
   }, [ticker]);
 
   useEffect(() => {
-    fetchDepth();
+    // Initial fetch is deferred to a microtask so the effect does not trigger
+    // a synchronous setState during the commit phase (React 19 flags that as a
+    // cascading render). The interval then refreshes on a timer.
+    void Promise.resolve().then(() => fetchDepth());
     intervalRef.current = setInterval(fetchDepth, 250);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
