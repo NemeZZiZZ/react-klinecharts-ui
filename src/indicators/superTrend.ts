@@ -1,4 +1,4 @@
-import type { IndicatorTemplate, KLineData, Indicator } from "react-klinecharts";
+import type { IndicatorTemplate, KLineData, Indicator } from "klinecharts";
 import TA from "../utils/TA";
 
 const superTrend: IndicatorTemplate = {
@@ -54,6 +54,10 @@ const superTrend: IndicatorTemplate = {
         trend = 1;
       }
 
+      // `up` is the SuperTrend line drawn during an uptrend (the lower /
+      // support band, derived from the lower basic band); `down` is the line
+      // drawn during a downtrend (the upper / resistance band). Only one is
+      // non-null at a time, producing the characteristic single trend line.
       return {
         up: trend === 1 ? down : null,
         down: trend === -1 ? up : null,

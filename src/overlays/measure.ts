@@ -1,4 +1,4 @@
-import type { OverlayTemplate } from "react-klinecharts";
+import type { OverlayTemplate } from "klinecharts";
 
 function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -26,8 +26,11 @@ const measure: OverlayTemplate = {
     const startCoord = coordinates[0];
     const endCoord = coordinates[1];
 
-    const diff = endPoint.value - startPoint.value;
-    const percent = ((diff / startPoint.value) * 100).toFixed(2);
+    const startValue = startPoint.value ?? 0;
+    const endValue = endPoint.value ?? 0;
+    const diff = endValue - startValue;
+    const percent =
+      startValue !== 0 ? ((diff / startValue) * 100).toFixed(2) : "0.00";
     const bars = Math.abs(
       (endPoint.dataIndex ?? 0) - (startPoint.dataIndex ?? 0),
     );
@@ -88,7 +91,7 @@ const measure: OverlayTemplate = {
       {
         type: "line",
         attrs: { coordinates: [startCoord, endCoord] },
-        styles: { color: strokeColor, style: "dash" },
+        styles: { color: strokeColor, style: "dashed" },
       },
       ...textFigures,
     ];

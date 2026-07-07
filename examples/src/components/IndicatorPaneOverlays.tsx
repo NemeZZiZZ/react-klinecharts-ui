@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useKlinechartsUI, useIndicators } from "react-klinecharts-ui";
 import { useKLineChart, Widget } from "react-klinecharts";
-import type { Chart } from "react-klinecharts";
+import type { Chart } from "klinecharts";
 import { Eye, EyeOff, PanelTop, PanelBottom, Settings2, X, ChevronUp, ChevronDown, Minimize2, Maximize2 } from "lucide-react";
 import {
   Dialog,

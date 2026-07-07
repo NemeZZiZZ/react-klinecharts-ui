@@ -9,7 +9,7 @@ export default defineConfig({
   dts: true,
   sourcemap: true,
   clean: true,
-  external: ["react", "react-dom", "react-klinecharts"],
+  external: ["react", "react-dom", "klinecharts"],
   treeshake: true,
   splitting: true,
 });

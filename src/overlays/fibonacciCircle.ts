@@ -1,4 +1,4 @@
-import type { OverlayTemplate, CircleAttrs, TextAttrs } from "react-klinecharts";
+import type { OverlayTemplate, CircleAttrs, TextAttrs } from "klinecharts";
 
 const fibonacciCircle: OverlayTemplate = {
   name: "fibonacciCircle",

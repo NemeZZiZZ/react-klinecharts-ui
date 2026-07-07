@@ -1,5 +1,5 @@
 import type { Datafeed, TerminalPeriod } from "react-klinecharts-ui";
-import type { KLineData, SymbolInfo } from "react-klinecharts";
+import type { KLineData, SymbolInfo } from "klinecharts";
 
 // Self-contained Binance public-API datafeed used by the live documentation
 // demos. It runs entirely client-side (the demo components are hydrated with

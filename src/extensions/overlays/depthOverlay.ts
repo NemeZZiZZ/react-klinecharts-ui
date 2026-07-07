@@ -1,4 +1,4 @@
-import type { OverlayTemplate } from "react-klinecharts";
+import type { OverlayTemplate } from "klinecharts";
 
 export interface DepthOverlayRow {
   price: number;
@@ -34,7 +34,9 @@ const depthOverlay: OverlayTemplate = {
     const maxBarPx = bounding.width * maxBarFraction;
     const askColor = d.askColor ?? "rgba(239,83,80,0.25)";
     const bidColor = d.bidColor ?? "rgba(38,166,154,0.25)";
-    const maxQty = d.maxQty || 1;
+    // `?? 1` (not `|| 1`) so a legitimately-zero maxQty is still respected
+    // when explicitly provided, and only `null`/`undefined` fall back to 1.
+    const maxQty = d.maxQty ?? 1;
 
     const figures: any[] = [];
 

@@ -1,8 +1,8 @@
 import { useCallback } from "react";
-import type { XAxisOverride, YAxisOverride } from "react-klinecharts";
+import type { XAxisOverride, YAxisOverride } from "klinecharts";
 import { useKlinechartsUI } from "../provider/ChartTerminalContext";
 
-export type { XAxisOverride, YAxisOverride } from "react-klinecharts";
+export type { XAxisOverride, YAxisOverride } from "klinecharts";
 
 export interface UseChartAxesReturn {
   /**

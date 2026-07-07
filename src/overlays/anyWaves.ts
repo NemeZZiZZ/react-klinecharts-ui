@@ -1,4 +1,4 @@
-import type { OverlayTemplate } from "react-klinecharts";
+import type { OverlayTemplate } from "klinecharts";
 
 const anyWaves: OverlayTemplate = {
   name: "anyWaves",

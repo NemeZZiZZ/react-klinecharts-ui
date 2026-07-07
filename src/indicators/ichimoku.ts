@@ -1,4 +1,4 @@
-import type { IndicatorTemplate, KLineData, Indicator } from "react-klinecharts";
+import type { IndicatorTemplate, KLineData, Indicator } from "klinecharts";
 
 const ichimoku: IndicatorTemplate = {
   name: "Ichimoku",
@@ -49,8 +49,13 @@ const ichimoku: IndicatorTemplate = {
         item.kijun = highLowAvg(dataList, index - kijunPeriod + 1, index);
       }
 
-      if (index + offset < dataList.length) {
-        item.chikou = dataList[index + offset].close;
+      // Chikou span = the current close plotted `offset` bars into the future.
+      // Reading `dataList[index + offset]` leaks a future close into the past
+      // (look-ahead bias). Instead read the close from `offset` bars ago, so
+      // the lagged line matches TradingView's Chikou.
+      const chikouIndex = index - offset;
+      if (chikouIndex >= 0) {
+        item.chikou = dataList[chikouIndex].close;
       }
 
       const prevIndex = index - offset;

@@ -1,5 +1,5 @@
-import type { OverlayTemplate } from "react-klinecharts";
-import { registerFigure } from "react-klinecharts";
+import type { OverlayTemplate } from "klinecharts";
+import { registerFigure } from "klinecharts";
 
 function getSqSegDist(
   p: { x: number; y: number },

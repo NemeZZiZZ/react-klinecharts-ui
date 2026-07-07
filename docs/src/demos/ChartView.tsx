@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { KLineChart } from "react-klinecharts";
-import type { Chart } from "react-klinecharts";
+import type { Chart } from "klinecharts";
 import { useKlinechartsUI, createDataLoader } from "react-klinecharts-ui";
 
 /**

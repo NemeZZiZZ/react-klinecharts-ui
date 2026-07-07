@@ -1,5 +1,5 @@
 import type { Dispatch } from "react";
-import type { DataLoader, KLineData } from "react-klinecharts";
+import type { DataLoader, KLineData } from "klinecharts";
 import type { Datafeed, KlinechartsUIAction } from "../provider/types";
 
 /**

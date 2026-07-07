@@ -1,4 +1,4 @@
-import { registerOverlay, registerIndicator } from "react-klinecharts";
+import { registerOverlay, registerIndicator } from "klinecharts";
 import * as drawingOverlays from "../overlays";
 import * as customIndicators from "../indicators";
 import orderLine from "./overlays/orderLine";

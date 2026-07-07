@@ -1,4 +1,4 @@
-import type { OverlayTemplate, Coordinate } from "react-klinecharts";
+import type { OverlayTemplate, Coordinate } from "klinecharts";
 
 const abcd: OverlayTemplate = {
   name: "abcd",

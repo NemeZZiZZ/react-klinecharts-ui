@@ -6,7 +6,7 @@ import type {
   SymbolInfo,
   KLineData,
   OverlayTemplate,
-} from "react-klinecharts";
+} from "klinecharts";
 import type { TerminalPeriod } from "../data/periods";
 import type {
   Alert,
@@ -145,6 +145,15 @@ export type KlinechartsUIAction =
   | { type: "SET_INDICATOR_AXES"; axes: Record<string, string> }
   | { type: "SET_INDICATOR_VISIBILITY"; visibility: Record<string, boolean> }
   | { type: "SET_ALERTS"; alerts: Alert[] }
+  // Granular alert actions. `SET_ALERTS` does a full replace, which loses
+  // updates when two writers race (the hook mutators read `state.alerts` from
+  // a closure while the provider poller dispatches off `stateRef.current`).
+  // These compose instead of clobbering, so concurrent add/trigger/remove
+  // never revert each other.
+  | { type: "ADD_ALERT"; alert: Alert }
+  | { type: "REMOVE_ALERT"; id: string }
+  | { type: "CLEAR_ALERTS" }
+  | { type: "MARK_ALERT_TRIGGERED"; ids: string[] }
   | { type: "SET_MEASURE"; measure: Partial<MeasureState> }
   | { type: "SET_REPLAY"; replay: Partial<ReplayState> }
   | { type: "SET_STYLES"; styles: DeepPartial<Styles> | undefined }

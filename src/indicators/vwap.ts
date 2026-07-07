@@ -1,4 +1,4 @@
-import type { IndicatorTemplate, KLineData } from "react-klinecharts";
+import type { IndicatorTemplate, KLineData } from "klinecharts";
 
 const vwap: IndicatorTemplate = {
   name: "VWAP",
@@ -10,7 +10,12 @@ const vwap: IndicatorTemplate = {
     let cumulativePriceVolume = 0;
     let lastDate = "";
     return dataList.map((kLineData: KLineData) => {
-      const date = new Date(kLineData.timestamp).toLocaleDateString();
+      // Derive the day key from UTC so server-side and browser-side rendering
+      // agree on the session boundary. `toLocaleDateString()` would resolve
+      // against the host's local timezone and produce inconsistent resets
+      // across machines. (Note: this is still "UTC day", not the chart's
+      // configured timezone — klinecharts' calc has no access to it.)
+      const date = new Date(kLineData.timestamp).toISOString().slice(0, 10);
       if (date !== lastDate) {
         cumulativeVolume = 0;
         cumulativePriceVolume = 0;

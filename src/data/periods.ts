@@ -1,4 +1,4 @@
-import type { Period as KlinechartsPeriod } from "react-klinecharts";
+import type { Period as KlinechartsPeriod } from "klinecharts";
 
 export interface TerminalPeriod extends KlinechartsPeriod {
   label: string;

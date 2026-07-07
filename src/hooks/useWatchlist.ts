@@ -3,7 +3,7 @@ import {
   useKlinechartsUI,
   useKlinechartsUIDispatch,
 } from "../provider/ChartTerminalContext";
-import type { SymbolInfo, KLineData } from "react-klinecharts";
+import type { SymbolInfo, KLineData } from "klinecharts";
 import type { TerminalPeriod } from "../data/periods";
 
 export interface WatchlistItem {

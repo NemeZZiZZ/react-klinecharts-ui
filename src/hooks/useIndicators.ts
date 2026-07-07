@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef } from "react";
-import type { YAxisOverride } from "react-klinecharts";
+import type { YAxisOverride } from "klinecharts";
 import { useKlinechartsUI, useKlinechartsUIDispatch } from "../provider/ChartTerminalContext";
 import {
   MAIN_INDICATORS,

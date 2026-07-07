@@ -1,5 +1,5 @@
 import type { Datafeed, TerminalPeriod } from "react-klinecharts-ui";
-import type { KLineData, SymbolInfo } from "react-klinecharts";
+import type { KLineData, SymbolInfo } from "klinecharts";
 
 const SYMBOLS = [
   { ticker: "BTCUSDT", pricePrecision: 2, volumePrecision: 5 },

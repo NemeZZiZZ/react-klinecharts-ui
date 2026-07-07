@@ -1,5 +1,5 @@
-import type { Coordinate, Bounding, LineAttrs } from "react-klinecharts";
-import { utils } from "react-klinecharts";
+import type { Coordinate, Bounding, LineAttrs } from "klinecharts";
+import { utils } from "klinecharts";
 
 export function getRotateCoordinate(
   coordinate: Coordinate,

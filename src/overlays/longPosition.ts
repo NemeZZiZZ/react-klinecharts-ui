@@ -1,8 +1,11 @@
-import type { OverlayTemplate } from "react-klinecharts";
+import type { OverlayTemplate } from "klinecharts";
 
 const longPosition: OverlayTemplate = {
   name: "longPosition",
-  totalStep: 3,
+  // totalStep 4 → the user places 3 points interactively (entry, target, stop).
+  // With the previous value of 3, only 2 points were captured and the stop was
+  // always a hardcoded 40px offset, so R/R was meaningless.
+  totalStep: 4,
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: true,
   needDefaultYAxisFigure: true,

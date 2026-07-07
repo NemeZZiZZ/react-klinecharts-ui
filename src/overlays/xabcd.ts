@@ -1,4 +1,4 @@
-import type { OverlayTemplate, PolygonAttrs, LineAttrs } from "react-klinecharts";
+import type { OverlayTemplate, PolygonAttrs, LineAttrs } from "klinecharts";
 
 const xabcd: OverlayTemplate = {
   name: "xabcd",

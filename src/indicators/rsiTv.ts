@@ -1,4 +1,4 @@
-import type { IndicatorTemplate, KLineData, Indicator } from "react-klinecharts";
+import type { IndicatorTemplate, KLineData, Indicator } from "klinecharts";
 import TA from "../utils/TA";
 
 /**
@@ -29,13 +29,28 @@ const rsiTv: IndicatorTemplate = {
     const closes = dataList.map((d) => d.close);
 
     const rsiValues = TA.rsi(closes, rsiPeriod);
-    const nonNullRsi = rsiValues.map((v) => v ?? 0);
-    const maValues = TA.sma(nonNullRsi, maPeriod);
+
+    // Compute the RSI moving average only over valid RSI values, propagating
+    // `null` through the warm-up. The previous implementation substituted the
+    // warm-up `null`s with `0`, which pulled the MA toward zero and produced
+    // wrong values for the first `rsiPeriod + maPeriod` bars.
+    const rsiMa: (number | null)[] = new Array(rsiValues.length).fill(null);
+    for (let i = 0; i < rsiValues.length; i++) {
+      if (rsiValues[i] === null) continue;
+      // Collect the last `maPeriod` valid RSI values ending at i. Once we have
+      // that many, the SMA is defined.
+      const valid: number[] = [];
+      for (let j = i; j >= 0 && valid.length < maPeriod; j--) {
+        if (rsiValues[j] !== null) valid.push(rsiValues[j] as number);
+      }
+      if (valid.length === maPeriod) {
+        rsiMa[i] = valid.reduce((a, b) => a + b, 0) / maPeriod;
+      }
+    }
 
     return dataList.map((_, i) => {
       const rsi = rsiValues[i];
-      const rsi_ma =
-        rsi !== null && maValues[i] !== null ? maValues[i] : null;
+      const rsi_ma = rsi !== null ? rsiMa[i] : null;
       return { rsi, rsi_ma };
     });
   },

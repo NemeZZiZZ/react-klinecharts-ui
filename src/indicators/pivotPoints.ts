@@ -1,4 +1,4 @@
-import type { IndicatorTemplate, KLineData } from "react-klinecharts";
+import type { IndicatorTemplate, KLineData } from "klinecharts";
 
 const pivotPoints: IndicatorTemplate = {
   name: "PivotPoints",
@@ -23,7 +23,9 @@ const pivotPoints: IndicatorTemplate = {
     let dayClose = 0;
 
     return dataList.map((kLineData: KLineData) => {
-      const date = new Date(kLineData.timestamp).toLocaleDateString();
+      // Derive the day key from UTC (see vwap.ts for rationale): a stable
+      // boundary independent of the host's local timezone.
+      const date = new Date(kLineData.timestamp).toISOString().slice(0, 10);
       if (date !== lastDate) {
         if (lastDate !== "") {
           lastP = (dayHigh + dayLow + dayClose) / 3;

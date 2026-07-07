@@ -3,12 +3,12 @@ import {
   registerHotkey as registerHotkeyGlobal,
   getHotkey as getHotkeyGlobal,
   getSupportedHotkeys,
-} from "react-klinecharts";
-import type { HotkeyTemplate, Hotkey } from "react-klinecharts";
+} from "klinecharts";
+import type { HotkeyTemplate, Hotkey } from "klinecharts";
 import { useKlinechartsUI } from "../provider/ChartTerminalContext";
 
-export type { HotkeyTemplate, Hotkey } from "react-klinecharts";
-export type { HotkeyActionParams } from "react-klinecharts";
+export type { HotkeyTemplate, Hotkey } from "klinecharts";
+export type { HotkeyActionParams } from "klinecharts";
 
 export interface UseHotkeysReturn {
   /**

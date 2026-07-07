@@ -1,5 +1,5 @@
-import type { OverlayTemplate } from "react-klinecharts";
-import { utils } from "react-klinecharts";
+import type { OverlayTemplate } from "klinecharts";
+import { utils } from "klinecharts";
 import { getRotateCoordinate } from "./utils";
 
 const arrow: OverlayTemplate = {

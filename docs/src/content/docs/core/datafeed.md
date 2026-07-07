@@ -82,7 +82,7 @@ this site):
 
 ```ts
 import type { Datafeed, TerminalPeriod } from "react-klinecharts-ui";
-import type { KLineData, SymbolInfo } from "react-klinecharts";
+import type { KLineData, SymbolInfo } from "klinecharts";
 
 function periodToInterval(p: TerminalPeriod): string {
   const map: Record<string, string> = {

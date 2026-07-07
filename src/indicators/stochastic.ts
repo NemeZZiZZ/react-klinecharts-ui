@@ -1,4 +1,4 @@
-import type { IndicatorTemplate, KLineData, Indicator } from "react-klinecharts";
+import type { IndicatorTemplate, KLineData, Indicator } from "klinecharts";
 
 function rollingMinMax(
   data: number[],

@@ -1,4 +1,4 @@
-import type { OverlayTemplate, LineAttrs, TextAttrs } from "react-klinecharts";
+import type { OverlayTemplate, LineAttrs, TextAttrs } from "klinecharts";
 import { getRayLine } from "./utils";
 
 const fibonacciSpeedResistanceFan: OverlayTemplate = {

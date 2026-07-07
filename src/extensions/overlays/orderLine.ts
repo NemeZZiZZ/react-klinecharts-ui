@@ -1,4 +1,4 @@
-import type { OverlayTemplate } from "react-klinecharts";
+import type { OverlayTemplate } from "klinecharts";
 
 export interface OrderLineFontStyle {
   size?: number;
@@ -40,8 +40,11 @@ export interface OrderLineLabelStyle {
 }
 
 export interface OrderLineLineStyle {
-  /** Line dash style. Default: "dashed" */
-  style?: "solid" | "dashed" | "dotted";
+  /**
+   * Line dash style. Default: "dashed". Note klinecharts only supports
+   * "solid" and "dashed"; a dotted effect is achieved via `dashedValue`.
+   */
+  style?: "solid" | "dashed";
   /** Line thickness. Default: 1 */
   width?: number;
   /** Dash pattern [dash, gap]. Default: [4, 2] (matches chart built-in lines) */
