@@ -4,6 +4,52 @@ All notable changes to **react-klinecharts-ui** are documented in this file.
 
 ---
 
+## 1.1.0 — 2026-07-08
+
+### New Features
+
+- **Optional `ChartCanvas` renderer wrapper (`react-klinecharts-ui/chart`).** A thin component that wires the `<KLineChart>` renderer from `react-klinecharts` to the provider for you — building the data loader, forwarding `symbol` / `period` / `locale` / `timezone` / `theme` from provider state, bootstrapping the default indicators, and dispatching `SET_CHART` on ready. This removes the ~30-line `onReady → dispatch SET_CHART + createDataLoader` boilerplate that every consumer previously had to copy from `examples/ChartView.tsx`.
+
+  - New entry point: `import { ChartCanvas } from "react-klinecharts-ui/chart"`.
+  - `react-klinecharts` is now declared as an **optional** peer dependency (`peerDependenciesMeta.react-klinecharts.optional = true`). It is only required when importing the `./chart` entry; the core library and the `./extensions` entry remain renderer-agnostic and do not pull it in. Install it explicitly when you use `ChartCanvas`: `npm install react-klinecharts-ui klinecharts react-klinecharts`.
+  - `tsup.config.ts` `external` array now includes `react-klinecharts` so it is never bundled.
+  - The library remains fully headless: `ChartCanvas` is opt-in convenience, not a requirement. The three ways to put a `Chart` into the store (`ChartCanvas`, `<KLineChart>` + manual `onReady` bridge, or direct `klinecharts.init()`) are all documented in the README "Renderer-agnostic" section.
+
+- **Pluggable storage adapter (`storage` provider option).** User-facing state in the reducer store — price alerts, chart settings (`useKlinechartsUISettings`), and the active indicator set (main/sub lists, pane ids, axis bindings, visibility) — is now hydratable on mount and auto-persisted on change through a pluggable adapter. Before this, all of it lived only in memory and was lost on every page reload.
+
+  - New provider option `storage?: StorageOptions`. Omit it entirely to disable persistence (the default). `storage={{}}` enables defaults: the `localStorage` adapter, the `alerts` / `settings` / `indicators` namespaces, and a `"rkui:"` key prefix.
+  - The adapter mirrors the **Web Storage API** (`getItem` / `setItem` / `removeItem`), so `localStorage`, `sessionStorage`, or a custom wrapper can be passed directly. New public exports: `StorageAdapter`, `StorageNamespace`, `StorageOptions`, `ResolvedStorage`, `createDefaultStorage`, `resolveStorage`, plus the `DEFAULT_STORAGE_NAMESPACES` / `DEFAULT_STORAGE_KEY_PREFIX` constants.
+  - Override the adapter to plug in IndexedDB or a remote backend (keep a synchronous cache and flush in the background — the contract is sync). Override `keyPrefix` / `namespaces` for fine-grained control.
+  - **SSR-safe**: the default adapter is a no-op when `localStorage` is undefined; hydrate reads are guarded and never crash server rendering. **Backward compatible**: with no `storage` prop the provider behaves exactly like 1.0.0. Adapter failures (quota / serialization) are swallowed so a failing backend never breaks the chart; corrupt stored JSON falls back to defaults.
+
+- **Indicator-value alerts.** `addAlert` now accepts an optional 5th argument `target?: AlertTarget`. With `{ type: "indicator", indicatorId, figureKey }` the alert watches a specific indicator figure series (e.g. RSI crossing 70, MACD signal crossover) instead of the main symbol's price. The provider poller reads `chart.getIndicators()` for indicator targets and `getDataList()` for price targets, tracking a per-alert value baseline so the first observation never fires a spurious crossing. Default (`type: "price"`, or omitting `target`) is unchanged — existing alerts and serialized state stay compatible. New public type export: `AlertTarget`.
+
+- **Multi-listener `onAlertTriggered`.** Previously the firing callback was a single ref (last writer wins), so a second component registering a listener silently disabled the first. `onAlertTriggered` now adds to a listener `Set`, invokes **every** registered callback on each firing, and returns an unsubscribe function — so a toolbar, a status bar, and a sound trigger can all observe crossings simultaneously.
+
+- **Workspace & multi-chart foundation.** New `WorkspaceProvider` + `useWorkspace` + `useChartSync` exports let you render a grid of `<KlinechartsUIProvider>` trees whose charts mirror crosshair / scroll / zoom (and keep the workspace's notion of each cell's symbol / period in sync). Previously the library assumed a single chart per provider, so grid layouts, linked charts, and synced viewports required ad-hoc consumer code (the `examples/multi-chart` page shipped a local version of this; it is now a published primitive).
+
+  - **`<WorkspaceProvider defaultCells={...} sync={...}>`** holds the layout state (`WorkspaceState`: cells + active cell id), a chart-instance registry, a re-entrancy broadcast guard, and the resolved per-channel sync config.
+  - **`useChartSync({ cellId })`** is the bridge hook — call it inside each `KlinechartsUIProvider` (via a `<ChartSyncBridge cellId={...} />` component). It registers that provider's chart with the workspace and subscribes to `onCrosshairChange` / `onScroll` / `onZoom`, mirroring to siblings.
+  - Mirroring uses only the **public** klinecharts API (`executeAction`, `scrollToTimestamp`, `setBarSpace`) — no internal `_chartStore`, so it survives klinecharts version upgrades. A `broadcastingRef` guard prevents feedback loops. Per-channel enable/disable via the `sync` prop (e.g. `{ scroll: false }`); defaults to every channel on.
+  - New public exports: `WorkspaceProvider`, `WorkspaceProviderProps`, `useWorkspace`, `useChartSync`, `UseChartSyncOptions`, `ChartCell`, `WorkspaceState`, `WorkspaceAction`, `WorkspaceContextValue`, `SyncChannel`, `SyncConfig`, `DEFAULT_SYNC_CONFIG`.
+
+  This is the **first of three planned workspace stages**. Stage 1 (this release) covers layout state + viewport/crosshair mirroring. Stage 2 will hoist shared alerts/replay/drawings to the workspace; stage 3 will add tabbed layouts and server-side persistence. Each `KlinechartsUIProvider` still owns its own alert poller and replay timer — correct for independent cells, to be revisited when shared state lands.
+
+### Documentation
+
+- README and docs now explicitly explain that the library is **renderer-agnostic**: the only bridge between a renderer and the provider is `dispatch({ type: "SET_CHART", chart })`. The README "Installation" section, a new "Renderer-agnostic" subsection, `installation.mdx` (peer-dependency table marks `react-klinecharts` as optional), `quick-start.mdx` (adds the `ChartCanvas` shortcut and a renderer-agnostic callout), `concept.md`, `state-actions.md`, and the landing page were all updated.
+- README: new **"Persistence"** section (after "Renderer-agnostic") covering scope, defaults, custom adapters, the sync-contract caveat, and the boundary vs `useLayoutManager`. `docs/guides/persisting-preferences.md` rewritten as a three-layer guide.
+- `docs/hooks/use-alerts.mdx` updated: removed the "single listener / last registration wins" note; documented the indicator-target overload with an RSI example; the API table reflects the new `onAlertTriggered` signature (`() => () => void`).
+- README: new **"Workspace & multi-chart"** section with a runnable 2×2 grid example and an explicit scope note.
+
+### Internal / API
+
+- `KlinechartsUIDispatchValue` gained a `storage: ResolvedStorage | null` field so hooks (and tests) read/write through the same adapter the provider resolved. `useKlinechartsUISettings` now hydrates from and writes back to the `"settings"` namespace when configured.
+- `KlinechartsUIDispatchValue.alertTriggeredListenerRef` (single) → `alertTriggeredListenersRef` (`Set`). The public hook surface changed only additively (the new `target` arg is optional, `onAlertTriggered`'s new return value is backward-compatible for callers that ignore it).
+- New tests (+31): `src/storage/index.test.ts` (adapter round-trip, resolveStorage), `src/provider/storage.test.tsx` (hydrate/write-back/namespace-filter/failure-resilience), `src/hooks/useAlerts.test.ts` (multi-listener, indicator-target, backward-compat), `src/chart/ChartCanvas.test.tsx` (render, prop forwarding, SET_CHART bridge, indicator bootstrap), `src/workspace/index.test.tsx` (provider init, sync-config merge, registry, broadcast guard). Total suite: 165 tests.
+
+---
+
 ## 1.0.0 — 2026-07-07
 
 ### Breaking Changes

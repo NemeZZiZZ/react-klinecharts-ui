@@ -5,6 +5,7 @@ import type { Datafeed, KlinechartsUIAction } from "../src/provider/types";
 import { useKlinechartsUIDispatch } from "../src/provider/ChartTerminalContext";
 import { createMockChart, type MockChart } from "./mockChart";
 import type { KLineData } from "klinecharts";
+import type { StorageOptions } from "../src/storage";
 
 /** A minimal but real datafeed used by hook tests (returns canned data). */
 export function fakeDatafeed(history: KLineData[] = []): Datafeed {
@@ -18,6 +19,12 @@ export function fakeDatafeed(history: KLineData[] = []): Datafeed {
 
 export interface ProviderRenderOptions extends RenderHookOptions<unknown> {
   initialData?: KLineData[];
+  /** Optional storage config forwarded to the provider. */
+  storage?: StorageOptions;
+  /** Forwarded to the provider as defaultMainIndicators. */
+  defaultMainIndicators?: string[];
+  /** Forwarded to the provider as defaultSubIndicators. */
+  defaultSubIndicators?: string[];
 }
 
 /**
@@ -46,7 +53,14 @@ export function renderHookWithProvider<T>(
   const datafeed = fakeDatafeed(opts.initialData ?? []);
 
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <KlinechartsUIProvider datafeed={datafeed}>{children}</KlinechartsUIProvider>
+    <KlinechartsUIProvider
+      datafeed={datafeed}
+      storage={opts.storage}
+      defaultMainIndicators={opts.defaultMainIndicators}
+      defaultSubIndicators={opts.defaultSubIndicators}
+    >
+      {children}
+    </KlinechartsUIProvider>
   );
 
   const result = renderHook(() => useChartAndHook(chart, hook), {

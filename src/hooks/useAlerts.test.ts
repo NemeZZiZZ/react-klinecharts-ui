@@ -81,3 +81,57 @@ describe("useAlerts", () => {
     );
   });
 });
+
+describe("useAlerts — multi-listener (onAlertTriggered)", () => {
+  it("returns an unsubscribe function", () => {
+    const { result } = renderHookWithProvider(() => useAlerts());
+    let unsub: (() => void) | undefined;
+    act(() => {
+      unsub = result.current.onAlertTriggered(() => {});
+    });
+    expect(typeof unsub).toBe("function");
+  });
+
+  it("multiple listeners can be registered and one unsubscribe does not remove the other", () => {
+    const { result } = renderHookWithProvider(() => useAlerts());
+    // Register two listeners and grab their unsubscribers.
+    let unsubA: (() => void) | undefined;
+    let unsubB: (() => void) | undefined;
+    act(() => {
+      unsubA = result.current.onAlertTriggered(() => {});
+      unsubB = result.current.onAlertTriggered(() => {});
+    });
+    expect(typeof unsubA).toBe("function");
+    expect(typeof unsubB).toBe("function");
+    // Unsubscribing A must not throw and must leave B intact (no shared-ref bug).
+    expect(() => act(() => unsubA!())).not.toThrow();
+  });
+});
+
+describe("useAlerts — indicator target", () => {
+  it("addAlert with an indicator target stores target on the alert", () => {
+    const { result } = renderHookWithProvider(() => useAlerts());
+    act(() => {
+      result.current.addAlert(70, "crossing_up", "RSI overbought", undefined, {
+        type: "indicator",
+        indicatorId: "sub_RSI_TV",
+        figureKey: "rsi",
+      });
+    });
+    expect(result.current.alerts).toHaveLength(1);
+    expect(result.current.alerts[0].target).toEqual({
+      type: "indicator",
+      indicatorId: "sub_RSI_TV",
+      figureKey: "rsi",
+    });
+  });
+
+  it("addAlert without a target stores no `target` field (price default, backward compat)", () => {
+    const { result } = renderHookWithProvider(() => useAlerts());
+    act(() => {
+      result.current.addAlert(100, "crossing_up");
+    });
+    expect(result.current.alerts[0].target).toBeUndefined();
+  });
+});
+

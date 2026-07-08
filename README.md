@@ -69,6 +69,17 @@ pnpm add react-klinecharts-ui klinecharts
 yarn add react-klinecharts-ui klinecharts
 ```
 
+> **Rendering a chart?** `react-klinecharts-ui` is headless — it does not render
+> the canvas itself. The fastest path is the optional `ChartCanvas` wrapper,
+> which needs `react-klinecharts`:
+>
+> ```bash
+> npm install react-klinecharts-ui klinecharts react-klinecharts
+> ```
+>
+> You can also initialise the chart yourself with `klinecharts.init()` and skip
+> `react-klinecharts` entirely — see [Renderer-agnostic](#renderer-agnostic).
+
 ---
 
 ## Concept
@@ -81,6 +92,170 @@ The library follows a **headless** pattern — all UI is written by the consumer
 - **Utilities** — `createDataLoader`, overlay templates
 
 All hooks must be called inside `<KlinechartsUIProvider>`.
+
+### Renderer-agnostic
+
+`react-klinecharts-ui` is **headless** — it owns state (symbol, period, indicators, alerts, replay, …) and drives a klinecharts `Chart` instance, but it does **not** render the canvas. The only bridge between a renderer and the provider is a single dispatch:
+
+```ts
+dispatch({ type: "SET_CHART", chart });
+```
+
+Once the chart instance is registered, every hook (`useIndicators`, `useAlerts`, `useReplay`, …) reads and mutates it via `state.chart.*`. You can initialise that instance **three ways**:
+
+**1. `ChartCanvas` (fastest, optional peer `react-klinecharts`)** — the thin wrapper shipped at `react-klinecharts-ui/chart` wires the `<KLineChart>` renderer, builds the data loader, forwards symbol/period/theme from provider state, and dispatches `SET_CHART` for you:
+
+```tsx
+import { KlinechartsUIProvider } from "react-klinecharts-ui";
+import { ChartCanvas } from "react-klinecharts-ui/chart";
+
+<KlinechartsUIProvider datafeed={datafeed} defaultSymbol={symbol} defaultTheme="dark">
+  <ChartCanvas className="h-[500px]" />
+</KlinechartsUIProvider>;
+```
+
+**2. `<KLineChart>` from `react-klinecharts` directly** — full control over props, at the cost of writing the `onReady` bridge yourself:
+
+```tsx
+import { useMemo } from "react";
+import { KLineChart } from "react-klinecharts";
+import { useKlinechartsUI, createDataLoader } from "react-klinecharts-ui";
+
+function ChartView() {
+  const { state, dispatch, datafeed } = useKlinechartsUI();
+  const dataLoader = useMemo(() => createDataLoader(datafeed, dispatch), [datafeed, dispatch]);
+  return (
+    <KLineChart
+      dataLoader={dataLoader}
+      symbol={state.symbol ?? undefined}
+      period={state.period}
+      styles={state.theme}
+      onReady={(chart) => dispatch({ type: "SET_CHART", chart })}
+    />
+  );
+}
+```
+
+**3. Direct `klinecharts.init()` (no `react-klinecharts` at all)** — for custom lifecycles, SSR/Next.js, or when you want zero extra dependencies:
+
+```tsx
+import { useEffect, useRef } from "react";
+import { init, dispose } from "klinecharts";
+import { useKlinechartsUI } from "react-klinecharts-ui";
+
+function ChartView() {
+  const { dispatch, datafeed } = useKlinechartsUI();
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const chart = init(ref.current!);
+    dispatch({ type: "SET_CHART", chart });          // the bridge
+    chart!.applyNewData(/* load bars yourself */);
+    return () => dispose(ref.current!);
+  }, []);
+  return <div ref={ref} style={{ height: 500 }} />;
+}
+```
+
+Whatever route you pick, the hooks work the same — they only care about the `Chart` instance in the store.
+
+### Persistence
+
+By default, user-facing state (alerts, chart settings, the active indicator
+set) lives only in memory and is **lost on page reload**. Pass a `storage`
+option to the provider to hydrate it on mount and write it back on every
+change. The adapter mirrors the Web Storage API, so `localStorage` works out
+of the box:
+
+```tsx
+<KlinechartsUIProvider datafeed={datafeed} storage={{}}>
+  {/* alerts / settings / indicators now survive refresh */}
+</KlinechartsUIProvider>
+```
+
+`storage={{}}` uses the defaults: `localStorage` adapter, the `alerts` /
+`settings` / `indicators` namespaces, and a `"rkui:"` key prefix. You can
+override any of them — e.g. plug in a remote or IndexedDB-backed adapter:
+
+```tsx
+import type { StorageAdapter } from "react-klinecharts-ui";
+
+const remoteAdapter: StorageAdapter = {
+  getItem: (key) => mySyncCache.get(key) ?? null,
+  setItem: (key, value) => {
+    mySyncCache.set(key, value);
+    flushToServer(key, value); // async, fire-and-forget
+  },
+  removeItem: (key) => { mySyncCache.delete(key); deleteFromServer(key); },
+};
+
+<KlinechartsUIProvider datafeed={datafeed} storage={{ adapter: remoteAdapter }}>
+```
+
+**Scope.** The adapter covers the reducer store today: `alerts`, `settings`
+(`useKlinechartsUISettings`), and `indicators` (the active lists, pane ids,
+axis bindings, and visibility). Per-hook `useState` values — script code
+(`useScriptEditor`), compared symbols (`useCompare`), watchlist, annotations —
+are not yet covered by the adapter and remain in memory. `useLayoutManager`
+(named snapshot presets) is orthogonal: it serializes the whole chart
+(indicators + drawings + meta) on demand to its own keys, independent of the
+live `storage` adapter.
+
+The adapter contract is **synchronous** (matching the Web Storage API). For
+async backends, keep a synchronous in-memory cache and flush in the
+background — the provider reads/writes through `getItem`/`setItem` only.
+
+---
+
+### Workspace & multi-chart
+
+`KlinechartsUIProvider` owns exactly one chart. To render a **grid** of charts
+that share crosshair / scroll / zoom / symbol / period, wrap several providers
+in a `WorkspaceProvider` and drop a `useChartSync` bridge inside each:
+
+```tsx
+import {
+  KlinechartsUIProvider,
+  WorkspaceProvider,
+  useChartSync,
+  useWorkspace,
+} from "react-klinecharts-ui";
+
+const cells = [
+  { id: "a", symbol: { ticker: "BTCUSDT" }, period: { span: 1, type: "minute", label: "1m" } },
+  { id: "b", symbol: { ticker: "ETHUSDT" }, period: { span: 1, type: "minute", label: "1m" } },
+];
+
+// Rendered inside each KlinechartsUIProvider — registers its chart with the
+// workspace and mirrors viewport events to siblings.
+function ChartSyncBridge({ cellId }: { cellId: string }) {
+  useChartSync({ cellId });
+  return null;
+}
+
+<WorkspaceProvider defaultCells={cells}>
+  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
+    {cells.map((c) => (
+      <KlinechartsUIProvider key={c.id} datafeed={datafeed} defaultSymbol={c.symbol} defaultPeriod={c.period}>
+        <ChartSyncBridge cellId={c.id} />
+        <ChartCanvas />
+      </KlinechartsUIProvider>
+    ))}
+  </div>
+</WorkspaceProvider>
+```
+
+`useChartSync` mirrors crosshair / scroll / zoom between the registered charts
+using only the **public** klinecharts API (`executeAction`, `scrollToTimestamp`,
+`setBarSpace`) — no internal `_chartStore`. A re-entrancy guard prevents
+feedback loops. Per-channel sync can be disabled via the `sync` prop
+(`{ scroll: false }`).
+
+> **Scope of this foundation.** Each cell keeps its own alerts, replay, and
+> drawings (per-provider). Hoisting shared alerts/replay/drawings to the
+> workspace level, plus tabbed layouts and server-persisted workspaces, is
+> planned. Read the
+> [multi-chart example](https://nemezzizz.github.io/react-klinecharts-ui/examples/multi-chart/)
+> for a runnable 2×2 grid.
 
 ---
 
@@ -2084,4 +2259,8 @@ export type {
   DepthOverlayExtendData,
   DepthOverlayRow,
 };
+
+// Chart entry (optional — peer-depends on react-klinecharts).
+// import from "react-klinecharts-ui/chart"
+export { ChartCanvas, type ChartCanvasProps };
 ```

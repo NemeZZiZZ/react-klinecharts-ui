@@ -3,11 +3,11 @@ import {
   useKlinechartsUI,
   useKlinechartsUIDispatch,
 } from "../provider/ChartTerminalContext";
-import type { Alert, AlertCondition } from "../provider/featureTypes";
+import type { Alert, AlertCondition, AlertTarget } from "../provider/featureTypes";
 import { ensureAlertLineRegistered } from "../extensions";
 import type { AlertLineExtendData } from "../extensions/overlays/alertLine";
 
-export type { Alert, AlertCondition } from "../provider/featureTypes";
+export type { Alert, AlertCondition, AlertTarget } from "../provider/featureTypes";
 export type { AlertLineExtendData } from "../extensions/overlays/alertLine";
 
 export interface UseAlertsReturn {
@@ -17,10 +17,18 @@ export interface UseAlertsReturn {
     condition: AlertCondition,
     message?: string,
     extendData?: AlertLineExtendData,
+    /** Alert target: price (default) or an indicator figure value. */
+    target?: AlertTarget,
   ) => string;
   removeAlert: (id: string) => void;
   clearAlerts: () => void;
-  onAlertTriggered: (callback: (alert: Alert) => void) => void;
+  /**
+   * Register a callback fired when any alert crosses its target. Returns an
+   * unsubscribe function. Multiple components can register simultaneously —
+   * every registered listener is invoked on each firing (no longer
+   * last-writer-wins).
+   */
+  onAlertTriggered: (callback: (alert: Alert) => void) => () => void;
 }
 
 let alertCounter = 0;
@@ -36,7 +44,7 @@ let alertCounter = 0;
  */
 export function useAlerts(): UseAlertsReturn {
   const { state, dispatch } = useKlinechartsUI();
-  const { alertTriggeredListenerRef } = useKlinechartsUIDispatch();
+  const { alertTriggeredListenersRef } = useKlinechartsUIDispatch();
   const alerts = state.alerts;
 
   const addAlert = useCallback(
@@ -45,6 +53,7 @@ export function useAlerts(): UseAlertsReturn {
       condition: AlertCondition,
       message?: string,
       extendData?: AlertLineExtendData,
+      target?: AlertTarget,
     ): string => {
       const id = `alert_${++alertCounter}`;
 
@@ -63,6 +72,9 @@ export function useAlerts(): UseAlertsReturn {
         message,
         triggered: false,
         extendData: resolvedExtendData,
+        // Persist the target only when it's an indicator alert; omit for the
+        // default price target so existing serialized alerts stay compatible.
+        ...(target && target.type === "indicator" ? { target } : {}),
       };
 
       // Use the granular ADD_ALERT action (not SET_ALERTS) so this append
@@ -107,9 +119,13 @@ export function useAlerts(): UseAlertsReturn {
 
   const onAlertTriggered = useCallback(
     (callback: (alert: Alert) => void) => {
-      alertTriggeredListenerRef.current = callback;
+      const set = alertTriggeredListenersRef.current;
+      set.add(callback);
+      return () => {
+        set.delete(callback);
+      };
     },
-    [alertTriggeredListenerRef],
+    [alertTriggeredListenersRef],
   );
 
   return {

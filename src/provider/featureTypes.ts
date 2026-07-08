@@ -15,12 +15,37 @@ import type { AlertLineExtendData } from "../extensions/overlays/alertLine";
 
 export type AlertCondition = "crossing_up" | "crossing_down" | "crossing";
 
+/**
+ * What an alert watches. Defaults to a price level on the main symbol; an
+ * `indicator` target watches a specific figure series value (e.g. RSI
+ * crossing 70, MACD signal crossover).
+ */
+export type AlertTarget =
+  | { type: "price" }
+  | {
+      type: "indicator";
+      /** Indicator id as registered with klinecharts (e.g. `sub_RSI_TV`). */
+      indicatorId: string;
+      /** Figure key whose value is compared (e.g. `rsi`, `macd`, `signal`). */
+      figureKey: string;
+    };
+
 export interface Alert {
   id: string;
+  /**
+   * The threshold the target is compared against. For a `price` target this is
+   * a price level; for an `indicator` target it is the indicator value to
+   * cross (e.g. 70 for RSI overbought).
+   */
   price: number;
   condition: AlertCondition;
   message?: string;
   triggered: boolean;
+  /**
+   * What the alert watches. Omit / `"price"` for the classic price-crossing
+   * behaviour; use `"indicator"` for indicator-value crossing.
+   */
+  target?: AlertTarget;
   /**
    * Visual style for the alert line overlay (color, label text, line/mark
    * styling, bell marker). Persisted in the store so it survives undo/redo

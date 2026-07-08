@@ -28,15 +28,20 @@ alongside its peer dependencies `react`, `react-dom` and `klinecharts`.
 
 ## Peer dependencies
 
-| Package            | Version    |
-| ------------------ | ---------- |
-| `react`            | `>= 17.0.0` |
-| `react-dom`        | `>= 17.0.0` |
-| `klinecharts`      | `>= 10.0.0-beta3` |
+| Package             | Required | Version              |
+| ------------------- | -------- | -------------------- |
+| `react`             | yes      | `>= 17.0.0`          |
+| `react-dom`         | yes      | `>= 17.0.0`          |
+| `klinecharts`       | yes      | `>= 10.0.0-beta3`    |
+| `react-klinecharts` | optional | `>= 0.3.0`           |
+
+`react-klinecharts` is only needed if you render the chart with its `<KLineChart>`
+component or the `ChartCanvas` wrapper from `react-klinecharts-ui/chart`. If you
+initialise the chart yourself with `klinecharts.init()`, you can skip it.
 
 ## Entry points
 
-The package exposes two entry points:
+The package exposes three entry points:
 
 ```ts
 // Main: provider, hooks, overlays, indicators, utils, data/constants
@@ -44,6 +49,9 @@ import { KlinechartsUIProvider, useIndicators } from "react-klinecharts-ui";
 
 // Extensions: low-level registration + order line / depth overlays
 import { registerExtensions, orderLine } from "react-klinecharts-ui/extensions";
+
+// Chart: optional thin renderer wrapper (requires `react-klinecharts`)
+import { ChartCanvas } from "react-klinecharts-ui/chart";
 ```
 
 Next: build a working chart in the [Quick Start](../quick-start/).

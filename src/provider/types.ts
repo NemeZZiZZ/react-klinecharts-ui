@@ -13,6 +13,7 @@ import type {
   MeasureState,
   ReplayState,
 } from "./featureTypes";
+import type { StorageOptions, ResolvedStorage } from "../storage";
 
 /**
  * Explicit partial symbol type — avoids `PickPartial<SymbolInfo, ...>` which
@@ -61,6 +62,17 @@ export interface KlinechartsUIOptions {
    * These are registered once, alongside the built-in drawing-tool overlays.
    */
   overlays?: OverlayTemplate[];
+  /**
+   * Optional persistence configuration. When provided, the provider hydrates
+   * the listed namespaces (alerts, settings, indicators) from the adapter on
+   * mount and writes them back on every change. Defaults to `localStorage`
+   * (SSR-safe). Omit entirely to disable persistence (pre-1.1.0 behaviour).
+   *
+   * Note: this covers the reducer store only. Per-hook `useState` values
+   * (script code, compared symbols, watchlist, annotations) are not yet
+   * persisted — see the roadmap.
+   */
+  storage?: StorageOptions;
   children: ReactNode;
   /** Called on every dispatched action with the resulting new state and previous state. */
   onStateChange?: (
@@ -172,10 +184,12 @@ export interface KlinechartsUIDispatchValue {
   /** Ref populated by useUndoRedo; other hooks call it to record actions. */
   undoRedoListenerRef: RefObject<UndoRedoListener | null>;
   /**
-   * Listener set by `useAlerts.onAlertTriggered`; invoked by the provider-owned
-   * crossing poller when an alert fires. Last writer wins (one active listener).
+   * Listener set registered via `useAlerts.onAlertTriggered`; invoked by the
+   * provider-owned crossing poller when an alert fires. A Set so multiple
+   * components (toolbar, status bar, sound trigger) can all observe firings
+   * without one overwriting the other. `onAlertTriggered` returns an unsubscribe.
    */
-  alertTriggeredListenerRef: RefObject<((alert: Alert) => void) | null>;
+  alertTriggeredListenersRef: RefObject<Set<(alert: Alert) => void>>;
   /**
    * Provider-owned replay resources, shared across every `useReplay` instance
    * so there is exactly one playback timer and one data buffer. The hook reads
@@ -185,6 +199,12 @@ export interface KlinechartsUIDispatchValue {
   replayIntervalRef: RefObject<ReturnType<typeof setInterval> | null>;
   replaySavedDataRef: RefObject<KLineData[]>;
   replayIndexRef: RefObject<number>;
+  /**
+   * Resolved persistence configuration, or `null` when the consumer did not
+   * pass the `storage` option (persistence disabled — pre-1.1.0 behaviour).
+   * Hooks and tests read/write through this so they share one adapter.
+   */
+  storage: ResolvedStorage | null;
 }
 
 /** Combined context value returned by `useKlinechartsUI()`. */

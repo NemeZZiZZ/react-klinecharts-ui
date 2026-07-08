@@ -15,8 +15,10 @@ forwarding a buy/sell signal to your backend or triggering a push notification.
 
 :::note[Multi-instance safe]
 The alert list lives in the shared store (`state.alerts`) and the crossing poller
-is owned by the provider (one poller, active only while alerts exist). Note:
-`onAlertTriggered` registers a **single** listener — the last registration wins.
+is owned by the provider (one poller, active only while alerts exist).
+`onAlertTriggered` registers a listener and returns an unsubscribe function —
+multiple components (toolbar, status bar, sound trigger) can observe firings
+simultaneously; every registered listener is invoked on each crossing.
 :::
 
 :::tip[No overlay setup needed]
@@ -40,9 +42,19 @@ addAlert(70000, "crossing_up", "Take profit", {
   showBell: true,
 });
 
-onAlertTriggered((alert) => {
+// Indicator-value alert (e.g. RSI crossing 70). The 5th argument targets a
+// specific indicator figure series instead of the main symbol's price.
+addAlert(70, "crossing_up", "RSI overbought", undefined, {
+  type: "indicator",
+  indicatorId: "sub_RSI_TV",
+  figureKey: "rsi",
+});
+
+// onAlertTriggered returns an unsubscribe; register as many as you need.
+const off = onAlertTriggered((alert) => {
   console.log("Alert fired:", alert.message, alert.price);
 });
+// later: off();
 ```
 
 ## Try it
@@ -54,10 +66,10 @@ onAlertTriggered((alert) => {
 | Property | Type | Description |
 | -------- | ---- | ----------- |
 | `alerts` | `Alert[]` | Current alerts (active and triggered) |
-| `addAlert` | `(price, condition, message?, extendData?) => string` | Create an alert; returns its id. `extendData` (`AlertLineExtendData`) customizes the line/label |
+| `addAlert` | `(price, condition, message?, extendData?, target?) => string` | Create an alert; returns its id. `extendData` (`AlertLineExtendData`) customizes the line/label. `target` (`AlertTarget`) watches a price level (default) or an indicator figure value |
 | `removeAlert` | `(id: string) => void` | Remove a single alert and its line |
 | `clearAlerts` | `() => void` | Remove all alerts |
-| `onAlertTriggered` | `(cb: (alert: Alert) => void) => void` | Register a single fire callback |
+| `onAlertTriggered` | `(cb: (alert: Alert) => void) => () => void` | Register a firing listener; returns an unsubscribe. Multiple listeners are all invoked |
 
 ```ts
 type AlertCondition = "crossing_up" | "crossing_down" | "crossing";

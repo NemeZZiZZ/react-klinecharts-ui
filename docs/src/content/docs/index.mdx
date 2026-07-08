@@ -53,10 +53,10 @@ import { Card, CardGrid } from "@astrojs/starlight/components";
 
 ```tsx
 import { KlinechartsUIProvider } from "react-klinecharts-ui";
-import { KLineChart } from "react-klinecharts";
+import { ChartCanvas } from "react-klinecharts-ui/chart";
 
 <KlinechartsUIProvider datafeed={datafeed} defaultSymbol={symbol} defaultTheme="dark">
-  <MyTerminalUI />
+  <ChartCanvas className="h-[500px]" />
 </KlinechartsUIProvider>;
 ```
 

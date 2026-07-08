@@ -73,5 +73,9 @@ persistence, analytics, or syncing a backend:
 >
 ```
 
-The first action you almost always handle is `SET_CHART`, dispatched from
-`<KLineChart onReady>` — it stores the chart instance so hooks can drive it.
+The first action you almost always handle is `SET_CHART`, dispatched from your
+chart renderer's ready callback — it stores the klinecharts `Chart` instance so
+hooks can drive it. The library is renderer-agnostic: you can dispatch it from
+`<KLineChart onReady>` (react-klinecharts), from the `ChartCanvas` wrapper
+(`react-klinecharts-ui/chart`, which does the dispatch for you), or from a
+manual `klinecharts.init()` + `dispatch` in your own effect.

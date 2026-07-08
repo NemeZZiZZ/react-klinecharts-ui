@@ -18,6 +18,8 @@ import {
 import { DEFAULT_PERIODS } from "../data/periods";
 import { registerExtensions } from "../extensions";
 import { registerOverlay } from "klinecharts";
+import { resolveStorage, type ResolvedStorage, type StorageOptions } from "../storage";
+import type { Alert } from "./featureTypes";
 
 export function reducer(
   state: KlinechartsUIState,
@@ -86,13 +88,16 @@ export function KlinechartsUIProvider({
   defaultPeriod,
   defaultTheme = "light",
   defaultTimezone = "Asia/Shanghai",
-  defaultMainIndicators = ["MA"],
-  defaultSubIndicators = ["VOL"],
+  // NOTE: no destructuring default here — the init function must distinguish
+  // "consumer passed default*" (wins) from "use stored value" (hydrate).
+  defaultMainIndicators,
+  defaultSubIndicators,
   defaultLocale = "en-US",
   periods,
   styles,
   registerExtensions: shouldRegister = true,
   overlays: extraOverlays,
+  storage: storageOptions,
   children,
   onStateChange,
   onSymbolChange,
@@ -103,6 +108,15 @@ export function KlinechartsUIProvider({
   onSubIndicatorsChange,
   onSettingsChange,
 }: KlinechartsUIOptions): ReactElement {
+  // Resolve storage once for the lifetime of the provider. `storageOptions` is
+  // captured by value (not reference) so an inline consumer prop won't churn
+  // the resolved object. `null` when persistence is disabled.
+  const resolvedStorage = useMemo<ResolvedStorage | null>(
+    () => (storageOptions ? resolveStorage(storageOptions as StorageOptions) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   // Lazy initializer — runs only once, avoiding a new object on every render.
   const [state, dispatch] = useReducer(
     reducer,
@@ -117,45 +131,79 @@ export function KlinechartsUIProvider({
       defaultLocale,
       periods,
       styles,
+      storage: resolvedStorage,
     },
-    (opts) => ({
-      chart: null,
-      datafeed: opts.datafeed,
-      symbol: opts.defaultSymbol ?? null,
-      period: opts.defaultPeriod ?? (opts.periods ?? DEFAULT_PERIODS)[0],
-      theme: opts.defaultTheme ?? "light",
-      timezone: opts.defaultTimezone ?? "Asia/Shanghai",
-      isLoading: false,
-      locale: opts.defaultLocale ?? "en-US",
-      periods: opts.periods ?? DEFAULT_PERIODS,
-      mainIndicators: opts.defaultMainIndicators ?? ["MA"],
-      subIndicators: (opts.defaultSubIndicators ?? ["VOL"]).reduce(
-        (acc, name) => ({ ...acc, [name]: "" }),
-        {} as Record<string, string>,
-      ),
-      indicatorAxes: {},
-      indicatorVisibility: {},
-      alerts: [],
-      measure: { isActive: false, fromPoint: null, result: null },
-      replay: {
-        isReplaying: false,
-        isPaused: false,
-        speed: 1 as const,
-        barIndex: 0,
-        totalBars: 0,
-      },
-      styles: opts.styles,
-      screenshotUrl: null,
-    }),
+    (opts) => {
+      const s = opts.storage as ResolvedStorage | null;
+      const read = <T,>(ns: "alerts" | "settings" | "indicators", fallback: T): T => {
+        if (!s || !s.persists(ns)) return fallback;
+        try {
+          const raw = s.adapter.getItem(s.key(ns));
+          return raw ? (JSON.parse(raw) as T) : fallback;
+        } catch {
+          return fallback;
+        }
+      };
+
+      // Hydrate indicators. Stored shape: { main: string[], sub: Record<string,string>, axes, visibility }.
+      const storedIndicators = read<{
+        main?: string[];
+        sub?: Record<string, string>;
+        axes?: Record<string, string>;
+        visibility?: Record<string, boolean>;
+      }>("indicators", {});
+
+      return {
+        chart: null,
+        datafeed: opts.datafeed,
+        symbol: opts.defaultSymbol ?? null,
+        period: opts.defaultPeriod ?? (opts.periods ?? DEFAULT_PERIODS)[0],
+        theme: opts.defaultTheme ?? "light",
+        timezone: opts.defaultTimezone ?? "Asia/Shanghai",
+        isLoading: false,
+        locale: opts.defaultLocale ?? "en-US",
+        periods: opts.periods ?? DEFAULT_PERIODS,
+        // Persistence semantics: STORED values win over `default*` props —
+        // the user's saved configuration should survive reload even when the
+        // app passes defaults. Only when storage is empty/unconfigured do the
+        // `default*` props apply, falling back to the built-ins last.
+        // (Settings live in useKlinechartsUISettings useState and hydrate
+        // separately via the dispatch-context `storage`.)
+        mainIndicators:
+          storedIndicators.main ?? opts.defaultMainIndicators ?? ["MA"],
+        subIndicators: storedIndicators.sub ??
+          (opts.defaultSubIndicators
+            ? opts.defaultSubIndicators.reduce(
+                (acc, name) => ({ ...acc, [name]: "" }),
+                {} as Record<string, string>,
+              )
+            : { VOL: "" }),
+        indicatorAxes: storedIndicators.axes ?? {},
+        indicatorVisibility: storedIndicators.visibility ?? {},
+        alerts: read<Alert[]>("alerts", []),
+        measure: { isActive: false, fromPoint: null, result: null },
+        replay: {
+          isReplaying: false,
+          isPaused: false,
+          speed: 1 as const,
+          barIndex: 0,
+          totalBars: 0,
+        },
+        styles: opts.styles,
+        screenshotUrl: null,
+      };
+    },
   );
 
   const fullscreenContainerRef = useRef<HTMLElement | null>(null);
   const undoRedoListenerRef = useRef<import("./types").UndoRedoListener | null>(null);
 
   // Provider-owned feature resources (single owner across all hook instances).
-  const alertTriggeredListenerRef = useRef<
-    ((alert: import("./featureTypes").Alert) => void) | null
-  >(null);
+  // Multi-listener: several components (toolbar, status bar, sound trigger) can
+  // observe alert firings without one overwriting the other.
+  const alertTriggeredListenersRef = useRef<
+    Set<(alert: import("./featureTypes").Alert) => void>
+  >(new Set());
   const replayIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const replaySavedDataRef = useRef<import("klinecharts").KLineData[]>([]);
   const replayIndexRef = useRef<number>(0);
@@ -269,25 +317,63 @@ export function KlinechartsUIProvider({
 
     // Seed on (re)start so the first tick never fires a spurious crossing.
     alertPrevCloseRef.current = null;
+    // Per-alert previous value cache (alertId → last seen value), so indicator
+    // targets get their own crossing baseline (the price baseline only works
+    // for price targets). Seeded lazily — first observation never fires.
+    const prevValueByAlert = new Map<string, number>();
 
     const interval = setInterval(() => {
       const dataList = chart.getDataList();
       if (!dataList || dataList.length === 0) return;
+      const lastIdx = dataList.length - 1;
 
-      const currentClose = dataList[dataList.length - 1].close;
-      const prevClose = alertPrevCloseRef.current;
-      alertPrevCloseRef.current = currentClose;
-      if (prevClose === null) return;
+      // Cache indicator results keyed by indicatorId so multiple alerts on the
+      // same indicator don't re-query the chart.
+      const indicatorCache = new Map<string, number | null>();
+
+      const readIndicatorValue = (
+        indicatorId: string,
+        figureKey: string,
+      ): number | null => {
+        const cacheKey = `${indicatorId}:${figureKey}`;
+        if (indicatorCache.has(cacheKey)) return indicatorCache.get(cacheKey)!;
+        let value: number | null = null;
+        try {
+          const indicators = chart.getIndicators({ id: indicatorId });
+          const ind = indicators?.[0];
+          const result = ind?.result;
+          const last = Array.isArray(result) ? result[lastIdx] : null;
+          if (last && typeof last === "object") {
+            const v = (last as Record<string, unknown>)[figureKey];
+            value = typeof v === "number" ? v : null;
+          }
+        } catch {
+          value = null;
+        }
+        indicatorCache.set(cacheKey, value);
+        return value;
+      };
 
       const alerts = stateRef.current.alerts;
       const triggeredIds: string[] = [];
       for (const alert of alerts) {
         if (alert.triggered) continue;
 
-        const crossedUp =
-          prevClose < alert.price && currentClose >= alert.price;
-        const crossedDown =
-          prevClose > alert.price && currentClose <= alert.price;
+        const target = alert.target ?? { type: "price" } as const;
+        let currentValue: number | null;
+        if (target.type === "indicator") {
+          currentValue = readIndicatorValue(target.indicatorId, target.figureKey);
+        } else {
+          currentValue = dataList[lastIdx].close;
+        }
+        if (currentValue === null || !Number.isFinite(currentValue)) continue;
+
+        const prevValue = prevValueByAlert.get(alert.id) ?? null;
+        prevValueByAlert.set(alert.id, currentValue);
+        if (prevValue === null) continue; // first observation seeds the baseline
+
+        const crossedUp = prevValue < alert.price && currentValue >= alert.price;
+        const crossedDown = prevValue > alert.price && currentValue <= alert.price;
         const shouldTrigger =
           alert.condition === "crossing_up"
             ? crossedUp
@@ -297,7 +383,8 @@ export function KlinechartsUIProvider({
 
         if (shouldTrigger) {
           triggeredIds.push(alert.id);
-          alertTriggeredListenerRef.current?.({ ...alert, triggered: true });
+          const fired = { ...alert, triggered: true };
+          alertTriggeredListenersRef.current.forEach((cb) => cb(fired));
         }
       }
 
@@ -324,6 +411,47 @@ export function KlinechartsUIProvider({
     alertPrevCloseRef.current = null;
   }, [state.symbol, state.period]);
 
+  // --- Persistence write-back ------------------------------------------------
+  // Each persisted slice is written through its own effect on the relevant
+  // state field. Effects (not enhancedDispatch interception) so raw `dispatch`
+  // calls and reducer state changes are covered uniformly, and the writes stay
+  // in the commit phase (React 19 compliant). All writes are guarded by the
+  // resolved storage config and swallow adapter errors so a failing backend
+  // never breaks the chart.
+  const writeNs = useCallback(
+    (ns: "alerts" | "indicators", value: unknown) => {
+      if (!resolvedStorage || !resolvedStorage.persists(ns)) return;
+      try {
+        resolvedStorage.adapter.setItem(
+          resolvedStorage.key(ns),
+          JSON.stringify(value),
+        );
+      } catch {
+        // adapter failure (quota, serialization) is non-fatal for the chart
+      }
+    },
+    [resolvedStorage],
+  );
+
+  useEffect(() => {
+    writeNs("alerts", state.alerts);
+  }, [state.alerts, writeNs]);
+
+  useEffect(() => {
+    writeNs("indicators", {
+      main: state.mainIndicators,
+      sub: state.subIndicators,
+      axes: state.indicatorAxes,
+      visibility: state.indicatorVisibility,
+    });
+  }, [
+    state.mainIndicators,
+    state.subIndicators,
+    state.indicatorAxes,
+    state.indicatorVisibility,
+    writeNs,
+  ]);
+
   // Provider owns the replay playback interval — clear it if the provider
   // unmounts (the hook no longer clears it on its own unmount, since the timer
   // is shared across instances).
@@ -348,13 +476,14 @@ export function KlinechartsUIProvider({
       onSettingsChange: onSettingsChangeRef.current,
       fullscreenContainerRef,
       undoRedoListenerRef,
-      alertTriggeredListenerRef,
+      alertTriggeredListenersRef,
       replayIntervalRef,
       replaySavedDataRef,
       replayIndexRef,
+      storage: resolvedStorage,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [enhancedDispatch],
+    [enhancedDispatch, resolvedStorage],
   );
 
   return (

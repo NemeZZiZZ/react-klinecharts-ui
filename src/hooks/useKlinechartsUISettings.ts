@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import { useKlinechartsUI } from "../provider/ChartTerminalContext";
+import { useKlinechartsUI, useKlinechartsUIDispatch } from "../provider/ChartTerminalContext";
 import {
   CANDLE_TYPES,
   PRICE_AXIS_TYPES,
@@ -96,7 +96,22 @@ const defaultSettings: KlinechartsUISettingsState = {
 
 export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
   const { state, onSettingsChange } = useKlinechartsUI();
-  const [settings, setSettings] = useState<KlinechartsUISettingsState>(defaultSettings);
+  const { storage } = useKlinechartsUIDispatch();
+
+  // Hydrate from the storage adapter (if configured for the "settings" namespace)
+  // on the first render only. Falls back to built-in defaults when storage is
+  // absent, the namespace is disabled, or the stored value is missing/corrupt.
+  const [settings, setSettings] = useState<KlinechartsUISettingsState>(() => {
+    if (storage && storage.persists("settings")) {
+      try {
+        const raw = storage.adapter.getItem(storage.key("settings"));
+        if (raw) return { ...defaultSettings, ...JSON.parse(raw) };
+      } catch {
+        // corrupt entry — fall through to defaults
+      }
+    }
+    return defaultSettings;
+  });
   const isInitialMount = useRef(true);
 
   useEffect(() => {
@@ -106,6 +121,18 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
     }
     onSettingsChange?.({ ...settings });
   }, [settings, onSettingsChange]);
+
+  // Write the settings slice back through the storage adapter whenever it
+  // changes (after the initial mount). Guarded by the resolved storage config.
+  useEffect(() => {
+    if (!storage || !storage.persists("settings")) return;
+    if (isInitialMount.current) return; // skip the very first run
+    try {
+      storage.adapter.setItem(storage.key("settings"), JSON.stringify(settings));
+    } catch {
+      // adapter failure is non-fatal
+    }
+  }, [settings, storage]);
 
   const candleTypes = useMemo(
     () =>

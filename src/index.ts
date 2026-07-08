@@ -105,6 +105,7 @@ export {
   type UseAlertsReturn,
   type Alert,
   type AlertCondition,
+  type AlertTarget,
   type AlertLineExtendData,
 } from "./hooks/useAlerts";
 export {
@@ -170,6 +171,34 @@ export type {
 // Utils
 export { createDataLoader } from "./utils/createDataLoader";
 export { default as TA } from "./utils/TA";
+
+// Persistence (pluggable storage adapter)
+export {
+  createDefaultStorage,
+  resolveStorage,
+  DEFAULT_STORAGE_NAMESPACES,
+  DEFAULT_STORAGE_KEY_PREFIX,
+  type StorageAdapter,
+  type StorageNamespace,
+  type StorageOptions,
+  type ResolvedStorage,
+} from "./storage";
+
+// Workspace & multi-chart sync (foundation: crosshair/scroll/zoom mirroring)
+export {
+  WorkspaceProvider,
+  useWorkspace,
+  useChartSync,
+  DEFAULT_SYNC_CONFIG,
+  type WorkspaceProviderProps,
+  type UseChartSyncOptions,
+  type ChartCell,
+  type WorkspaceState,
+  type WorkspaceAction,
+  type WorkspaceContextValue,
+  type SyncChannel,
+  type SyncConfig,
+} from "./workspace";
 
 // Drawing-tool overlay templates
 export * from "./overlays";

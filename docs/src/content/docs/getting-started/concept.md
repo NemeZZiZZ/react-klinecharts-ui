@@ -45,6 +45,16 @@ You are responsible for:
   that mutate the chart and dispatch state updates.
 - Your **UI** calls hooks and renders whatever it likes.
 
+:::note[Renderer-agnostic]
+The `<KLineChart>` box above is just one way to create the chart instance.
+`react-klinecharts-ui` is headless — it only needs a `Chart` registered via
+`dispatch({ type: "SET_CHART", chart })`. You can also use the bundled
+`ChartCanvas` wrapper, or initialise the chart yourself with `klinecharts.init()`
+and skip `react-klinecharts` entirely. See the
+[Quick Start](../quick-start/#or-use-chartcanvas-less-boilerplate) for all
+three options.
+:::
+
 ## The one rule
 
 > All hooks must be called inside `<KlinechartsUIProvider>`.

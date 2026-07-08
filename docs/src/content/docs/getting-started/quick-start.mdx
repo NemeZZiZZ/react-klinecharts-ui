@@ -82,6 +82,29 @@ function ChartView() {
 }
 ```
 
+### Or: use `ChartCanvas` (less boilerplate)
+
+The above `onReady → dispatch SET_CHART` bridge is the only thing connecting a
+renderer to the provider. If you use `react-klinecharts`, the optional
+`ChartCanvas` wrapper from `react-klinecharts-ui/chart` does that wiring for you:
+
+```tsx
+import { KlinechartsUIProvider } from "react-klinecharts-ui";
+import { ChartCanvas } from "react-klinecharts-ui/chart";
+
+<KlinechartsUIProvider datafeed={datafeed} defaultSymbol={symbol}>
+  <ChartCanvas className="h-[500px]" />
+</KlinechartsUIProvider>;
+```
+
+:::tip[Renderer-agnostic]
+`react-klinecharts-ui` is headless — it works with **any** klinecharts `Chart`
+instance. The three valid ways to get one into the store are: `ChartCanvas`,
+`<KLineChart>` + the `onReady` bridge (shown above), or a direct
+`klinecharts.init()` + `dispatch({ type: "SET_CHART", chart })`. The hooks only
+care about the `Chart` in the store, not who created it.
+:::
+
 ## Result
 
 <BasicChartDemo client:only="react" />
