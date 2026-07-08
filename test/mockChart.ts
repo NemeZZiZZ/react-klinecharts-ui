@@ -76,7 +76,7 @@ export function createMockChart(initialData: KLineData[] = []): MockChart {
     createOverlay: vi.fn((cfg: Record<string, unknown>) => {
       const id =
         (cfg.id as string | undefined) ?? `ovl_${++overlaySeq}`;
-      overlays.set(id, { ...cfg });
+      overlays.set(id, { ...cfg, id });
       return id;
     }),
     removeOverlay: vi.fn((filter: Record<string, unknown>) => {

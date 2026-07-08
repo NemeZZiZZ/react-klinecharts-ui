@@ -42,9 +42,11 @@ export {
 } from "./hooks/useIndicators";
 export {
   useDrawingTools,
+  drawingLabel,
   type UseDrawingToolsReturn,
   type DrawingToolItem,
   type DrawingCategoryItem,
+  type DrawingOverlayInfo,
 } from "./hooks/useDrawingTools";
 export {
   useKlinechartsUISettings,

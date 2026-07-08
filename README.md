@@ -750,6 +750,7 @@ const {
   isLocked,
   isVisible,
   autoRetrigger,
+  overlays,
   selectTool,
   clearActiveTool,
   setMagnetMode,
@@ -757,24 +758,31 @@ const {
   toggleVisibility,
   removeAllDrawings,
   setAutoRetrigger,
+  removeDrawing,
+  setDrawingVisible,
+  setDrawingLocked,
 } = useDrawingTools();
 ```
 
-| Field/Method          | Type                             | Description                                             |
-| --------------------- | -------------------------------- | ------------------------------------------------------- |
-| `categories`          | `DrawingCategoryItem[]`          | Tool categories with nested tools                       |
-| `activeTool`          | `string \| null`                 | Name of the last selected tool                          |
-| `magnetMode`          | `"normal" \| "weak" \| "strong"` | Snap-to-OHLC mode                                       |
-| `isLocked`            | `boolean`                        | Whether all drawings are locked                         |
-| `isVisible`           | `boolean`                        | Whether all drawings are visible                        |
-| `autoRetrigger`       | `boolean`                        | Re-arm the tool after finishing a shape (default `true`) |
-| `selectTool(name)`    | —                                | Start drawing via `chart.createOverlay`                 |
-| `clearActiveTool()`   | —                                | Deselect tool (local state only)                        |
-| `setMagnetMode(mode)` | —                                | Change magnet mode for all existing and future drawings |
-| `toggleLock()`        | —                                | Toggle lock on all drawings                             |
-| `toggleVisibility()`  | —                                | Show/hide all drawings                                  |
-| `removeAllDrawings()` | —                                | Remove all drawings in the `drawing_tools` group        |
-| `setAutoRetrigger(enabled)` | —                          | Enable/disable auto re-arming                           |
+| Field/Method             | Type                             | Description                                             |
+| ------------------------ | -------------------------------- | ------------------------------------------------------- |
+| `categories`             | `DrawingCategoryItem[]`          | Tool categories with nested tools                       |
+| `activeTool`             | `string \| null`                 | Name of the last selected tool                          |
+| `magnetMode`             | `"normal" \| "weak" \| "strong"` | Snap-to-OHLC mode                                       |
+| `isLocked`               | `boolean`                        | Whether all drawings are locked                         |
+| `isVisible`              | `boolean`                        | Whether all drawings are visible                        |
+| `autoRetrigger`          | `boolean`                        | Re-arm the tool after finishing a shape (default `true`) |
+| `overlays`               | `DrawingOverlayInfo[]`           | Reactive list of drawings in the `drawing_tools` group |
+| `selectTool(name)`       | —                                | Start drawing via `chart.createOverlay`                 |
+| `clearActiveTool()`      | —                                | Deselect tool (local state only)                        |
+| `setMagnetMode(mode)`    | —                                | Change magnet mode for all existing and future drawings |
+| `toggleLock()`           | —                                | Toggle lock on all drawings                             |
+| `toggleVisibility()`     | —                                | Show/hide all drawings                                  |
+| `removeAllDrawings()`    | —                                | Remove all drawings in the `drawing_tools` group        |
+| `setAutoRetrigger(enabled)` | —                            | Enable/disable auto re-arming                           |
+| `removeDrawing(id)`      | —                                | Remove a single drawing by id                           |
+| `setDrawingVisible(id, visible)` | —                        | Show/hide a single drawing                              |
+| `setDrawingLocked(id, locked)` | —                          | Lock/unlock a single drawing                            |
 
 ```typescript
 interface DrawingToolItem {
@@ -786,7 +794,38 @@ interface DrawingCategoryItem {
   key: string; // "singleLine" | "moreLine" | "polygon" | "fibonacci" | "wave"
   tools: DrawingToolItem[];
 }
+
+interface DrawingOverlayInfo {
+  id: string;       // Stable id from klinecharts (chart.getOverlays()[].id)
+  name: string;     // Overlay name, e.g. "segment", "fibonacciLine", "arrow"
+  paneId: string;   // Pane id where the drawing lives
+  locked: boolean;  // Current lock state
+  visible: boolean; // Current visibility
+}
 ```
+
+#### Per-drawing management
+
+`overlays` is a **reactive** snapshot of the drawings in the `drawing_tools` group. It updates when a drawing is created (via `selectTool` + finishing a shape on the canvas), removed, or has its `locked`/`visible` properties changed — both through the per-drawing operations above and through the batch operations (`toggleLock`, `toggleVisibility`, `removeAllDrawings`).
+
+Because klinecharts v10 has no overlay change events, the hook also runs a 1s polling fallback so changes made **outside** the hook (e.g. the user pressing <kbd>Delete</kbd> via klinecharts, or undo/redo) are still reflected.
+
+```typescript
+// Build an Object Tree panel from `overlays`
+const { overlays, removeDrawing, setDrawingVisible, setDrawingLocked } = useDrawingTools();
+// overlays.map((o) => (
+//   <Row
+//     key={o.id}
+//     label={drawingLabel(o.name)}   // "segment" -> "segment" locale key
+//     visible={o.visible}
+//     locked={o.locked}
+//     onToggleVis={() => setDrawingVisible(o.id, !o.visible)}
+//     onDel={() => removeDrawing(o.id)}
+//   />
+// ));
+```
+
+`drawingLabel(name)` is an exported helper that maps a klinecharts overlay name to its `localeKey` using `DRAWING_CATEGORIES` (falls back to the name itself when the tool is unknown), so consumers don't have to duplicate the category table.
 
 **Categories and tools:**
 
