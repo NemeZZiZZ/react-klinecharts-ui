@@ -14,13 +14,20 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          react: ["react", "react-dom"],
-          // react-klinecharts-ui now imports klinecharts directly (external),
-          // so include the bare "klinecharts" module in the same chunk as the
-          // wrapper and the UI library to avoid it landing in a default chunk.
-          klinecharts: ["klinecharts", "react-klinecharts", "react-klinecharts-ui"],
-          ui: ["radix-ui", "lucide-react"],
+        // Keep React in a single shared chunk. Do NOT group other libs with
+        // their React-using peers here — that created a circular import
+        // between the react and klinecharts chunks and crashed the production
+        // build ("Cannot read properties of undefined (reading 'forwardRef')").
+        // Everything else is left to Vite's default chunking.
+        manualChunks(id) {
+          if (
+            id.includes("node_modules") &&
+            (id.includes("/react/") ||
+              id.includes("/react-dom/") ||
+              id.includes("/scheduler/"))
+          ) {
+            return "react";
+          }
         },
       },
     },
