@@ -93,4 +93,20 @@ describe("ChartCanvas", () => {
     // MA (main) + VOL (sub) → at least 2 createIndicator calls.
     expect(fakeChart.createIndicator.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
+
+  it("onReady bootstraps main indicators with the v10 createIndicator(value, isStack) signature", () => {
+    renderCanvas();
+    const fakeChart = createMockChart();
+    act(() => capturedOnReady!(fakeChart as unknown as Chart));
+    // The first createIndicator call bootstraps MA on the candle pane. v10
+    // passes paneId on the IndicatorCreate value and a boolean isStack as the
+    // 2nd argument (the old options-object form was removed in 10.0.0).
+    const firstCall = fakeChart.createIndicator.mock.calls[0] as [
+      Record<string, unknown>,
+      boolean,
+    ];
+    expect(firstCall[0].name).toBe("MA");
+    expect(firstCall[0].paneId).toBe("candle_pane");
+    expect(firstCall[1]).toBe(true);
+  });
 });

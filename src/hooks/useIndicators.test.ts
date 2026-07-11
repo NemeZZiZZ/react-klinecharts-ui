@@ -71,4 +71,47 @@ describe("useIndicators — catalog & state", () => {
     act(() => result.current.toggleMainIndicator("MA"));
     expect(result.current.isMainIndicatorActive("MA")).toBe(true);
   });
+
+  describe("klinecharts v10 createIndicator(value, isStack) signature", () => {
+    it("addMainIndicator passes paneId on the value and stacks (isStack=true)", () => {
+      const { result, chart } = renderHookWithProvider(() => useIndicators());
+      act(() => result.current.addMainIndicator("EMA"));
+      // v10: createIndicator(value, isStack) — paneId lives on the value, 2nd
+      // arg is a boolean.
+      const calls = chart.createIndicator.mock.calls;
+      const call = calls[calls.length - 1];
+      const [value, isStack] = call as [Record<string, unknown>, boolean];
+      expect(isStack).toBe(true);
+      expect(value.name).toBe("EMA");
+      expect(value.id).toBe("main_EMA");
+      expect(value.paneId).toBe("candle_pane");
+    });
+
+    it("addSubIndicator passes isStack=false and resolves paneId from getIndicators", () => {
+      const { result, chart } = renderHookWithProvider(() => useIndicators());
+      act(() => result.current.addSubIndicator("MACD"));
+      const calls = chart.createIndicator.mock.calls;
+      const call = calls[calls.length - 1];
+      const [value, isStack] = call as [Record<string, unknown>, boolean];
+      expect(isStack).toBe(false);
+      expect(value.name).toBe("MACD");
+      expect(value.id).toBe("sub_MACD");
+      // The sub indicator's pane id is tracked in activeSubIndicators.
+      expect(result.current.activeSubIndicators.MACD).toBeDefined();
+    });
+
+    it("addMainIndicator with yAxis binds via yAxisId on the value", () => {
+      const { result, chart } = renderHookWithProvider(() => useIndicators());
+      act(() =>
+        result.current.addMainIndicator("EMA", {
+          yAxis: { id: "rsi_axis", position: "left" },
+        }),
+      );
+      const calls = chart.createIndicator.mock.calls;
+      const call = calls[calls.length - 1];
+      const [value] = call as [Record<string, unknown>, boolean];
+      expect(value.yAxisId).toBe("rsi_axis");
+      expect(result.current.getIndicatorAxis("EMA", true)).toBe("rsi_axis");
+    });
+  });
 });

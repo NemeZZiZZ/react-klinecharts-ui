@@ -200,6 +200,13 @@ export interface KlinechartsUIDispatchValue {
   replaySavedDataRef: RefObject<KLineData[]>;
   replayIndexRef: RefObject<number>;
   /**
+   * Synchronous mirror of `state.replay.isReplaying` read by the replay hook
+   * so it can flip the replay-aware DataLoader intercept's mode (and reload the
+   * chart) in the same tick as start/stop, without waiting for the state-sync
+   * effect.
+   */
+  replayActiveRef: RefObject<boolean>;
+  /**
    * Resolved persistence configuration, or `null` when the consumer did not
    * pass the `storage` option (persistence disabled — pre-1.1.0 behaviour).
    * Hooks and tests read/write through this so they share one adapter.

@@ -46,7 +46,7 @@ export function useCompare(): UseCompareReturn {
   const { state, datafeed } = useKlinechartsUI();
   const [symbols, setSymbols] = useState<CompareSymbol[]>([]);
   const indicatorsRef = useRef<
-    Map<string, { name: string; paneId: string }>
+    Map<string, { name: string; indicatorId: string | null }>
   >(new Map());
   // Per-instance salt so two simultaneously-mounted useCompare instances
   // (e.g. multi-terminal on one page) comparing the SAME ticker don't
@@ -147,15 +147,16 @@ export function useCompare(): UseCompareReturn {
         },
       });
 
-      // Place on main pane
-      const paneId = state.chart.createIndicator(
-        { name: indicatorName },
-        { isStack: true, pane: { id: "candle_pane" } },
+      // Place on main pane. klinecharts v10 createIndicator returns the
+      // indicator id; paneId/yAxisId live on the IndicatorCreate value.
+      const indicatorId = state.chart.createIndicator(
+        { name: indicatorName, paneId: "candle_pane" },
+        true,
       );
 
       indicatorsRef.current.set(ticker, {
         name: indicatorName,
-        paneId: typeof paneId === "string" ? paneId : "candle_pane",
+        indicatorId: typeof indicatorId === "string" ? indicatorId : null,
       });
 
       setSymbols((prev) => {

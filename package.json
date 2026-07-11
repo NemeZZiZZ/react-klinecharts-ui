@@ -1,6 +1,6 @@
 {
   "name": "react-klinecharts-ui",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "description": "Headless React components for building financial trading terminals with klinecharts",
   "author": "NemeZZiZZ",
   "repository": {
@@ -62,10 +62,10 @@
     "test:coverage": "vitest run --coverage"
   },
   "peerDependencies": {
-    "klinecharts": ">=10.0.0-beta3",
+    "klinecharts": ">=10.0.0",
     "react": ">=17.0.0",
     "react-dom": ">=17.0.0",
-    "react-klinecharts": ">=0.3.0"
+    "react-klinecharts": ">=1.0.0"
   },
   "peerDependenciesMeta": {
     "react-klinecharts": {
@@ -84,11 +84,11 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "globals": "^17.4.0",
     "happy-dom": "^20.10.6",
-    "klinecharts": "^10.0.0-beta3",
+    "klinecharts": "^10.0.0",
     "prettier": "^3.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-klinecharts": "0.3.0",
+    "react-klinecharts": "1.0.0",
     "tsup": "^8.0.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.56.1",

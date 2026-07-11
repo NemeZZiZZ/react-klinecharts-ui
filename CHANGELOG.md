@@ -4,6 +4,73 @@ All notable changes to **react-klinecharts-ui** are documented in this file.
 
 ---
 
+## 2.0.0 — 2026-07-11
+
+This is a **breaking release**: it targets the klinecharts `10.0.0` stable release and `react-klinecharts@1.0.0`. Because `react-klinecharts-ui` exposes the underlying klinecharts `Chart` instance on its store (`state.chart`) and many consumers call klinecharts instance methods directly, the upstream v10 API changes are breaking for this library's public surface too. See the **Migration Guide** below.
+
+### Migration Guide (1.x → 2.0.0)
+
+1. **Update peer dependencies.** Bump `klinecharts` to `>=10.0.0` and `react-klinecharts` to `>=1.0.0` in your app:
+
+   ```sh
+   npm install klinecharts@^10.0.0 react-klinecharts@^1.0.0
+   ```
+
+2. **`createIndicator` signature changed** (klinecharts 10.0.0). The 2nd-argument options object `{ isStack, pane, yAxis }` was removed; the 2nd argument is now a plain `isStack: boolean`, and `paneId` / `yAxisId` are properties of the `IndicatorCreate` value itself. If you call `state.chart?.createIndicator(...)` directly, migrate:
+
+   ```diff
+   -chart.createIndicator(
+   -  { name, id: `main_${name}` },
+   -  { isStack: true, pane: { id: "candle_pane" }, yAxis },
+   -);
+   +chart.createIndicator(
+   +  { name, id: `main_${name}`, paneId: "candle_pane", yAxisId: yAxis?.id },
+   +  true,
+   +);
+   ```
+
+3. **`createIndicator` now returns the indicator id, not the pane id.** If you relied on the return value to address a pane, read the pane id back via the canonical v10 pattern: `chart.getIndicators({ id })[0].paneId`. The library's own hooks (`useIndicators`, …) already do this internally, so this only affects code that calls `createIndicator` directly.
+
+4. **Removed v9 imperative data API.** `applyNewData`, `updateData`, `setPriceVolumePrecision`, and the v9 `subscribeAction('onTooltipIconClick', …)` event no longer exist on the klinecharts `Chart`. Data flows through the `DataLoader` (`setDataLoader` / the `data` or `dataLoader` prop on `<KLineChart>`); precision is set via `chart.setSymbol({ pricePrecision, volumePrecision })`. The library's hooks handle this for you — only direct `state.chart` consumers are affected.
+
+5. **Replay was rewritten** (`useReplay`). It now drives the chart through a replay-aware intercept inside `createDataLoader` + `chart.resetData()`. The hook's public return type is unchanged, so UI code using `useReplay()` needs no changes — but if you have custom code that manipulated replay data directly via `updateData`/`clearData`, it must be removed (those methods are gone).
+
+### Breaking
+
+- **Upgraded to the klinecharts `10.0.0` stable release** (`peerDependencies.klinecharts` is now `>=10.0.0`, up from `>=10.0.0-beta3`) and **`react-klinecharts@1.0.0`** (up from `0.3.0`). The `klinecharts` 10.0.0 stable release changed the `createIndicator` instance API and removed the imperative data API the replay hook relied on; the codebase was migrated accordingly.
+
+- **`createIndicator` now uses the v10 `(value, isStack)` signature.** klinecharts 10.0.0 removed the 2nd-argument `CreateIndicatorOptions` object — `paneId` and `yAxisId` are now properties of the `IndicatorCreate` value, and the 2nd argument is a plain `isStack: boolean`. Every internal call site (`ChartCanvas`, `useIndicators`, `useScriptEditor`, `useLayoutManager`, `useCompare`, `useUndoRedo`, and the `examples/ChartView`) was migrated. `createIndicator` returns the **indicator id** in v10; code that previously treated the return value as a pane id now reads the pane id back via `chart.getIndicators({ id })[0].paneId` (the canonical v10 pattern).
+
+- **`useReplay` was rewritten onto the v10 DataLoader data model.** The hook previously called the v9-era `updateData` / `clearData` instance methods (via `as any?.()`), which **do not exist in klinecharts v10** — replay silently rendered nothing. Replay now drives the chart through a replay-aware DataLoader intercept inside `createDataLoader`: when active, `getBars` serves the saved buffer truncated to `[0, replayIndexRef.current)` and `subscribeBar`/`unsubscribeBar` become no-ops, so `chart.resetData()` re-renders the chart with exactly the replayed prefix. The intercept is scoped to the loader path only — direct `datafeed` consumers (`useCompare`, `useSymbolSearch`) are unaffected. A new `replayActiveRef` (exported on the dispatch context) lets the hook flip the intercept's mode synchronously in `startReplay` / `stopReplay`, before the state-sync effect runs.
+
+- The `MockChart` test double dropped the obsolete `clearData` / `updateData` / `applyNewData` / `setPriceVolumePrecision` / `scrollToPosition` stubs (none of them exist on the v10 `Chart`). It gained `resetData`, `createYAxis` / `removeYAxis` / `getYAxes`, and a realistic `createIndicator` / `getIndicators` bookkeeping implementation so indicator-id → pane-id resolution can be exercised in tests.
+
+### Added
+
+- **Multi-YAxis management API on `useChartAxes`.** klinecharts 10.0.0 introduced explicit multi-YAxis support (`createYAxis` / `removeYAxis` / `getYAxes` on the `Chart` instance). `useChartAxes` now exposes thin, headless wrappers around them — `createYAxis(override)` (returns the axis id, idempotent per `id`), `removeYAxis(filter)`, and `getYAxes(filter?)` — alongside the existing `overrideXAxis` / `overrideYAxis`. The new types `YAxisFilter` and `YAxis` are re-exported from the package entry.
+
+### Changed
+
+- `KlinechartsUIDispatchValue` gained a `replayActiveRef: RefObject<boolean>` field so `useReplay` can toggle the replay-aware DataLoader intercept synchronously. Consumers that destructure the full dispatch value are unaffected (it is purely additive).
+
+- `createIndicator` in the test mock now allocates a per-call pane id (when none is requested) and stores the indicator record, so `getIndicators({ id })[0].paneId` resolves the same way the real v10 chart does — the previous stub returned a hard-coded pane id and ignored the value.
+
+- `createDataLoader` gained an optional 3rd argument `replay?: ReplayDataLoaderContext` that wires the replay-aware intercept (`{ active, savedData, index }` refs). `ChartCanvas`, `examples/ChartView`, and `docs/demos/ChartView` pass the provider's replay refs; callers that omit it get the previous (non-replay) behaviour.
+
+### Documentation
+
+- README and docs updated to reference the klinecharts **10.0.0** stable release (previously `10.0.0-beta3`) and `react-klinecharts@1.0.0`.
+
+---
+
+## 1.2.0 — 2026-07-10
+
+### New Features
+
+- **Per-drawing API in `useDrawingTools` + reactive overlays.** `useDrawingTools` now exposes per-drawing management — create, select, remove, and configure individual drawings by id — and overlay state is reactive so UI mirrors chart-side changes. (See commit `b562b43`.)
+
+---
+
 ## 1.1.0 — 2026-07-08
 
 ### New Features

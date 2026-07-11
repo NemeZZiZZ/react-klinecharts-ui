@@ -204,10 +204,7 @@ export function useScriptEditor(): UseScriptEditorReturn {
       if (activeNameRef.current) {
         try {
           chart.removeIndicator({
-            id:
-              activeIdRef.current === "candle_pane"
-                ? "candle_pane"
-                : activeIdRef.current!,
+            id: activeIdRef.current!,
             name: activeNameRef.current,
           } as any);
         } catch {
@@ -215,18 +212,20 @@ export function useScriptEditor(): UseScriptEditorReturn {
         }
       }
 
-      // Add to chart
-      let paneId: string | null = null;
+      // Add to chart. klinecharts v10 createIndicator returns the indicator id
+      // (the old pane-id return was a beta artefact). Main placement stacks the
+      // custom indicator over the candle series on the candle pane.
+      let indicatorId: string | null = null;
       if (placement === "main") {
-        paneId = chart.createIndicator(
-          { name: indicatorName },
-          { isStack: true, pane: { id: "candle_pane" } },
+        indicatorId = chart.createIndicator(
+          { name: indicatorName, paneId: "candle_pane" },
+          true,
         );
       } else {
-        paneId = chart.createIndicator({ name: indicatorName });
+        indicatorId = chart.createIndicator({ name: indicatorName }, false);
       }
 
-      activeIdRef.current = typeof paneId === "string" ? paneId : null;
+      activeIdRef.current = typeof indicatorId === "string" ? indicatorId : null;
       setActiveName(indicatorName);
 
       const title = scriptName.trim() || `Script #${scriptCounter}`;

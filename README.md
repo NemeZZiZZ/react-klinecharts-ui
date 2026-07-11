@@ -838,7 +838,7 @@ const { overlays, removeDrawing, setDrawingVisible, setDrawingLocked } = useDraw
 | `wave`           | xabcd, abcd, threeWaves, fiveWaves, eightWaves, anyWaves                                                                                                               |
 | `annotation`     | brush                                                                                                                                                                  |
 
-> **Freehand drawing.** The `brush` tool (category `annotation`) uses klinecharts' continuous (freehand) drawing mode — hold and drag to sketch. It is a built-in overlay added in **klinecharts 10.0.0-beta3**, so it requires beta3+ to render.
+> **Freehand drawing.** The `brush` tool (category `annotation`) uses klinecharts' continuous (freehand) drawing mode — hold and drag to sketch. It is a built-in overlay that requires **klinecharts 10.0.0** (stable) or later to render.
 
 ---
 
@@ -1546,7 +1546,7 @@ type ExportFormat = "csv" | "json";
 
 ### useHotkeys
 
-Keyboard shortcuts (klinecharts v10, requires **klinecharts 10.0.0-beta3+**). Register custom hotkeys globally and toggle hotkey handling per chart. The `action` callback receives the chart instance, the keyboard event, the matched key, and the hotkey template.
+Keyboard shortcuts (klinecharts v10, requires **klinecharts 10.0.0+**). Register custom hotkeys globally and toggle hotkey handling per chart. The `action` callback receives the chart instance, the keyboard event, the matched key, and the hotkey template.
 
 ```typescript
 import { useHotkeys } from "react-klinecharts-ui";
@@ -1598,16 +1598,21 @@ interface Hotkey {
 
 ### useChartAxes
 
-Override the chart's built-in X (time) and Y (value) axes (klinecharts v10 `overrideXAxis` / `overrideYAxis`, added in **beta2**). For binding indicators to additional secondary Y-axes, use [useIndicators](#useindicators) instead.
+Override the chart's built-in X (time) and Y (value) axes (klinecharts v10 `overrideXAxis` / `overrideYAxis`), and manage standalone Y axes via the **klinecharts 10.0.0 multi-YAxis API** (`createYAxis` / `removeYAxis` / `getYAxes`). For binding indicators to additional secondary Y-axes declaratively, use [useIndicators](#useindicators) instead.
 
 ```typescript
 import { useChartAxes } from "react-klinecharts-ui";
 
-const { overrideXAxis, overrideYAxis } = useChartAxes();
+const { overrideXAxis, overrideYAxis, createYAxis, removeYAxis, getYAxes } = useChartAxes();
 
 overrideYAxis({ reverse: true });            // flip the price scale
 overrideYAxis({ inside: true });             // draw price labels inside the pane
 overrideXAxis({ scrollZoomEnabled: false }); // lock time-axis zoom
+
+// klinecharts 10.0.0 multi-YAxis support — add a standalone axis to a pane.
+const axisId = createYAxis({ id: "rsi_axis", paneId: "pane_rsi", position: "left" });
+getYAxes({ paneId: "pane_rsi" });            // → YAxis[] (filter by id/paneId/name)
+removeYAxis({ id: axisId });                  // → boolean (true if removed)
 ```
 
 #### Return type: `UseChartAxesReturn`
@@ -1616,8 +1621,11 @@ overrideXAxis({ scrollZoomEnabled: false }); // lock time-axis zoom
 |----------|------|-------------|
 | `overrideXAxis` | `(override: XAxisOverride) => void` | Override the main X (time) axis (`name`, `scrollZoomEnabled`, `createTicks`) |
 | `overrideYAxis` | `(override: YAxisOverride) => void` | Override a Y (value) axis (`reverse`, `inside`, `position`, `scrollZoomEnabled`, `createRange`, `createTicks`, `id`/`paneId` to target one) |
+| `createYAxis` | `(yAxis: YAxisOverride) => string \| null` | Create a standalone Y axis on a pane. Idempotent per axis `id`. Returns the axis id, or `null`. **Added in klinecharts 10.0.0.** |
+| `removeYAxis` | `(filter: YAxisFilter) => boolean` | Remove Y axes matching the filter (`id` / `paneId` / `name`). Returns `true` if at least one was removed. **Added in klinecharts 10.0.0.** |
+| `getYAxes` | `(filter?: YAxisFilter) => YAxis[]` | Read the chart's Y axes, optionally filtered by `id` / `paneId` / `name`. **Added in klinecharts 10.0.0.** |
 
-> klinecharts beta3 ships these two methods with their parameter types **crossed** in its published typings; this hook shields you behind semantically-correct signatures, so `overrideYAxis` takes `YAxisOverride` and `overrideXAxis` takes `XAxisOverride` as expected.
+> klinecharts 10.0.0 (including the stable release) ships `overrideXAxis` / `overrideYAxis` with their parameter types **crossed** in the published typings; this hook shields you behind semantically-correct signatures, so `overrideYAxis` takes `YAxisOverride` and `overrideXAxis` takes `XAxisOverride` as expected.
 
 ---
 

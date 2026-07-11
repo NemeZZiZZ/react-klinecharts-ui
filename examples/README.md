@@ -275,11 +275,11 @@ function ChartView({ className }) {
   const handleReady = useCallback((chart: Chart) => {
     dispatch({ type: 'SET_CHART', chart });
 
-    // Create main indicators on candle_pane
+    // Create main indicators on candle_pane (klinecharts v10 signature)
     mainIndicatorsRef.current.forEach((name) => {
       chart.createIndicator(
-        { name, id: `main_${name}` },
-        { isStack: true, pane: { id: 'candle_pane' } }
+        { name, id: `main_${name}`, paneId: 'candle_pane' },
+        true
       );
     });
 
@@ -287,7 +287,7 @@ function ChartView({ className }) {
     const subUpdates: Record<string, string> = {};
     Object.keys(subIndicatorsRef.current).forEach((name) => {
       const id = `sub_${name}`;
-      chart.createIndicator({ name, id });
+      chart.createIndicator({ name, id }, false);
       const ind = chart.getIndicators({ id })[0];
       if (ind?.paneId) subUpdates[name] = ind.paneId;
     });

@@ -70,6 +70,8 @@ export {
   type UseChartAxesReturn,
   type XAxisOverride,
   type YAxisOverride,
+  type YAxisFilter,
+  type YAxis,
 } from "./hooks/useChartAxes";
 export {
   useFullscreen,

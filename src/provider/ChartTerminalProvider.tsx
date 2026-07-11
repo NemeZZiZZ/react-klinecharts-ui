@@ -207,6 +207,10 @@ export function KlinechartsUIProvider({
   const replayIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const replaySavedDataRef = useRef<import("klinecharts").KLineData[]>([]);
   const replayIndexRef = useRef<number>(0);
+  // Mirror of `state.replay.isReplaying` read by the replay-aware DataLoader
+  // intercept (in createDataLoader, wired by ChartCanvas). A ref (not state) so
+  // the loader — created once per chart — always sees the current flag.
+  const replayActiveRef = useRef(false);
   // Last seen close price, used by the alerts poller to detect crossings.
   const alertPrevCloseRef = useRef<number | null>(null);
 
@@ -231,6 +235,7 @@ export function KlinechartsUIProvider({
 
   useEffect(() => {
     stateRef.current = state;
+    replayActiveRef.current = state.replay.isReplaying;
     callbacksRef.current = {
       onStateChange,
       onSymbolChange,
@@ -480,6 +485,7 @@ export function KlinechartsUIProvider({
       replayIntervalRef,
       replaySavedDataRef,
       replayIndexRef,
+      replayActiveRef,
       storage: resolvedStorage,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps

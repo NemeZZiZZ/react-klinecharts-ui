@@ -48,7 +48,7 @@ export interface UseReplayReturn {
  */
 export function useReplay(): UseReplayReturn {
   const { state, dispatch } = useKlinechartsUI();
-  const { replayIntervalRef, replaySavedDataRef, replayIndexRef } =
+  const { replayIntervalRef, replaySavedDataRef, replayIndexRef, replayActiveRef } =
     useKlinechartsUIDispatch();
 
   const { isReplaying, isPaused, speed, barIndex, totalBars } = state.replay;
@@ -73,9 +73,13 @@ export function useReplay(): UseReplayReturn {
       return;
     }
 
-    const bar = data[idx];
-    (state.chart as any).updateData?.(bar);
+    // klinecharts v10 owns data through the DataLoader; the imperative
+    // updateData/clearData API was removed. The replay-aware DataLoader
+    // (createDataLoader, wired by ChartCanvas) serves the saved buffer truncated
+    // to [0, replayIndexRef.current), so advancing the index and asking the chart
+    // to reload renders the next bar.
     replayIndexRef.current = idx + 1;
+    state.chart.resetData();
     dispatch({ type: "SET_REPLAY", replay: { barIndex: idx + 1 } });
   }, [state.chart, clearInterval_, replaySavedDataRef, replayIndexRef, dispatch]);
 
@@ -101,6 +105,10 @@ export function useReplay(): UseReplayReturn {
     replaySavedDataRef.current = [...dataList];
     replayIndexRef.current = 0;
 
+    // Activate the replay-aware DataLoader intercept synchronously (before
+    // resetData) so it serves the saved buffer instead of hitting the live
+    // datafeed. With index 0 the slice is empty, rendering a cleared chart.
+    replayActiveRef.current = true;
     dispatch({
       type: "SET_REPLAY",
       replay: {
@@ -111,12 +119,11 @@ export function useReplay(): UseReplayReturn {
       },
     });
 
-    // Clear chart data
-    (state.chart as any).clearData?.();
+    state.chart.resetData();
 
     // Start the playback interval
     startInterval(speed);
-  }, [state.chart, state.symbol, state.period, speed, startInterval, isReplaying, replaySavedDataRef, replayIndexRef, dispatch]);
+  }, [state.chart, state.symbol, state.period, speed, startInterval, isReplaying, replaySavedDataRef, replayIndexRef, replayActiveRef, dispatch]);
 
   // Stop the replay session automatically when the symbol or period changes.
   // The dataLoader reloads the chart with the new symbol's bars, but without
@@ -134,13 +141,13 @@ export function useReplay(): UseReplayReturn {
 
     clearInterval_();
 
-    // Restore original data
-    const data = replaySavedDataRef.current;
-    if (data.length > 0) {
-      (state.chart as any).clearData?.();
-      for (const bar of data) {
-        (state.chart as any).updateData?.(bar);
-      }
+    // Restore original data. Flip the replay flag BEFORE resetData() so the
+    // replay-aware DataLoader delegates to the live datafeed, which reloads the
+    // original bars. (replayActiveRef is synced from state via an effect, which
+    // runs too late here, so we set it synchronously.)
+    replayActiveRef.current = false;
+    if (replaySavedDataRef.current.length > 0) {
+      state.chart.resetData();
     }
 
     replaySavedDataRef.current = [];
@@ -150,7 +157,7 @@ export function useReplay(): UseReplayReturn {
       type: "SET_REPLAY",
       replay: { isReplaying: false, isPaused: false, barIndex: 0, totalBars: 0 },
     });
-  }, [state.chart, clearInterval_, replaySavedDataRef, replayIndexRef, dispatch]);
+  }, [state.chart, clearInterval_, replaySavedDataRef, replayIndexRef, replayActiveRef, dispatch]);
 
   const togglePause = useCallback(() => {
     if (!isReplaying) return;
@@ -176,13 +183,10 @@ export function useReplay(): UseReplayReturn {
     const idx = replayIndexRef.current;
     if (idx <= 1) return;
 
-    // Remove the last bar by rebuilding data up to idx-1
-    const data = replaySavedDataRef.current;
-    (state.chart as any).clearData?.();
-    for (let i = 0; i < idx - 1; i++) {
-      (state.chart as any).updateData?.(data[i]);
-    }
+    // Shrink the replay window by one and reload — the replay-aware DataLoader
+    // serves [0, idx - 1) from the saved buffer.
     replayIndexRef.current = idx - 1;
+    state.chart.resetData();
     dispatch({ type: "SET_REPLAY", replay: { barIndex: idx - 1 } });
   }, [isReplaying, isPaused, state.chart, replaySavedDataRef, replayIndexRef, dispatch]);
 
@@ -195,12 +199,9 @@ export function useReplay(): UseReplayReturn {
       // Pause if playing
       clearInterval_();
 
-      // Rebuild chart data up to the target index
-      (state.chart as any).clearData?.();
-      for (let i = 0; i < clamped; i++) {
-        (state.chart as any).updateData?.(data[i]);
-      }
+      // Jump the replay window to the target index and reload.
       replayIndexRef.current = clamped;
+      state.chart.resetData();
       dispatch({
         type: "SET_REPLAY",
         replay: { isPaused: true, barIndex: clamped },

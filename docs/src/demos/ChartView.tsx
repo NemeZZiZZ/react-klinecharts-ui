@@ -9,11 +9,23 @@ import { useKlinechartsUI, createDataLoader } from "react-klinecharts-ui";
  * the docs site with plain inline styles.
  */
 export function ChartView({ height = 380 }: { height?: number }) {
-  const { state, dispatch, datafeed } = useKlinechartsUI();
+  const {
+    state,
+    dispatch,
+    datafeed,
+    replayActiveRef,
+    replaySavedDataRef,
+    replayIndexRef,
+  } = useKlinechartsUI();
 
   const dataLoader = useMemo(
-    () => createDataLoader(datafeed, dispatch),
-    [datafeed, dispatch],
+    () =>
+      createDataLoader(datafeed, dispatch, {
+        active: replayActiveRef,
+        savedData: replaySavedDataRef,
+        index: replayIndexRef,
+      }),
+    [datafeed, dispatch, replayActiveRef, replaySavedDataRef, replayIndexRef],
   );
 
   const mainIndicatorsRef = useRef(state.mainIndicators);
@@ -29,13 +41,13 @@ export function ChartView({ height = 380 }: { height?: number }) {
 
       mainIndicatorsRef.current.forEach((name) => {
         chart.createIndicator(
-          { name, id: `main_${name}` },
-          { isStack: true, pane: { id: "candle_pane" } },
+          { name, id: `main_${name}`, paneId: "candle_pane" },
+          true,
         );
       });
 
       Object.keys(subIndicatorsRef.current).forEach((name) => {
-        chart.createIndicator({ name, id: `sub_${name}` });
+        chart.createIndicator({ name, id: `sub_${name}` }, false);
       });
     },
     [dispatch],

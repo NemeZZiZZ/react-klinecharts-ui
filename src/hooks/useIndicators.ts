@@ -143,9 +143,17 @@ export function useIndicators(): UseIndicatorsReturn {
     (name: string, options?: AddIndicatorOptions) => {
       if (state.mainIndicators.includes(name)) return;
       const yAxis = options?.yAxis;
+      // klinecharts v10: createIndicator(value, isStack). paneId/yAxisId are now
+      // properties of the IndicatorCreate value (the old options object was
+      // removed in 10.0.0). Main indicators stack over the candle series.
       state.chart?.createIndicator(
-        { name, id: `main_${name}` },
-        { isStack: true, pane: { id: "candle_pane" }, yAxis },
+        {
+          name,
+          id: `main_${name}`,
+          paneId: "candle_pane",
+          ...(yAxis?.id ? { yAxisId: yAxis.id } : {}),
+        },
+        true,
       );
       const newIndicators = [...state.mainIndicators, name];
       dispatch({ type: "SET_MAIN_INDICATORS", indicators: newIndicators });
@@ -206,7 +214,12 @@ export function useIndicators(): UseIndicatorsReturn {
       if (name in state.subIndicators) return;
       const id = `sub_${name}`;
       const yAxis = options?.yAxis;
-      state.chart?.createIndicator({ name, id }, { yAxis });
+      // Sub indicators get their own pane. createIndicator returns the
+      // indicator id in v10; the pane id is read back via getIndicators.
+      state.chart?.createIndicator(
+        { name, id, ...(yAxis?.id ? { yAxisId: yAxis.id } : {}) },
+        false,
+      );
       const paneId = state.chart?.getIndicators({ id })?.[0]?.paneId ?? "";
       const newIndicators = { ...state.subIndicators, [name]: paneId };
       dispatch({ type: "SET_SUB_INDICATORS", indicators: newIndicators });
@@ -329,9 +342,10 @@ export function useIndicators(): UseIndicatorsReturn {
         {
           name,
           id: `main_${name}`,
+          paneId: "candle_pane",
           ...(prevCalcParams ? { calcParams: prevCalcParams } : {}),
         },
-        { isStack: true, pane: { id: "candle_pane" } },
+        true,
       );
       const newSub = { ...state.subIndicators };
       delete newSub[name];
@@ -351,11 +365,14 @@ export function useIndicators(): UseIndicatorsReturn {
         state.chart.getIndicators({ id: `main_${name}` })?.[0]?.calcParams;
       state.chart.removeIndicator({ id: `main_${name}` });
       const subId = `sub_${name}`;
-      state.chart.createIndicator({
-        name,
-        id: subId,
-        ...(prevCalcParams ? { calcParams: prevCalcParams } : {}),
-      });
+      state.chart.createIndicator(
+        {
+          name,
+          id: subId,
+          ...(prevCalcParams ? { calcParams: prevCalcParams } : {}),
+        },
+        false,
+      );
       const paneId =
         state.chart.getIndicators({ id: subId })?.[0]?.paneId ?? "";
       const newMain = state.mainIndicators.filter((n) => n !== name);
@@ -468,12 +485,15 @@ export function useIndicators(): UseIndicatorsReturn {
       const newSubIndicators: Record<string, string> = {};
       for (const sub of subStates) {
         const id = `sub_${sub.name}`;
-        state.chart!.createIndicator({
-          name: sub.name,
-          id,
-          ...(sub.calcParams ? { calcParams: sub.calcParams } : {}),
-          visible: sub.visible,
-        });
+        state.chart!.createIndicator(
+          {
+            name: sub.name,
+            id,
+            ...(sub.calcParams ? { calcParams: sub.calcParams } : {}),
+            visible: sub.visible,
+          },
+          false,
+        );
         const paneId =
           state.chart!.getIndicators({ id })?.[0]?.paneId ?? "";
         newSubIndicators[sub.name] = paneId;
@@ -519,14 +539,12 @@ export function useIndicators(): UseIndicatorsReturn {
         {
           name,
           id,
+          ...(paneId ? { paneId } : {}),
+          ...(yAxis?.id ? { yAxisId: yAxis.id } : {}),
           ...(calcParams ? { calcParams } : {}),
           visible,
         },
-        {
-          isStack: isMain,
-          ...(paneId ? { pane: { id: paneId } } : {}),
-          yAxis,
-        },
+        isMain,
       );
       if (styles) {
         state.chart.overrideIndicator({ name, id, styles });

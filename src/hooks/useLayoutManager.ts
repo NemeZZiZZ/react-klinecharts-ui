@@ -238,17 +238,12 @@ export function useLayoutManager(): UseLayoutManagerReturn {
               id,
               calcParams: ind.calcParams,
               visible: ind.visible,
+              // klinecharts v10: paneId/yAxisId live on the IndicatorCreate
+              // value. Main indicators stack over the candle series.
+              paneId: ind.paneId,
+              ...(ind.yAxisId ? { yAxisId: ind.yAxisId } : {}),
             },
-            {
-              // Main indicators stack OVER the candle series on the candle
-              // pane (isStack: true), exactly as useIndicators does on the
-              // add path. The previous `ind.paneId !== "candle_pane"` inverted
-              // this, so loading a layout with main indicators replaced the
-              // candles instead of overlaying them.
-              isStack: isMain,
-              pane: { id: ind.paneId },
-              ...(ind.yAxisId ? { yAxis: { id: ind.yAxisId } } : {}),
-            },
+            isMain,
           );
 
           if (ind.styles) {

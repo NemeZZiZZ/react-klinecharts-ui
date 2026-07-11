@@ -119,3 +119,86 @@ describe("createDataLoader", () => {
     expect(cb).toHaveBeenCalledWith([], expect.anything());
   });
 });
+
+describe("createDataLoader — replay intercept", () => {
+  it("serves the saved buffer truncated to the replay index while active", async () => {
+    const dispatch = vi.fn();
+    const history = bars(10);
+    // The live datafeed must NEVER be hit during replay.
+    const feed: Datafeed = {
+      searchSymbols: async () => [],
+      getHistoryKLineData: vi.fn().mockResolvedValue(history),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    };
+    const saved = bars(10);
+    const replay = {
+      active: { current: true },
+      savedData: { current: saved },
+      index: { current: 4 },
+    };
+    const loader = createDataLoader(feed, dispatch, replay);
+    const cb = vi.fn();
+    await loader.getBars({
+      type: "init",
+      symbol: { ticker: "T" },
+      period: { span: 1, type: "minute" },
+      callback: cb,
+    } as never);
+
+    expect(feed.getHistoryKLineData).not.toHaveBeenCalled();
+    const [data] = cb.mock.calls[0];
+    expect(data).toHaveLength(4);
+    expect(data).toEqual(saved.slice(0, 4));
+  });
+
+  it("delegates to the live datafeed when replay is inactive", async () => {
+    const dispatch = vi.fn();
+    const history = bars(5);
+    const feed: Datafeed = {
+      searchSymbols: async () => [],
+      getHistoryKLineData: vi.fn().mockResolvedValue(history),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    };
+    const replay = {
+      active: { current: false },
+      savedData: { current: [] },
+      index: { current: 0 },
+    };
+    const loader = createDataLoader(feed, dispatch, replay);
+    const cb = vi.fn();
+    await loader.getBars({
+      type: "init",
+      symbol: { ticker: "T" },
+      period: { span: 1, type: "minute" },
+      callback: cb,
+    } as never);
+
+    expect(feed.getHistoryKLineData).toHaveBeenCalledTimes(1);
+    const [data] = cb.mock.calls[0];
+    expect(data).toHaveLength(5);
+  });
+
+  it("subscribeBar is a no-op while replay is active", () => {
+    const dispatch = vi.fn();
+    const feed: Datafeed = {
+      searchSymbols: async () => [],
+      getHistoryKLineData: async () => [],
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    };
+    const replay = {
+      active: { current: true },
+      savedData: { current: [] },
+      index: { current: 0 },
+    };
+    const loader = createDataLoader(feed, dispatch, replay);
+    loader.subscribeBar!({
+      symbol: { ticker: "T" },
+      period: { span: 1, type: "minute" },
+      callback: vi.fn(),
+    } as never);
+    expect(feed.subscribe).not.toHaveBeenCalled();
+  });
+});

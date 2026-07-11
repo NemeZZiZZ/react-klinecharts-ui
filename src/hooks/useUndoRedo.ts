@@ -133,12 +133,13 @@ export function useUndoRedo(): UseUndoRedoReturn {
             // It was active before, so re-add it (preserving its axis binding).
             if (isMain) {
               state.chart.createIndicator(
-                { name, id },
                 {
-                  isStack: true,
-                  pane: { id: "candle_pane" },
-                  ...(yAxisId ? { yAxis: { id: yAxisId } } : {}),
+                  name,
+                  id,
+                  paneId: "candle_pane",
+                  ...(yAxisId ? { yAxisId } : {}),
                 },
+                true,
               );
               dispatch({
                 type: "SET_MAIN_INDICATORS",
@@ -146,8 +147,8 @@ export function useUndoRedo(): UseUndoRedoReturn {
               });
             } else {
               state.chart.createIndicator(
-                { name, id },
-                yAxisId ? { yAxis: { id: yAxisId } } : undefined,
+                { name, id, ...(yAxisId ? { yAxisId } : {}) },
+                false,
               );
               const newPaneId =
                 state.chart.getIndicators({ id })?.[0]?.paneId ?? "";
@@ -274,12 +275,13 @@ export function useUndoRedo(): UseUndoRedoReturn {
           if (wasActive) {
             if (isMain) {
               state.chart.createIndicator(
-                { name, id },
                 {
-                  isStack: true,
-                  pane: { id: "candle_pane" },
-                  ...(yAxisId ? { yAxis: { id: yAxisId } } : {}),
+                  name,
+                  id,
+                  paneId: "candle_pane",
+                  ...(yAxisId ? { yAxisId } : {}),
                 },
+                true,
               );
               dispatch({
                 type: "SET_MAIN_INDICATORS",
@@ -287,8 +289,8 @@ export function useUndoRedo(): UseUndoRedoReturn {
               });
             } else {
               state.chart.createIndicator(
-                { name, id },
-                yAxisId ? { yAxis: { id: yAxisId } } : undefined,
+                { name, id, ...(yAxisId ? { yAxisId } : {}) },
+                false,
               );
               const newPaneId =
                 state.chart.getIndicators({ id })?.[0]?.paneId ?? "";

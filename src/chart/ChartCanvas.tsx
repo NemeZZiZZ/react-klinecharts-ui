@@ -58,11 +58,23 @@ export function ChartCanvas({
   options,
   styles,
 }: ChartCanvasProps): ReactNode {
-  const { state, dispatch, datafeed } = useKlinechartsUI();
+  const {
+    state,
+    dispatch,
+    datafeed,
+    replayActiveRef,
+    replaySavedDataRef,
+    replayIndexRef,
+  } = useKlinechartsUI();
 
   const dataLoader = useMemo(
-    () => createDataLoader(datafeed, dispatch),
-    [datafeed, dispatch],
+    () =>
+      createDataLoader(datafeed, dispatch, {
+        active: replayActiveRef,
+        savedData: replaySavedDataRef,
+        index: replayIndexRef,
+      }),
+    [datafeed, dispatch, replayActiveRef, replaySavedDataRef, replayIndexRef],
   );
 
   // Keep the latest default indicator lists in refs so `handleReady` stays
@@ -83,9 +95,12 @@ export function ChartCanvas({
       // Bootstrap the provider's default indicators onto the fresh chart,
       // mirroring the canonical pattern in examples/ChartView.tsx.
       mainIndicatorsRef.current.forEach((name) => {
+        // klinecharts v10: createIndicator(value, isStack). The pane is set by
+        // passing paneId on the IndicatorCreate value (the old 2nd-arg options
+        // object was removed in the 10.0.0 stable release).
         chart.createIndicator(
-          { name, id: `main_${name}` },
-          { isStack: true, pane: { id: "candle_pane" } },
+          { name, id: `main_${name}`, paneId: "candle_pane" },
+          true,
         );
       });
 

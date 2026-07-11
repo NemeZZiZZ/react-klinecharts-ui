@@ -13,11 +13,23 @@ interface ChartViewProps {
 }
 
 export function ChartView({ className }: ChartViewProps) {
-  const { state, dispatch, datafeed } = useKlinechartsUI();
+  const {
+    state,
+    dispatch,
+    datafeed,
+    replayActiveRef,
+    replaySavedDataRef,
+    replayIndexRef,
+  } = useKlinechartsUI();
 
   const dataLoader = useMemo(
-    () => createDataLoader(datafeed, dispatch),
-    [datafeed, dispatch],
+    () =>
+      createDataLoader(datafeed, dispatch, {
+        active: replayActiveRef,
+        savedData: replaySavedDataRef,
+        index: replayIndexRef,
+      }),
+    [datafeed, dispatch, replayActiveRef, replaySavedDataRef, replayIndexRef],
   );
 
   // Refs so onReady always reads the latest indicator lists without
@@ -34,9 +46,11 @@ export function ChartView({ className }: ChartViewProps) {
       dispatch({ type: "SET_CHART", chart });
 
       mainIndicatorsRef.current.forEach((name) => {
+        // klinecharts v10: createIndicator(value, isStack) — paneId lives on
+        // the IndicatorCreate value.
         chart.createIndicator(
-          { name, id: `main_${name}` },
-          { isStack: true, pane: { id: "candle_pane" } },
+          { name, id: `main_${name}`, paneId: "candle_pane" },
+          true,
         );
       });
 
