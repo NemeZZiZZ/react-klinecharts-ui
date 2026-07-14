@@ -4,6 +4,34 @@ All notable changes to **react-klinecharts-ui** are documented in this file.
 
 ---
 
+## 2.0.1 — 2026-07-14
+
+Patch release with bug fixes. No new features; no runtime breakage for consumers
+using the library's UI helpers (`compareRules` / `setCompareRule(cr.key)`).
+
+### Fixed
+
+- **`CompareRule` value corrected from `"prev_close"` to `"previous_close"`.**
+  klinecharts 10.0.0 defines `CandleColorCompareRule = "current_open" | "previous_close"`,
+  so the previous `"prev_close"` literal was an invalid enum value that klinecharts
+  silently ignored — selecting the "previous close" comparison rule did nothing. This
+  was surfaced by a CI lint failure (`prefer-const`) that blocked the initial 2.0.0
+  deploy. Consumers using `compareRules` / `setCompareRule(cr.key)` are unaffected;
+  if you held the literal `"prev_close"` in your code, update it to `"previous_close"`
+  (it never worked at runtime anyway).
+
+- **Stale `datafeed` / `onSettingsChange` in the dispatch context.** The context
+  value memoized these through refs that were never re-read, so when a consumer
+  swapped the `datafeed` prop at runtime (e.g. switching to an authenticated feed
+  after login), `useCompare`, `useSymbolSearch`, `useWatchlist`, `ChartCanvas`, and
+  `useKlinechartsUISettings`'s `onSettingsChange` kept operating on the original
+  value. Both props are now included in the memo dependency array. Note: if you
+  pass an inline `datafeed` object or arrow-function `onSettingsChange` on every
+  render, wrap them in `useMemo` / `useCallback` to avoid re-rendering context
+  consumers each render.
+
+- **CI: `prefer-const` lint error** in `useChartAxes.test.ts` (`let all` → `const all`).
+
 ## 2.0.0 — 2026-07-11
 
 This is a **breaking release**: it targets the klinecharts `10.0.0` stable release and `react-klinecharts@1.0.0`. Because `react-klinecharts-ui` exposes the underlying klinecharts `Chart` instance on its store (`state.chart`) and many consumers call klinecharts instance methods directly, the upstream v10 API changes are breaking for this library's public surface too. See the **Migration Guide** below.

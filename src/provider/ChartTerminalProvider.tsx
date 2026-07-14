@@ -286,16 +286,13 @@ export function KlinechartsUIProvider({
   // consumer passes an inline array (which would be a new reference each render).
   const extraOverlaysRef = useRef(extraOverlays);
 
-  // Mirror datafeed and onSettingsChange into refs so dispatchValue (below)
-  // stays referentially stable even when the consumer passes inline props.
-  // Without this, an inline datafeed/object or arrow-function callback would
-  // recreate dispatchValue on every render and re-render every hook consumer.
-  const datafeedRef = useRef(datafeed);
-  const onSettingsChangeRef = useRef(onSettingsChange);
-  useEffect(() => {
-    datafeedRef.current = datafeed;
-    onSettingsChangeRef.current = onSettingsChange;
-  });
+  // datafeed and onSettingsChange are NOT mirrored into refs for the dispatch
+  // context: a ref read inside useMemo would go stale when the consumer swaps
+  // the prop at runtime (e.g. authenticated feed after login), silently leaving
+  // useCompare / useSymbolSearch / useWatchlist / ChartCanvas on the old feed.
+  // Instead they are included in the useMemo deps below so the context — and its
+  // consumers — update when the prop reference changes. Consumers that pass an
+  // inline datafeed object / arrow callback every render should memoize it.
 
   useEffect(() => {
     if (shouldRegister) {
@@ -477,8 +474,8 @@ export function KlinechartsUIProvider({
   const dispatchValue = useMemo(
     () => ({
       dispatch: enhancedDispatch,
-      datafeed: datafeedRef.current,
-      onSettingsChange: onSettingsChangeRef.current,
+      datafeed,
+      onSettingsChange,
       fullscreenContainerRef,
       undoRedoListenerRef,
       alertTriggeredListenersRef,
@@ -488,8 +485,7 @@ export function KlinechartsUIProvider({
       replayActiveRef,
       storage: resolvedStorage,
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [enhancedDispatch, resolvedStorage],
+    [enhancedDispatch, resolvedStorage, datafeed, onSettingsChange],
   );
 
   return (

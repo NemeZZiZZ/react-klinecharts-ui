@@ -60,7 +60,7 @@ describe("useChartAxes — multi-YAxis management (klinecharts v10)", () => {
       result.current.createYAxis({ id: "axis_b", paneId: "pane_2" });
     });
 
-    let all = result.current.getYAxes();
+    const all = result.current.getYAxes();
     expect(all).toHaveLength(2);
 
     const filtered = result.current.getYAxes({ paneId: "pane_2" });

@@ -1784,8 +1784,8 @@ type YAxisPosition = "left" | "right";
 Baseline rule used when overlaying compared symbols (see [useCompare](#usecompare)).
 
 ```typescript
-const COMPARE_RULES = ["current_open", "prev_close"] as const;
-type CompareRule = "current_open" | "prev_close";
+const COMPARE_RULES = ["current_open", "previous_close"] as const;
+type CompareRule = "current_open" | "previous_close";
 ```
 
 ### TOOLTIP_SHOW_RULES

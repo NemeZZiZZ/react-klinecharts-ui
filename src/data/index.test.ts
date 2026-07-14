@@ -153,7 +153,7 @@ describe("candle-types constants", () => {
   it("PRICE_AXIS_TYPES / YAXIS_POSITIONS / COMPARE_RULES / TOOLTIP_SHOW_RULES are frozen tuples", () => {
     expect(PRICE_AXIS_TYPES).toEqual(["normal", "percentage", "logarithm"]);
     expect(YAXIS_POSITIONS).toEqual(["left", "right"]);
-    expect(COMPARE_RULES).toEqual(["current_open", "prev_close"]);
+    expect(COMPARE_RULES).toEqual(["current_open", "previous_close"]);
     expect(TOOLTIP_SHOW_RULES).toEqual(["always", "follow_cross", "none"]);
   });
 

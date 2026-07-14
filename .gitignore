@@ -2,6 +2,9 @@ node_modules/
 dist/
 .DS_Store
 
+# ZCode agent workspace (local plans/session state)
+.zcode/
+
 # lock files — only pnpm-lock.yaml is canonical
 package-lock.json
 yarn.lock

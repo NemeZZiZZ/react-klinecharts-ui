@@ -178,7 +178,17 @@ export type UndoRedoListener = (action: { type: string; data: unknown }) => void
 /** The stable, dispatch-only slice of the context (never changes after mount). */
 export interface KlinechartsUIDispatchValue {
   dispatch: Dispatch<KlinechartsUIAction>;
+  /**
+   * Active datafeed. Included in the memo deps so the context (and consumers)
+   * update when the consumer swaps the `datafeed` prop at runtime — pass a
+   * stable reference (useMemo/useRef) to avoid re-rendering on every render.
+   */
   datafeed: Datafeed;
+  /**
+   * Optional settings-change callback. Included in the memo deps so a swap of
+   * the callback prop is observed by `useKlinechartsUISettings` — pass a stable
+   * reference (useCallback) to avoid re-rendering on every render.
+   */
   onSettingsChange?: (settings: Record<string, unknown>) => void;
   fullscreenContainerRef: RefObject<HTMLElement | null>;
   /** Ref populated by useUndoRedo; other hooks call it to record actions. */

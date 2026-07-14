@@ -32,5 +32,5 @@ interface CompareSymbol {
 ```
 
 Baseline normalization is controlled by `COMPARE_RULES`
-(`"current_open" | "prev_close"`) — see [Data & Constants](../../utilities/ta/)
+(`"current_open" | "previous_close"`) — see [Data & Constants](../../utilities/ta/)
 for the exported constants.

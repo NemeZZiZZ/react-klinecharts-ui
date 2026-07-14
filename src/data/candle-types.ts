@@ -18,7 +18,7 @@ export type PriceAxisType = (typeof PRICE_AXIS_TYPES)[number];
 export const YAXIS_POSITIONS = ["left", "right"] as const;
 export type YAxisPosition = (typeof YAXIS_POSITIONS)[number];
 
-export const COMPARE_RULES = ["current_open", "prev_close"] as const;
+export const COMPARE_RULES = ["current_open", "previous_close"] as const;
 export type CompareRule = (typeof COMPARE_RULES)[number];
 
 export const TOOLTIP_SHOW_RULES = ["always", "follow_cross", "none"] as const;
