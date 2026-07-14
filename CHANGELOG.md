@@ -4,6 +4,36 @@ All notable changes to **react-klinecharts-ui** are documented in this file.
 
 ---
 
+## 2.0.2 — 2026-07-14
+
+Patch release with a bug fix for the multi-symbol comparison overlay. No new
+features; no public API changes (the hook's exported types and method signatures
+are unchanged). Backwards compatible.
+
+### Fixed
+
+- **Comparison overlay no longer collapses the chart.** `useCompare` drew each
+  compared symbol as a line of **raw percentages** (`{ pct }`, e.g. ±5) stacked
+  on the candle pane, whose Y-axis is in price units (e.g. ~60000). klinecharts
+  v10 folds indicator figure values into the pane's auto Y-axis range
+  (`YAxisImp.createRangeImp`), so a small-range series blended with the candle
+  price range and flattened the candles. The indicator now projects each
+  compare close onto the **main symbol's price scale** relative to a shared
+  anchor bar (the first candle where both symbols have a quote):
+
+  ```
+  value = mainBase * (compareClose / compareBase)
+  ```
+
+  The drawn `value` lives in the main price domain and shares the candle Y-axis,
+  so the line overlays the candles without rescaling them. The **real**
+  percentage change is no longer drawn — it is surfaced in the indicator tooltip
+  via a new `createTooltipDataSource` (e.g. `ETHUSDT %: +10.00%`). The indicator
+  template now declares `series: "price"` so klinecharts syncs its precision to
+  the main symbol's `pricePrecision`, matching the built-in `MA` / `AVP`
+  indicators. Placement on the candle pane (`paneId: "candle_pane"`,
+  `isStack: true`) was already correct and is unchanged.
+
 ## 2.0.1 — 2026-07-14
 
 Patch release with bug fixes. No new features; no runtime breakage for consumers

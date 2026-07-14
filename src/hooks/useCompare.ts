@@ -1,6 +1,10 @@
 import { useState, useCallback, useEffect, useRef, useId } from "react";
 import { registerIndicator } from "klinecharts";
-import type { KLineData } from "klinecharts";
+import type {
+  KLineData,
+  IndicatorCreateTooltipDataSourceParams,
+  IndicatorTooltipData,
+} from "klinecharts";
 import { useKlinechartsUI } from "../provider/ChartTerminalContext";
 
 export interface CompareSymbol {
@@ -14,7 +18,7 @@ export interface CompareSymbol {
 export interface UseCompareReturn {
   /** Currently compared symbols */
   symbols: CompareSymbol[];
-  /** Add a symbol — fetches data, normalizes to %, renders as indicator line */
+  /** Add a symbol — fetches data, projects onto the main price scale, renders as an overlay line */
   addSymbol: (ticker: string, color?: string) => Promise<void>;
   /** Remove a symbol overlay */
   removeSymbol: (ticker: string) => void;
@@ -36,11 +40,29 @@ const DEFAULT_COLORS = [
 ];
 
 /**
+ * Per-bar comparison result returned by the indicator's `calc`.
+ *
+ * `value` is the compare-symbol's close projected onto the main symbol's price
+ * scale (so the line draws over the candles and shares the candle y-axis,
+ * instead of collapsing the chart with a separate percentage scale):
+ *   value = mainBase * (compareClose / compareBase)
+ * `pct` is the real percentage change of the compare symbol from its own
+ * anchor — shown in the tooltip/legend, never drawn on the axis.
+ */
+export interface CompareIndicatorResult {
+  value: number | null;
+  pct: number | null;
+}
+
+/**
  * Headless hook for comparing multiple symbols on the same chart.
  *
- * Fetches historical data for each added symbol via the datafeed,
- * normalizes prices to percentage change from the first bar,
- * and renders each as a custom indicator line on the main pane.
+ * Fetches historical data for each added symbol via the datafeed, then
+ * projects each compare price onto the main symbol's price scale relative to
+ * a shared anchor bar (first aligned candle). The projected line draws over
+ * the candles and shares the candle y-axis (no separate percentage scale that
+ * would collapse the chart). The real percentage change is surfaced in the
+ * indicator tooltip via `createTooltipDataSource`.
  */
 export function useCompare(): UseCompareReturn {
   const { state, datafeed } = useKlinechartsUI();
@@ -97,26 +119,42 @@ export function useCompare(): UseCompareReturn {
         compareMap.set(bar.timestamp, bar.close);
       }
 
-      // Find the base price (first aligned bar)
-      let basePrice: number | null = null;
+      // Find the anchor: the first bar where BOTH the main chart and the
+      // compare symbol have a close. We need both base prices at that shared
+      // timestamp so we can project compare prices onto the main scale.
+      let compareBase: number | null = null;
+      let mainBase: number | null = null;
       for (const bar of mainDataList) {
         const close = compareMap.get(bar.timestamp);
         if (close != null) {
-          basePrice = close;
+          compareBase = close;
+          mainBase = bar.close;
           break;
         }
       }
-      if (basePrice === null || basePrice === 0) return;
-      const bp = basePrice;
+      if (compareBase === null || compareBase === 0 || mainBase === null) return;
+      const cb = compareBase;
+      const mb = mainBase;
 
       // Register custom indicator. `calc` recomputes from the live `dataList`
       // on every call (klinecharts passes the current chart data), so the line
       // stays aligned as the main chart's bar count changes (history scroll,
       // realtime). For bars whose timestamp is missing from `compareMap` (e.g.
       // streamed main bars with no compare-symbol quote yet), we carry forward
-      // the last known % instead of emitting NaN, so the line doesn't visually
-      // break on the right edge. NOTE: a fully live comparison would require
-      // subscribing to the compare symbol's realtime updates — not implemented.
+      // the last known projected value instead of emitting NaN, so the line
+      // doesn't visually break on the right edge. NOTE: a fully live comparison
+      // would require subscribing to the compare symbol's realtime updates —
+      // not implemented.
+      //
+      // CRITICAL: the drawn figure (`value`) must be in the MAIN symbol's price
+      // domain so it shares the candle y-axis. Emitting raw percentages here
+      // made klinecharts blend a small-range series (e.g. ±5) with the candle
+      // price range (e.g. ~60000) on the same axis, collapsing the chart. The
+      // real percentage change (`pct`) is carried in the result but never
+      // drawn — it is surfaced in the tooltip via `createTooltipDataSource`.
+      // `series: "price"` makes klinecharts sync the indicator's precision to
+      // the main symbol's pricePrecision (like MA/AVP do).
+      //
       // Stable per-ticker template name (salted per hook instance) so repeated
       // add/remove cycles overwrite the previous registration instead of
       // leaking a new template on every add (klinecharts has no unregister
@@ -127,28 +165,64 @@ export function useCompare(): UseCompareReturn {
       registerIndicator({
         name: indicatorName,
         shortName: ticker,
+        series: "price",
         figures: [
           {
-            key: "pct",
-            title: `${ticker} %: `,
+            key: "value",
+            title: `${ticker}: `,
             type: "line",
             styles: () => ({ color: assignedColor }),
           },
         ] as any,
         calc: (dataList: KLineData[]) => {
+          let lastValue: number | null = null;
           let lastPct: number | null = null;
           return dataList.map((bar) => {
             const close = compareMap.get(bar.timestamp);
             if (close != null) {
-              lastPct = ((close - bp) / bp) * 100;
+              // Project the compare close onto the main price scale:
+              //   if ETH goes from 3000→3300 (+10%), draw the line 10% above
+              //   the BTC anchor (64000→70400) so it overlays the candles.
+              lastValue = mb * (close / cb);
+              lastPct = ((close - cb) / cb) * 100;
             }
-            return { pct: lastPct };
+            return { value: lastValue, pct: lastPct } as CompareIndicatorResult;
           });
+        },
+        // Show the real percentage change in the tooltip. The drawn `value` is
+        // an artificial projection, so we hide it from the legend and report
+        // `pct` instead. `eachFigures` would otherwise render `value` with the
+        // main symbol's price formatting (misleading), so we fully override
+        // the legends here.
+        createTooltipDataSource: (
+          params: IndicatorCreateTooltipDataSourceParams<CompareIndicatorResult>,
+        ): IndicatorTooltipData => {
+          const { indicator, crosshair } = params;
+          const data =
+            indicator.result[crosshair.dataIndex ?? -1] ??
+            ({} as CompareIndicatorResult);
+          const pct = data.pct;
+          const valueText =
+            pct == null || !Number.isFinite(pct)
+              ? "n/a"
+              : `${pct > 0 ? "+" : ""}${pct.toFixed(2)}%`;
+          return {
+            name: ticker,
+            calcParamsText: "",
+            features: [],
+            legends: [
+              {
+                title: { text: `${ticker} %: `, color: assignedColor },
+                value: { text: valueText, color: assignedColor },
+              },
+            ],
+          };
         },
       });
 
-      // Place on main pane. klinecharts v10 createIndicator returns the
-      // indicator id; paneId/yAxisId live on the IndicatorCreate value.
+      // Place on main pane, stacked over the candles. klinecharts v10
+      // createIndicator returns the indicator id; paneId lives on the
+      // IndicatorCreate value. isStack=true overlays it on the candle pane.
       const indicatorId = state.chart.createIndicator(
         { name: indicatorName, paneId: "candle_pane" },
         true,
@@ -163,7 +237,7 @@ export function useCompare(): UseCompareReturn {
         if (prev.some((s) => s.ticker === ticker)) return prev;
         return [
           ...prev,
-          { ticker, basePrice: bp, color: assignedColor, visible: true },
+          { ticker, basePrice: cb, color: assignedColor, visible: true },
         ];
       });
     },
