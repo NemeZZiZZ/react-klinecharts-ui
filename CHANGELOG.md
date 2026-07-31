@@ -4,6 +4,43 @@ All notable changes to **react-klinecharts-ui** are documented in this file.
 
 ---
 
+## 2.0.3 — 2026-08-01
+
+Patch (dependency maintenance) release. No source code or public API changes;
+backs the klinecharts upstream patch (`10.0.0` → `10.0.1`) and the matching
+`react-klinecharts` wrapper (`1.0.0` → `1.0.1`). Typecheck, lint, the full test
+suite, and the build pass against the bumped versions. Backwards compatible.
+
+### Changed
+
+- **klinecharts `^10.0.0` → `^10.0.1`** (dev dependency). `10.0.1` is a strictly
+  additive patch on the public type surface — diffing the published `.d.ts`
+  shows zero removed symbols and exactly one added type (`IndicatorFigureStyleBase`);
+  all symbols the library imports (`utils`, `registerFigure`, `registerIndicator`,
+  `registerOverlay`, and the `OverlayTemplate` / `*Attrs` / `DeepPartial<Options>`
+  types) are preserved.
+
+- **react-klinecharts `1.0.0` → `1.0.1`** (dev dependency, and the same pin in the
+  `docs` / `examples` workspace packages). `1.0.1` is itself a one-line release that
+  raises its `klinecharts` dependency from `^10.0.0` to `^10.0.1`. Bumping it here
+  eliminates the duplicate klinecharts copy the dependency tree previously held: with
+  `1.0.0` the tree resolved to `klinecharts@10.0.1` (direct) **and** `klinecharts@10.0.0`
+  (transitive via `react-klinecharts`); with `1.0.1` both resolve to a single
+  `klinecharts@10.0.1`. The `react-klinecharts` peer range (`>=1.0.0`) is unchanged.
+
+### Notable upstream behaviour in klinecharts 10.0.1 (picked up automatically)
+
+These ship in klinecharts and apply through the chart instance — no library change
+is required to benefit:
+
+- Fixed a miscalculation in the built-in **PVT** indicator (the library exposes PVT
+  as UI metadata over the built-in indicator, so the fix applies transparently).
+- Fixed `rgbToHex` using the red channel value when converting the green/blue
+  channels, and regex errors in `hsla` validation and transparent-color detection.
+- Optimised Canvas rendering scheduling, resizing, and device-pixel-ratio handling;
+  smoother/more consistent mobile inertial scrolling and touch handling that no
+  longer drives page scroll or browser navigation gestures while dragging.
+
 ## 2.0.2 — 2026-07-14
 
 Patch release with a bug fix for the multi-symbol comparison overlay. No new
