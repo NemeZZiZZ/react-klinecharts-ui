@@ -22,16 +22,25 @@ export function useSymbolSearch(debounceMs = 300): UseSymbolSearchReturn {
   // AbortController for the in-flight fetch — cancelled when a new query arrives.
   const abortRef = useRef<AbortController | null>(null);
 
+  // Cancels the pending debounce timer and any in-flight request. Shared by
+  // setQuery (new input), selectSymbol and clearResults — without it a
+  // pending search completed after a select/clear and its results
+  // resurrected in the list.
+  const cancelPending = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    abortRef.current?.abort();
+    abortRef.current = null;
+  }, []);
+
   const setQuery = useCallback(
     (q: string) => {
       setQueryState(q);
 
-      // Cancel previous debounce timer.
-      if (timerRef.current) clearTimeout(timerRef.current);
-
-      // Cancel previous in-flight request.
-      abortRef.current?.abort();
-      abortRef.current = null;
+      // Cancel previous debounce timer and in-flight request.
+      cancelPending();
 
       if (!q.trim()) {
         setResults([]);
@@ -60,23 +69,25 @@ export function useSymbolSearch(debounceMs = 300): UseSymbolSearchReturn {
         }
       }, debounceMs);
     },
-    [datafeed, debounceMs]
+    [datafeed, debounceMs, cancelPending]
   );
 
   const selectSymbol = useCallback(
     (symbol: PartialSymbolInfo) => {
+      cancelPending();
       dispatch({ type: "SET_SYMBOL", symbol });
       setQueryState("");
       setResults([]);
     },
-    [dispatch]
+    [dispatch, cancelPending]
   );
 
   const clearResults = useCallback(() => {
+    cancelPending();
     setQueryState("");
     setResults([]);
     setIsSearching(false);
-  }, []);
+  }, [cancelPending]);
 
   // Cleanup on unmount.
   useEffect(() => {
