@@ -6,10 +6,10 @@ All notable changes to **react-klinecharts-ui** are documented in this file.
 
 ## 2.0.4 — 2026-08-31
 
-Patch (dependency maintenance) release backing the klinecharts upstream patches
-(`10.0.1` → `10.0.3`), plus one small overlay-behaviour improvement that opts
-into a new upstream option. Typecheck, lint, the full test suite (197 tests),
-and the build pass against the bumped version. Backwards compatible.
+Patch release backing the klinecharts upstream patches (`10.0.1` → `10.0.3`),
+a full-codebase audit with 19 bug fixes, and one small overlay-behaviour
+improvement that opts into a new upstream option. Typecheck, lint, the full
+test suite (197 tests), and the build pass. Backwards compatible.
 
 ### Changed
 
@@ -30,6 +30,91 @@ and the build pass against the bumped version. Backwards compatible.
   can no longer lift the liquidity bars over the candles. On klinecharts
   `< 10.0.3` the property is unknown to the runtime and ignored, so behaviour
   there is unchanged.
+
+### Fixed
+
+A full-codebase audit (provider, hooks, overlays, indicators, data pipeline)
+landed 19 fixes, each as a separate commit:
+
+- **`gannFan` overlay was impossible to draw.** `totalStep` counts points + 1,
+  so `totalStep: 2` finished the drawing after a single click; with
+  `p2 === p1` all nine ratio lines degenerated into one horizontal line.
+  Now `totalStep: 3`.
+- **`elliottWave` never collected its 6th point** (`totalStep: 6` → 5 points),
+  leaving the `(5)` label branch unreachable. Now `totalStep: 7`, matching
+  `fiveWaves`.
+- **`parallelogram` vertex dragging was a silent no-op.** The perform handlers
+  assigned to a nonexistent `point.price` field (klinecharts points carry
+  `value`), which also leaked an undefined `price` key into persisted overlay
+  JSON. They now assign `.value`.
+- **Alert crossings could fire spuriously after a symbol/period change.** The
+  reset effect cleared a ref that was never read; the poller's real per-alert
+  baseline (`prevValueByAlert` Map) survived the change, so the new symbol's
+  first close was compared against the old symbol's last one. The poller now
+  reseeds on symbol/period change and the dead ref is removed.
+- **Persisted alerts were never redrawn after a reload or chart remount.** The
+  list hydrated into state and the poller kept working, but no `alertLine`
+  overlays existed and `removeAlert` silently no-oped. The provider recreates
+  the overlays whenever the chart instance appears.
+- **`loadLayout` destroyed alert lines and order lines** — a bare
+  `removeOverlay()` matches every overlay — and `saveLayout` serialized them
+  as plain drawings, recreating them without id/groupId/lock (breaking the
+  alert line↔state pairing and duplicating them on every save). Layouts now
+  own only the `drawing_tools` group, and restored drawings get the group id
+  so `useDrawingTools` can manage them.
+- **`updateIndicatorParams` updated every same-named indicator** (e.g.
+  `main_MA` and `sub_MA` simultaneously) because it overrode by name only. It
+  now derives the canonical id from the pane.
+- **Starting a replay leaked the live bar subscription.** The replay flag
+  flips before `resetData()`, whose unsubscribe was swallowed by the loader's
+  replay gate — live ticks streamed into the chart on top of the replayed
+  prefix for the whole session, and a mid-replay symbol change leaked the old
+  symbol's channel. `unsubscribeBar` now always reaches the datafeed.
+- **A stale rejected data request could wipe the chart.** The data loader's
+  catch path ignored the stale-generation guard: a late init rejection emptied
+  the freshly loaded chart, and a late forward rejection permanently disabled
+  forward pagination until the next `resetData`.
+- **`useCompare.addSymbol` raced itself.** The duplicate guard was checked
+  before the data fetch but written after it: a double-call registered two
+  indicators, and a removal issued mid-flight was undone when the fetch
+  resolved. A pending set now holds the slot for the whole flight.
+- **Compare projections went stale on symbol/period change.** The base prices
+  and timestamp map are baked into the registered `calc` closure, so the old
+  anchor's scale was drawn over the new symbol (or the line silently became
+  nulls). Comparisons are now cleared on the change; re-adding re-anchors.
+- **Script-editor indicators collided across provider instances.** The
+  template used one global registry name, so running a script on chart B
+  recomputed chart A's indicator with B's code. The name is now salted per
+  hook instance (same pattern as `useCompare`).
+- **`resetToDefaults` desynced the indicator last-value toggle.**
+  `setStyles(theme)` restored klinecharts' built-in `lastValueMark.show:
+  false` while the settings state kept `true`; the library default is now
+  re-applied after the theme reset.
+- **Symbol-search results resurrected after select/clear.** Only `setQuery`
+  cancelled the pending debounce/fetch; `selectSymbol` and `clearResults` now
+  share the same cancel helper.
+- **Global Ctrl+Z / Ctrl+Y hijacked text inputs.** The undo/redo keydown
+  handler `preventDefault`'d regardless of target, killing native text undo
+  in the symbol search, layout rename and script editor. Inputs, textareas
+  and contentEditable elements are now skipped.
+- **Replay could not be restarted after finishing naturally** (`isReplaying`
+  stayed `true`, and `startReplay` bailed on it). The double-start guard now
+  only blocks while unplayed bars remain.
+- **Redo of `overlays_removed` could wipe every overlay on the chart.** A
+  failed restore (`createOverlay` returns null for an unregistered template)
+  put an undefined id into the redo payload, and `removeOverlay({ id:
+  undefined })` matches all overlays. The redo payload now only contains
+  successfully restored overlays, and redo skips entries without a string id.
+- **Undoing an indicator removal restored it with library defaults.** The
+  payload now snapshots `calcParams`/`styles`/`visible` before removal, and
+  the re-add paths apply them (hidden state is mirrored into the visibility
+  map).
+- **Ichimoku Chikou span was shifted 2× offset away from TradingView.** The
+  1.0.0 "look-ahead bias" fix read `close[i - offset]` (price line delayed,
+  extending to the last bar); the canonical lagging span displays
+  `close[i + offset]` at bar `i` and ends `offset` bars before the last bar —
+  the displaced plot is the definition, and nothing unknown is shown at the
+  right edge. The indicator and its test now assert TradingView parity.
 
 ### Notable upstream behaviour in klinecharts 10.0.2 / 10.0.3 (picked up automatically)
 
