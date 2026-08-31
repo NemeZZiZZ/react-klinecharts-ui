@@ -278,7 +278,7 @@ export function useCompare(): UseCompareReturn {
       const info = indicatorsRef.current.get(ticker);
       if (info && state.chart) {
         try {
-          state.chart.removeIndicator({ name: info.name } as any);
+          state.chart.removeIndicator({ name: info.name });
         } catch {
           // indicator may already be removed
         }
@@ -320,7 +320,7 @@ export function useCompare(): UseCompareReturn {
     pendingRef.current.clear();
     indicatorsRef.current.forEach((info) => {
       try {
-        state.chart?.removeIndicator({ name: info.name } as any);
+        state.chart?.removeIndicator({ name: info.name });
       } catch {
         // ignore
       }

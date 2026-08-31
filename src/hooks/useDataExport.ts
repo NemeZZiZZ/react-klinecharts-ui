@@ -29,13 +29,13 @@ export function useDataExport(): UseDataExportReturn {
       const dataList = state.chart.getDataList();
       if (!dataList || dataList.length === 0) return;
 
-      const visibleRange = (state.chart as any).getVisibleRange?.();
+      const visibleRange = state.chart.getVisibleRange();
       if (!visibleRange) {
         downloadData(dataList, format, state.symbol?.ticker);
         return;
       }
 
-      const { from, to } = visibleRange as { from: number; to: number };
+      const { from, to } = visibleRange;
       const visibleData = dataList.slice(from, to);
       downloadData(visibleData, format, state.symbol?.ticker);
     },

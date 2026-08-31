@@ -65,14 +65,14 @@ export function useCrosshair(): UseCrosshairReturn {
     const chart = state.chart;
     if (!chart) return;
 
-    (chart as any).subscribeAction?.("onCrosshairChange", handler);
+    chart.subscribeAction("onCrosshairChange", handler);
 
     return () => {
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = 0;
       }
-      (chart as any).unsubscribeAction?.("onCrosshairChange", handler);
+      chart.unsubscribeAction("onCrosshairChange", handler);
     };
   }, [state.chart, handler]);
 
