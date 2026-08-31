@@ -35,16 +35,30 @@ const rsiTv: IndicatorTemplate = {
     // warm-up `null`s with `0`, which pulled the MA toward zero and produced
     // wrong values for the first `rsiPeriod + maPeriod` bars.
     const rsiMa: (number | null)[] = new Array(rsiValues.length).fill(null);
+    // Forward sliding window: the SMA at i averages the last `maPeriod` valid
+    // values ending at i. A per-bar backward scan re-collected that window on
+    // every bar (O(n·maPeriod) per calc pass); with the walking `lo` pointer
+    // each value enters and leaves the window exactly once (amortized O(n)).
+    // The pointer skips nulls, so the semantics hold even were a null to
+    // appear mid-series (TA.rsi only emits a contiguous warm-up null prefix).
+    let windowSum = 0;
+    let windowCount = 0;
+    let lo = 0;
     for (let i = 0; i < rsiValues.length; i++) {
-      if (rsiValues[i] === null) continue;
-      // Collect the last `maPeriod` valid RSI values ending at i. Once we have
-      // that many, the SMA is defined.
-      const valid: number[] = [];
-      for (let j = i; j >= 0 && valid.length < maPeriod; j--) {
-        if (rsiValues[j] !== null) valid.push(rsiValues[j] as number);
+      const v = rsiValues[i];
+      if (v === null) continue;
+      windowSum += v;
+      windowCount++;
+      while (windowCount > maPeriod) {
+        const old = rsiValues[lo];
+        if (old !== null) {
+          windowSum -= old;
+          windowCount--;
+        }
+        lo++;
       }
-      if (valid.length === maPeriod) {
-        rsiMa[i] = valid.reduce((a, b) => a + b, 0) / maPeriod;
+      if (windowCount === maPeriod) {
+        rsiMa[i] = windowSum / maPeriod;
       }
     }
 
