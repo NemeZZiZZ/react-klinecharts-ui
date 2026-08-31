@@ -175,6 +175,13 @@ export type KlinechartsUIAction =
 /** Callback pushed by useUndoRedo so other hooks can record actions. */
 export type UndoRedoListener = (action: { type: string; data: unknown }) => void;
 
+/** A mounted useUndoRedo instance's callable surface (see undoRedoInstancesRef). */
+export interface UndoRedoInstance {
+  pushAction: UndoRedoListener;
+  undo: () => void;
+  redo: () => void;
+}
+
 /** The stable, dispatch-only slice of the context (never changes after mount). */
 export interface KlinechartsUIDispatchValue {
   dispatch: Dispatch<KlinechartsUIAction>;
@@ -193,6 +200,14 @@ export interface KlinechartsUIDispatchValue {
   fullscreenContainerRef: RefObject<HTMLElement | null>;
   /** Ref populated by useUndoRedo; other hooks call it to record actions. */
   undoRedoListenerRef: RefObject<UndoRedoListener | null>;
+  /**
+   * Mounted useUndoRedo instances of THIS provider, in mount order. The first
+   * entry owns the single-slot `undoRedoListenerRef` and the global hotkeys;
+   * when it unmounts the next instance is promoted automatically. Kept per
+   * provider (not module-global) so independent charts each get their own
+   * owner.
+   */
+  undoRedoInstancesRef: RefObject<UndoRedoInstance[]>;
   /**
    * Listener set registered via `useAlerts.onAlertTriggered`; invoked by the
    * provider-owned crossing poller when an alert fires. A Set so multiple

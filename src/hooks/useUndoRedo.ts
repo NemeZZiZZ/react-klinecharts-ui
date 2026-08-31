@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useKlinechartsUI, useKlinechartsUIDispatch } from "../provider/ChartTerminalContext";
+import type { UndoRedoInstance, UndoRedoListener } from "../provider/types";
 
 export type UndoRedoActionType =
   | "overlay_added"
@@ -36,7 +37,7 @@ const DRAWING_GROUP_ID = "drawing_tools";
  */
 export function useUndoRedo(): UseUndoRedoReturn {
   const { state, dispatch } = useKlinechartsUI();
-  const { undoRedoListenerRef } = useKlinechartsUIDispatch();
+  const { undoRedoListenerRef, undoRedoInstancesRef } = useKlinechartsUIDispatch();
   const [undoStack, setUndoStack] = useState<UndoRedoAction[]>([]);
   const [redoStack, setRedoStack] = useState<UndoRedoAction[]>([]);
   const isProcessingRef = useRef(false);
@@ -62,11 +63,8 @@ export function useUndoRedo(): UseUndoRedoReturn {
     setRedoStack([]);
   }, []);
 
-  // Register pushAction so other hooks (useDrawingTools, useIndicators) can call it.
-  useEffect(() => {
-    undoRedoListenerRef.current = pushAction as any;
-    return () => { undoRedoListenerRef.current = null; };
-  }, [pushAction, undoRedoListenerRef]);
+  // NOTE: provider-listener registration and hotkey ownership live further
+  // down, next to the keyboard effect — they need undo/redo to exist first.
 
   const clear = useCallback(() => {
     setUndoStack([]);
@@ -419,9 +417,53 @@ export function useUndoRedo(): UseUndoRedoReturn {
     }
   }, [state.chart, state.mainIndicators, state.subIndicators, state.indicatorAxes, state.indicatorVisibility, dispatch]);
 
+  // Stable per-instance handle in the provider's registry. Fields are kept
+  // current on every render so the registry always calls fresh closures.
+  const instanceHandleRef = useRef<UndoRedoInstance | null>(null);
+  if (instanceHandleRef.current === null) {
+    instanceHandleRef.current = {
+      pushAction: pushAction as unknown as UndoRedoListener,
+      undo,
+      redo,
+    };
+  }
+  useEffect(() => {
+    instanceHandleRef.current!.pushAction = pushAction as unknown as UndoRedoListener;
+    instanceHandleRef.current!.undo = undo;
+    instanceHandleRef.current!.redo = redo;
+  });
+
+  // Multi-instance ownership: only the FIRST mounted instance claims the
+  // single-slot provider listener and answers the global hotkeys. The old
+  // registration was last-writer-wins — with two instances mounted, one stack
+  // recorded actions while BOTH instances hijacked Ctrl+Z (each driving its
+  // own stack: one keystroke, two undos), and any instance unmounting nulled
+  // the shared ref, silently stopping recording for the survivor. When the
+  // owner unmounts, the next instance in the registry is promoted
+  // automatically. The registry is per-provider, so independent charts each
+  // get their own owner.
+  useEffect(() => {
+    const handle = instanceHandleRef.current!;
+    const registry = undoRedoInstancesRef.current;
+    registry.push(handle);
+    const syncOwner = () => {
+      undoRedoListenerRef.current = registry[0]?.pushAction ?? null;
+    };
+    syncOwner();
+    return () => {
+      const idx = registry.indexOf(handle);
+      if (idx !== -1) registry.splice(idx, 1);
+      syncOwner();
+    };
+  }, [undoRedoListenerRef, undoRedoInstancesRef]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Only the owning instance answers — with several instances mounted a
+      // single Ctrl+Z would otherwise drive every stack at once.
+      if (undoRedoInstancesRef.current[0] !== instanceHandleRef.current) return;
+
       const isCtrlOrMeta = e.ctrlKey || e.metaKey;
       if (!isCtrlOrMeta) return;
 
@@ -452,7 +494,7 @@ export function useUndoRedo(): UseUndoRedoReturn {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [undo, redo]);
+  }, [undo, redo, undoRedoInstancesRef]);
 
   return {
     canUndo,

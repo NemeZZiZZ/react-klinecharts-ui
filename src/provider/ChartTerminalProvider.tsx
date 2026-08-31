@@ -209,6 +209,7 @@ export function KlinechartsUIProvider({
 
   const fullscreenContainerRef = useRef<HTMLElement | null>(null);
   const undoRedoListenerRef = useRef<import("./types").UndoRedoListener | null>(null);
+  const undoRedoInstancesRef = useRef<import("./types").UndoRedoInstance[]>([]);
 
   // Provider-owned feature resources (single owner across all hook instances).
   // Multi-listener: several components (toolbar, status bar, sound trigger) can
@@ -506,6 +507,7 @@ export function KlinechartsUIProvider({
       onSettingsChange,
       fullscreenContainerRef,
       undoRedoListenerRef,
+      undoRedoInstancesRef,
       alertTriggeredListenersRef,
       replayIntervalRef,
       replaySavedDataRef,
