@@ -207,6 +207,17 @@ export function useUndoRedo(): UseUndoRedoReturn {
               delete nextAxes[id];
               dispatch({ type: "SET_INDICATOR_AXES", axes: nextAxes });
             }
+            if (id in state.indicatorVisibility) {
+              // Mirror removeMain/removeSubIndicator: the re-add path above
+              // can write [id]: false into the sparse map; drop it on remove
+              // so a later fresh add starts clean.
+              const nextVisibility = { ...state.indicatorVisibility };
+              delete nextVisibility[id];
+              dispatch({
+                type: "SET_INDICATOR_VISIBILITY",
+                visibility: nextVisibility,
+              });
+            }
           }
           setRedoStack((prev) => [
             ...prev,
@@ -371,6 +382,17 @@ export function useUndoRedo(): UseUndoRedoReturn {
               const nextAxes = { ...state.indicatorAxes };
               delete nextAxes[id];
               dispatch({ type: "SET_INDICATOR_AXES", axes: nextAxes });
+            }
+            if (id in state.indicatorVisibility) {
+              // Mirror removeMain/removeSubIndicator: the re-add path above
+              // can write [id]: false into the sparse map; drop it on remove
+              // so a later fresh add starts clean.
+              const nextVisibility = { ...state.indicatorVisibility };
+              delete nextVisibility[id];
+              dispatch({
+                type: "SET_INDICATOR_VISIBILITY",
+                visibility: nextVisibility,
+              });
             }
           }
           setUndoStack((prev) => [
