@@ -100,6 +100,7 @@ export function useLayoutManager(): UseLayoutManagerReturn {
     if (storage) {
       if (!storage.persists("layouts")) return null;
       return {
+        isAdapter: true,
         indexKey: `${storage.keyPrefix}layout_index`,
         entryPrefix: `${storage.keyPrefix}layout:`,
         getItem: (key: string) => {
@@ -126,6 +127,7 @@ export function useLayoutManager(): UseLayoutManagerReturn {
       };
     }
     return {
+      isAdapter: false,
       indexKey: INDEX_KEY,
       entryPrefix: STORAGE_KEY_PREFIX,
       getItem: (key: string) => {
@@ -213,6 +215,57 @@ export function useLayoutManager(): UseLayoutManagerReturn {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshLayouts();
   }, [refreshLayouts]);
+
+  // One-time legacy migration: pre-2.0.4 versions always wrote layouts to raw
+  // localStorage — including apps that had a storage adapter configured (the
+  // adapter then only owned alerts/indicators/settings). Without this merge,
+  // upgrading with `storage` configured would silently orphan every saved
+  // layout. Runs once per backend; copies entries into the adapter, then
+  // removes the legacy keys. Legacy reads are guarded; a corrupted legacy
+  // index aborts the migration without touching the keys.
+  const migratedRef = useRef(false);
+  useEffect(() => {
+    if (!backend?.isAdapter || migratedRef.current) return;
+    migratedRef.current = true;
+    if (typeof localStorage === "undefined") return;
+    try {
+      const legacyIndexRaw = localStorage.getItem(INDEX_KEY);
+      if (!legacyIndexRaw) return;
+      const legacyIds: unknown = JSON.parse(legacyIndexRaw);
+      if (!Array.isArray(legacyIds) || legacyIds.length === 0) return;
+      const merged = [...readLayoutIds()];
+      for (const id of legacyIds) {
+        if (typeof id !== "string" || merged.includes(id)) continue;
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY_PREFIX + id);
+          if (raw) {
+            backend.setItem(backend.entryPrefix + id, raw);
+            merged.push(id);
+          }
+        } catch {
+          // skip a single unreadable entry, keep migrating the rest
+        }
+      }
+      backend.setItem(backend.indexKey, JSON.stringify(merged));
+      // Remove legacy keys only after the adapter copies are written.
+      try {
+        localStorage.removeItem(INDEX_KEY);
+      } catch {
+        // non-fatal
+      }
+      for (const id of legacyIds) {
+        if (typeof id !== "string") continue;
+        try {
+          localStorage.removeItem(STORAGE_KEY_PREFIX + id);
+        } catch {
+          // non-fatal
+        }
+      }
+      refreshLayouts();
+    } catch {
+      // Corrupted legacy index — leave the legacy keys untouched.
+    }
+  }, [backend, readLayoutIds, refreshLayouts]);
 
   const serializeState = useCallback((): ChartLayoutState | null => {
     const chart = state.chart;
@@ -455,6 +508,10 @@ export function useLayoutManager(): UseLayoutManagerReturn {
 
   // Auto-save with 5-second debounce
   useEffect(() => {
+    // Persistence disabled (storage configured without the "layouts"
+    // namespace): running the timer would only churn state through no-op
+    // writes and refreshLayouts([]) re-renders.
+    if (!backend) return;
     if (!autoSaveEnabled || !state.chart) return;
 
     if (autoSaveTimerRef.current) {
@@ -509,6 +566,7 @@ export function useLayoutManager(): UseLayoutManagerReturn {
     state.chart,
     state.mainIndicators,
     state.subIndicators,
+    backend,
     serializeState,
     refreshLayouts,
     readLayoutEntry,

@@ -90,6 +90,44 @@ describe("useLayoutManager persistence routing", () => {
     expect(result.current.layouts).toHaveLength(0);
   });
 
+  it("merges legacy localStorage layouts into a configured adapter once", async () => {
+    // Pre-2.0.4 state: layouts lived in raw localStorage even when a storage
+    // adapter was configured for the other slices.
+    const legacy = seedEntry("legacy-1", "Old Layout");
+    localStorage.setItem(
+      "klinecharts_layout_index",
+      JSON.stringify(["legacy-1"]),
+    );
+    localStorage.setItem(
+      "klinecharts_layout:legacy-1",
+      JSON.stringify(legacy),
+    );
+
+    const adapter = memoryAdapter();
+    adapter.store.set("rkui:layout_index", JSON.stringify(["adapter-1"]));
+    adapter.store.set(
+      "rkui:layout:adapter-1",
+      JSON.stringify(seedEntry("adapter-1", "New Layout")),
+    );
+
+    const { result } = renderHookWithProvider(() => useLayoutManager(), {
+      storage: { adapter },
+    });
+
+    await waitFor(() => {
+      expect(result.current.layouts).toHaveLength(2);
+    });
+    // Existing adapter entries keep their order; migrated ids append.
+    expect(JSON.parse(adapter.store.get("rkui:layout_index")!)).toEqual([
+      "adapter-1",
+      "legacy-1",
+    ]);
+    expect(adapter.store.get("rkui:layout:legacy-1")).toBeTruthy();
+    // Legacy keys are cleaned up after a successful copy.
+    expect(localStorage.getItem("klinecharts_layout_index")).toBeNull();
+    expect(localStorage.getItem("klinecharts_layout:legacy-1")).toBeNull();
+  });
+
   it("never throws when the adapter write fails (quota/private mode)", () => {
     const adapter = memoryAdapter();
     adapter.setItem = () => {
