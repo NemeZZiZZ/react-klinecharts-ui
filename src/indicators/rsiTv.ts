@@ -35,6 +35,10 @@ const rsiTv: IndicatorTemplate = {
     // warm-up `null`s with `0`, which pulled the MA toward zero and produced
     // wrong values for the first `rsiPeriod + maPeriod` bars.
     const rsiMa: (number | null)[] = new Array(rsiValues.length).fill(null);
+    // Degenerate MA period: the window loop would walk `lo` out of bounds
+    // and divide by zero — leave the MA all-null (TA.rsi itself already
+    // guards rsiPeriod < 1).
+    if (maPeriod >= 1) {
     // Forward sliding window: the SMA at i averages the last `maPeriod` valid
     // values ending at i. A per-bar backward scan re-collected that window on
     // every bar (O(n·maPeriod) per calc pass); with the walking `lo` pointer
@@ -60,6 +64,7 @@ const rsiTv: IndicatorTemplate = {
       if (windowCount === maPeriod) {
         rsiMa[i] = windowSum / maPeriod;
       }
+    }
     }
 
     return dataList.map((_, i) => {

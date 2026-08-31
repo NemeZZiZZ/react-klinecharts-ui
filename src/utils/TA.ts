@@ -105,6 +105,9 @@ const TA = {
    * Relative Strength Index (RSI)
    */
   rsi: (data: number[], period: number): (number | null)[] => {
+    // Degenerate period: rma(…, 0) would seed at index -1 and poison the
+    // whole series — emit nulls instead.
+    if (period < 1) return data.map(() => null);
     // Canonical Wilder seeding: the first average covers the FIRST `period`
     // price changes (bars 1..period), so the first RSI value lands on bar
     // `period` (Pine's ta.rsi matches: ta.change(src) is na on bar 0 and the
@@ -308,12 +311,13 @@ const TA = {
     // TradingView parity: Pine smooths over math.round(sqrt(len)) (and
     // int(len/2), which floors). Flooring the square root diverged for
     // periods like 13, 21, 24, 32. The max(1, …) clamps keep degenerate
-    // periods (e.g. 1) from producing zero-length windows — wma would
+    // periods (e.g. 0/1) from producing zero-length windows — wma would
     // divide by sumWeight 0 and leak NaN into the figures.
-    const halfPeriod = Math.max(1, Math.floor(period / 2));
-    const sqrtPeriod = Math.max(1, Math.round(Math.sqrt(period)));
+    const p = Math.max(1, period);
+    const halfPeriod = Math.max(1, Math.floor(p / 2));
+    const sqrtPeriod = Math.max(1, Math.round(Math.sqrt(p)));
     const wma1 = TA.wma(data, halfPeriod);
-    const wma2 = TA.wma(data, period);
+    const wma2 = TA.wma(data, p);
 
     const diff = wma1.map((v, i) => {
       if (v !== null && wma2[i] !== null) {

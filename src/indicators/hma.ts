@@ -8,14 +8,16 @@ const hma: IndicatorTemplate = {
   figures: [{ key: "hma", title: "HMA: ", type: "line" }],
   calc: (dataList: KLineData[], indicator: Indicator) => {
     const period = indicator.calcParams[0] as number;
-    // TV parity (see TA.hma): round the sqrt window, clamp both windows to
-    // at least 1 so degenerate periods can't produce zero-length WMAs (NaN).
-    const halfPeriod = Math.max(1, Math.floor(period / 2));
-    const sqrtPeriod = Math.max(1, Math.round(Math.sqrt(period)));
+    // TV parity (see TA.hma): round the sqrt window, clamp the main period
+    // and both windows to at least 1 so degenerate periods can't produce
+    // zero-length WMAs (sumWeight 0 → NaN).
+    const p = Math.max(1, period);
+    const halfPeriod = Math.max(1, Math.floor(p / 2));
+    const sqrtPeriod = Math.max(1, Math.round(Math.sqrt(p)));
 
     const closes = dataList.map((d) => d.close);
     const wma1 = TA.wma(closes, halfPeriod);
-    const wma2 = TA.wma(closes, period);
+    const wma2 = TA.wma(closes, p);
 
     const diff = wma1.map((v, i) => {
       if (v !== null && wma2[i] !== null) {
