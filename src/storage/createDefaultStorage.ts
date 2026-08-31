@@ -25,8 +25,8 @@ export function createDefaultStorage(): StorageAdapter {
   try {
     // Touch a property to confirm access isn't denied (Safari private mode
     // and disabled-storage quotas throw on use, not on the global reference).
-    const probe = localStorage.getItem("__rkui_probe__");
-    return probe === null ? localStorage : localStorage;
+    localStorage.getItem("__rkui_probe__");
+    return localStorage;
   } catch {
     return NOOP_ADAPTER;
   }
