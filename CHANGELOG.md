@@ -60,8 +60,11 @@ landed 19 fixes, each as a separate commit:
   `removeOverlay()` matches every overlay — and `saveLayout` serialized them
   as plain drawings, recreating them without id/groupId/lock (breaking the
   alert line↔state pairing and duplicating them on every save). Layouts now
-  own only the `drawing_tools` group, and restored drawings get the group id
-  so `useDrawingTools` can manage them.
+  own only the `drawing_tools` group, restored drawings get the group id so
+  `useDrawingTools` can manage them, and subsystem overlays
+  (`alertLine`/`orderLine`/`depthOverlay`/`simpleAnnotation`) captured by
+  pre-2.0.4 layouts are skipped on restore instead of resurrecting as ghost
+  drawings.
 - **`updateIndicatorParams` updated every same-named indicator** (e.g.
   `main_MA` and `sub_MA` simultaneously) because it overrode by name only. It
   now derives the canonical id from the pane.
