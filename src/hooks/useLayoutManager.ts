@@ -261,6 +261,9 @@ export function useLayoutManager(): UseLayoutManagerReturn {
           // non-fatal
         }
       }
+      // One-off post-mount state sync after the migration (same documented
+      // pattern as the hydration effect above).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       refreshLayouts();
     } catch {
       // Corrupted legacy index — leave the legacy keys untouched.
