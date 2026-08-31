@@ -33,15 +33,19 @@ const parallelogram: OverlayTemplate = {
     }
     return [];
   },
+  // Dragging vertex 0/1 keeps the shared edge horizontal: both anchor points
+  // follow the dragged price level. klinecharts points carry `value` (not
+  // `price`) — the previous `.price` assignment silently no-oped and leaked
+  // an undefined `price` key into persisted overlay JSON.
   performEventPressedMove: ({ points, performPointIndex, performPoint }) => {
-    if (performPointIndex < 2) {
-      if (points[0]) (points[0] as any).price = (performPoint as any).price;
-      if (points[1]) (points[1] as any).price = (performPoint as any).price;
+    if (performPointIndex < 2 && performPoint.value !== undefined) {
+      if (points[0]) points[0].value = performPoint.value;
+      if (points[1]) points[1].value = performPoint.value;
     }
   },
   performEventMoveForDrawing: ({ currentStep, points, performPoint }) => {
-    if (currentStep === 2) {
-      if (points[0]) (points[0] as any).price = (performPoint as any).price;
+    if (currentStep === 2 && performPoint.value !== undefined) {
+      if (points[0]) points[0].value = performPoint.value;
     }
   },
 };
