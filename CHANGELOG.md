@@ -7,9 +7,11 @@ All notable changes to **react-klinecharts-ui** are documented in this file.
 ## 2.0.4 — 2026-08-31
 
 Patch release backing the klinecharts upstream patches (`10.0.1` → `10.0.3`),
-a full-codebase audit with 19 bug fixes, and one small overlay-behaviour
+a full-codebase audit with 19 bug fixes followed by a hardening pass (13
+risk-class fixes and 8 optimizations), and one small overlay-behaviour
 improvement that opts into a new upstream option. Typecheck, lint, the full
-test suite (197 tests), and the build pass. Backwards compatible.
+test suite (212 tests), and the build pass. Backwards compatible (one additive
+type export; see **Added**).
 
 ### Changed
 
@@ -118,6 +120,141 @@ landed 19 fixes, each as a separate commit:
   `close[i + offset]` at bar `i` and ends `offset` bars before the last bar —
   the displaced plot is the definition, and nothing unknown is shown at the
   right edge. The indicator and its test now assert TradingView parity.
+
+### Added
+
+- **`ReplayDataLoaderContext` is now exported** from the package root.
+  `createDataLoader` was already public, but its options interface was not, so
+  consumers building custom loaders could not type the replay refs. Purely
+  additive.
+- **New `layouts` storage namespace.** `useLayoutManager` now persists layouts
+  through the provider storage adapter (see the layouts bullet under
+  **Hardening**), which required a namespace declaration in the storage
+  contract. Apps that don't configure `storage` keep the previous direct
+  `localStorage` keys, so existing saved layouts survive the upgrade.
+
+### Hardening
+
+The audit's risk findings — states that were not outright bugs yet but could
+corrupt data or destabilize the UI under real-world conditions — each as a
+separate commit:
+
+- **The data loader can no longer wedge the pipeline or misreport loading.**
+  Three related defects. (1) A `forward` request arriving before any data
+  (`oldestTimestamp === null`) fell through without calling the callback, and
+  klinecharts clears its `_loading` latch only inside the callback — one such
+  request permanently blocked all future loads; a terminal callback now always
+  answers. (2) The loading flag was a boolean, so with an init and a forward
+  request in flight concurrently, whichever finished first flipped the UI to
+  "loaded"; an in-flight counter drives the flag now. (3) The stale-generation
+  guard was per-loader-instance: swapping the `datafeed` prop builds a new
+  loader with its own counter, and an in-flight request from the old loader
+  could still deliver old-feed bars onto the freshly reset chart. The
+  generation counter is now a ref shared by every loader instance of one chart
+  (passed from `ChartCanvas`; deliberately not module-global, so workspace
+  charts never cross-invalidate each other).
+- **RSI now seeds Wilder smoothing canonically.** `TA.rsi` fed the running
+  average a fake leading `0` change, so the seed averaged
+  `(0, chg₁ … chg_{p−1})` instead of the first `period` changes: values began
+  one bar early and carried a decaying seed bias on every series with mixed
+  moves. The first RSI value now lands on bar `period` with the canonical
+  Wilder seed (hand-computed test included; `RSI_TV` inherits the fix).
+- **Indicator move/reorder keeps the axis binding and visibility.**
+  `moveToMain` / `moveToSub` / `reorderSubIndicator` recreated the indicator
+  without `yAxisId` or `visible` and never migrated the tracking maps: a bound
+  indicator silently landed on the default axis while `indicatorAxes` kept
+  pointing at the dead id, and a hidden indicator moved between panes
+  resurrected visible while `isIndicatorVisible` still reported `false`. They
+  now snapshot and carry both properties and migrate the map keys, mirroring
+  `bindIndicatorToNewAxis`.
+- **Hooks no longer drive a disposed chart.** `state.chart` was never cleared
+  when `<ChartCanvas>` unmounted while the provider lived on (layout
+  switching), leaving every `state.chart?.x()` call operating on a destroyed
+  instance. The canvas unmount cleanup now dispatches `SET_CHART` with `null`.
+- **Malformed persisted JSON falls back to defaults instead of crashing.** The
+  provider's hydration helper validated JSON syntax only: a stored literal
+  `"null"` or a wrong-shaped value (string where an array is expected) threw
+  during init or on first render. Hydration now shape-checks the parsed value
+  against the fallback's type and falls back.
+- **Undo/redo is multi-instance safe.** The action listener was a single
+  last-writer-wins slot (an unmounting instance killed recording for the
+  survivors) and every instance registered its own Ctrl+Z/Ctrl+Y handler (one
+  keystroke drove two independent stacks). A per-provider ownership registry
+  now elects the first-mounted instance as the hotkey owner, with automatic
+  promotion when it unmounts.
+- **Overlay cleanup is scoped to the owning hook instance.** `useAnnotations`
+  unmount removed overlays by the shared `annotations` group id and
+  `useOrderLines.removeAllOrderLines` removed by template name — either wiped
+  every sibling instance's overlays on the same chart. Both now track their
+  own overlay ids and remove only those.
+- **Layouts persist through the provider storage adapter.** `useLayoutManager`
+  went straight to `localStorage`: writes were unguarded (quota/private-mode
+  exceptions crashed the callback), a configured custom adapter was ignored,
+  and the initial read ran during render (an SSR hydration mismatch, since the
+  server renders `[]`). Reads/writes are routed through the adapter under the
+  new `layouts` namespace (falling back to the previous direct `localStorage`
+  keys when no adapter is configured), every write is exception-guarded, and
+  hydration moved after mount.
+- **`brush` follows the chart theme again.** The stroke colour was read from a
+  `defaultStyles` parameter that v10 no longer passes to figure creators, so
+  it was silently `undefined` and the brush rendered permanently in the
+  fallback blue regardless of theme. The colour now comes from
+  `chart.getStyles().overlay.line`; a dead `paneId` guard (the field is not
+  part of `OverlayEvent`) was removed, and the header documents that the
+  template intentionally replaces klinecharts' built-in continuous-mode brush
+  (renaming it would break saved layouts).
+- **Fullscreen state is correct on WebKit engines.** The
+  `webkitfullscreenchange` handler read only the standard
+  `document.fullscreenElement`, so `isFullscreen` stayed `false` and
+  re-toggling kept requesting fullscreen instead of exiting. The WebKit
+  fallback property is now checked.
+- **Workspace cell writers are keyed by `cellId`.** The symbol/period effects
+  in `useChartSync` omitted `cellId` from their dependencies, so a prop change
+  kept dispatching to the old cell's id.
+- **`useCompare.toggleSymbol` no longer performs chart work inside a
+  `setState` updater.** StrictMode double-invocation could toggle the chart
+  overlay visibility without a committed state change; the visibility is
+  computed before the updater now (the same pattern `useAnnotations`
+  documents).
+
+### Performance and internals
+
+- **`RSI_TV`'s signal MA is now O(n)** instead of O(n·period): the last
+  `maPeriod` valid RSI values are collected with a forward sliding window
+  (null-tolerant, so the exact previous semantics are preserved).
+- **HMA matches TradingView's window rounding** — `round(√period)` instead of
+  `floor` (they diverge for periods 13, 21, 24, 32, …) — and degenerate
+  periods no longer produce `NaN` (`wma(…, 0)` had a zero denominator;
+  half/sqrt windows are clamped to at least 1).
+- **`MA_Ribbon` regenerates its figures from `calcParams`.** The template
+  declared a fixed 15 figures against 4 default params, so the legend
+  permanently listed eleven `-` placeholders; the figure list now follows the
+  parameter count (and honours custom params of any length).
+- **VWAP renders the typical price on zero-volume prefixes.** The indicator
+  divided by `cumulativeVolume || 1`, collapsing the line to literal 0 on
+  illiquid opens; it now falls back to the typical price, matching `TA.vwap`.
+- **`depthOverlay` guards a non-positive `maxQty`** — an explicit `0` produced
+  an `Infinity` bar width, silently vanishing the whole panel.
+- **Parameter metadata for the built-in `MA`, `EMA` and `RSI`** was added to
+  `INDICATOR_PARAMS`, so the params editor covers them instead of silently
+  skipping three of the most common indicators.
+- Unnecessary `as any` / `?.()` indirections over typed v10 APIs
+  (`subscribeAction`, `getVisibleRange`, `removeIndicator`/`overrideIndicator`
+  filters) were removed, and a dead ternary in the localStorage probe was
+  dropped.
+
+### Known limitations (documented, deliberately not changed here)
+
+- `useDrawingTools` runs one lightweight 1-second overlay poll per hook
+  instance; hoisting a single shared poller into the provider would reshape
+  the hook's public surface and is deferred.
+- `VWAP` / `PivotPoints` anchor their session reset at 00:00 UTC; a
+  configurable session offset is feature work, not a patch.
+- The workspace `sync.symbol` / `sync.period` config channels remain the
+  consumer's responsibility to act on (by design).
+- `useScriptEditor`'s "sandbox" is a convenience shadowing of globals inside
+  `new Function` — it is not a security boundary and should not be presented
+  as one.
 
 ### Notable upstream behaviour in klinecharts 10.0.2 / 10.0.3 (picked up automatically)
 
