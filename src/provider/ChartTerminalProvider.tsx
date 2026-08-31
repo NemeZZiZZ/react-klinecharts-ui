@@ -16,7 +16,7 @@ import {
   KlinechartsUIDispatchContext,
 } from "./ChartTerminalContext";
 import { DEFAULT_PERIODS } from "../data/periods";
-import { registerExtensions } from "../extensions";
+import { registerExtensions, ensureAlertLineRegistered } from "../extensions";
 import { registerOverlay } from "klinecharts";
 import { resolveStorage, type ResolvedStorage, type StorageOptions } from "../storage";
 import type { Alert } from "./featureTypes";
@@ -304,6 +304,30 @@ export function KlinechartsUIProvider({
       state.chart.setStyles(state.styles);
     }
   }, [state.chart, state.styles]);
+
+  // Reconcile persisted alerts onto the chart. Alerts hydrate from storage
+  // into state, but their alertLine overlays are otherwise created only by
+  // useAlerts.addAlert — so after a reload (or a chart remount) the alert
+  // list and the poller were live while no lines existed on the chart, and
+  // removeAlert's removeOverlay silently no-oped. Recreate the lines whenever
+  // the chart instance appears; incremental add/remove stays in useAlerts.
+  useEffect(() => {
+    const chart = state.chart;
+    if (!chart) return;
+    const alerts = stateRef.current.alerts;
+    if (alerts.length === 0) return;
+    ensureAlertLineRegistered();
+    for (const alert of alerts) {
+      chart.createOverlay({
+        name: "alertLine",
+        id: alert.id,
+        groupId: "price_alerts",
+        points: [{ value: alert.price }],
+        extendData: alert.extendData,
+        lock: true,
+      });
+    }
+  }, [state.chart]);
 
   // Provider-owned price-alert poller (single owner). Runs one 1s interval —
   // only while there is a chart and at least one alert — reads the live alert
