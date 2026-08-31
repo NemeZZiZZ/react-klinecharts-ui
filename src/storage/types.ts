@@ -13,7 +13,7 @@ export interface StorageAdapter {
 }
 
 /**
- * Which slices of the provider store are persisted. Defaults to all three.
+ * Which slices of the provider store are persisted. Defaults to all four.
  *
  * - `"alerts"` — the price-alert list (`state.alerts`, including each alert's
  *   `triggered` flag and `extendData`).
@@ -52,7 +52,7 @@ export interface StorageOptions {
   adapter?: StorageAdapter;
   /** Key prefix. Default `"rkui:"`. */
   keyPrefix?: string;
-  /** Which namespaces to persist. Default: all three. */
+  /** Which namespaces to persist. Default: all four. */
   namespaces?: readonly StorageNamespace[];
 }
 

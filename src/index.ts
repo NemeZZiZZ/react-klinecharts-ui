@@ -11,6 +11,8 @@ export type {
   KlinechartsUIAction,
   KlinechartsUIContextValue,
   KlinechartsUIDispatchValue,
+  UndoRedoInstance,
+  UndoRedoListener,
   Datafeed,
   PartialSymbolInfo,
 } from "./provider/types";
