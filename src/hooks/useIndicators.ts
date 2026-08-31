@@ -181,6 +181,16 @@ export function useIndicators(): UseIndicatorsReturn {
     (name: string) => {
       const id = `main_${name}`;
       const yAxisId = state.indicatorAxes[id];
+      // Snapshot params/styles/visibility BEFORE removal so undo restores the
+      // indicator exactly as it was instead of library defaults.
+      const prev = state.chart?.getIndicators({ id })?.[0];
+      const snapshot = prev
+        ? {
+            calcParams: prev.calcParams,
+            visible: prev.visible,
+            styles: prev.styles,
+          }
+        : {};
       state.chart?.removeIndicator({ id });
       const newIndicators = state.mainIndicators.filter((n) => n !== name);
       dispatch({ type: "SET_MAIN_INDICATORS", indicators: newIndicators });
@@ -196,7 +206,14 @@ export function useIndicators(): UseIndicatorsReturn {
       }
       undoRedoListenerRef.current?.({
         type: "indicator_toggled",
-        data: { name, wasActive: true, isMain: true, paneId: "candle_pane", yAxisId },
+        data: {
+          name,
+          wasActive: true,
+          isMain: true,
+          paneId: "candle_pane",
+          yAxisId,
+          ...snapshot,
+        },
       });
     },
     [
@@ -242,6 +259,16 @@ export function useIndicators(): UseIndicatorsReturn {
       const id = `sub_${name}`;
       const paneId = state.subIndicators[name] ?? "";
       const yAxisId = state.indicatorAxes[id];
+      // Snapshot params/styles/visibility BEFORE removal so undo restores the
+      // indicator exactly as it was instead of library defaults.
+      const prev = state.chart?.getIndicators({ id })?.[0];
+      const snapshot = prev
+        ? {
+            calcParams: prev.calcParams,
+            visible: prev.visible,
+            styles: prev.styles,
+          }
+        : {};
       state.chart?.removeIndicator({ id });
       const newIndicators = { ...state.subIndicators };
       delete newIndicators[name];
@@ -258,7 +285,7 @@ export function useIndicators(): UseIndicatorsReturn {
       }
       undoRedoListenerRef.current?.({
         type: "indicator_toggled",
-        data: { name, wasActive: true, isMain: false, paneId, yAxisId },
+        data: { name, wasActive: true, isMain: false, paneId, yAxisId, ...snapshot },
       });
     },
     [

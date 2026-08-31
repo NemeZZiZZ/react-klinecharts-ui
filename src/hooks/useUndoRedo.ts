@@ -127,7 +127,7 @@ export function useUndoRedo(): UseUndoRedoReturn {
           break;
         }
         case "indicator_toggled": {
-          const { name, wasActive, isMain, paneId, yAxisId } = action.data;
+          const { name, wasActive, isMain, paneId, yAxisId, calcParams, visible, styles } = action.data;
           const id = isMain ? `main_${name}` : `sub_${name}`;
           if (wasActive) {
             // It was active before, so re-add it (preserving its axis binding).
@@ -138,6 +138,9 @@ export function useUndoRedo(): UseUndoRedoReturn {
                   id,
                   paneId: "candle_pane",
                   ...(yAxisId ? { yAxisId } : {}),
+                  ...(calcParams ? { calcParams } : {}),
+                  ...(styles ? { styles } : {}),
+                  ...(visible === false ? { visible: false } : {}),
                 },
                 true,
               );
@@ -147,7 +150,14 @@ export function useUndoRedo(): UseUndoRedoReturn {
               });
             } else {
               state.chart.createIndicator(
-                { name, id, ...(yAxisId ? { yAxisId } : {}) },
+                {
+                  name,
+                  id,
+                  ...(yAxisId ? { yAxisId } : {}),
+                  ...(calcParams ? { calcParams } : {}),
+                  ...(styles ? { styles } : {}),
+                  ...(visible === false ? { visible: false } : {}),
+                },
                 false,
               );
               const newPaneId =
@@ -164,6 +174,14 @@ export function useUndoRedo(): UseUndoRedoReturn {
               dispatch({
                 type: "SET_INDICATOR_AXES",
                 axes: { ...state.indicatorAxes, [id]: yAxisId },
+              });
+            }
+            if (visible === false) {
+              // Mirror the restored hidden state into the sparse visibility
+              // map so isIndicatorVisible agrees with the chart.
+              dispatch({
+                type: "SET_INDICATOR_VISIBILITY",
+                visibility: { ...state.indicatorVisibility, [id]: false },
               });
             }
           } else {
@@ -200,6 +218,9 @@ export function useUndoRedo(): UseUndoRedoReturn {
                 isMain,
                 paneId,
                 yAxisId,
+                calcParams,
+                visible,
+                styles,
               },
             },
           ]);
@@ -209,7 +230,7 @@ export function useUndoRedo(): UseUndoRedoReturn {
     } finally {
       isProcessingRef.current = false;
     }
-  }, [state.chart, state.mainIndicators, state.subIndicators, state.indicatorAxes, dispatch]);
+  }, [state.chart, state.mainIndicators, state.subIndicators, state.indicatorAxes, state.indicatorVisibility, dispatch]);
 
   const redo = useCallback(() => {
     // Read the CURRENT stack via the ref mirror (see undo for rationale).
@@ -273,7 +294,7 @@ export function useUndoRedo(): UseUndoRedoReturn {
           break;
         }
         case "indicator_toggled": {
-          const { name, wasActive, isMain, paneId, yAxisId } = action.data;
+          const { name, wasActive, isMain, paneId, yAxisId, calcParams, visible, styles } = action.data;
           const id = isMain ? `main_${name}` : `sub_${name}`;
           if (wasActive) {
             if (isMain) {
@@ -283,6 +304,9 @@ export function useUndoRedo(): UseUndoRedoReturn {
                   id,
                   paneId: "candle_pane",
                   ...(yAxisId ? { yAxisId } : {}),
+                  ...(calcParams ? { calcParams } : {}),
+                  ...(styles ? { styles } : {}),
+                  ...(visible === false ? { visible: false } : {}),
                 },
                 true,
               );
@@ -292,7 +316,14 @@ export function useUndoRedo(): UseUndoRedoReturn {
               });
             } else {
               state.chart.createIndicator(
-                { name, id, ...(yAxisId ? { yAxisId } : {}) },
+                {
+                  name,
+                  id,
+                  ...(yAxisId ? { yAxisId } : {}),
+                  ...(calcParams ? { calcParams } : {}),
+                  ...(styles ? { styles } : {}),
+                  ...(visible === false ? { visible: false } : {}),
+                },
                 false,
               );
               const newPaneId =
@@ -309,6 +340,14 @@ export function useUndoRedo(): UseUndoRedoReturn {
               dispatch({
                 type: "SET_INDICATOR_AXES",
                 axes: { ...state.indicatorAxes, [id]: yAxisId },
+              });
+            }
+            if (visible === false) {
+              // Mirror the restored hidden state into the sparse visibility
+              // map so isIndicatorVisible agrees with the chart.
+              dispatch({
+                type: "SET_INDICATOR_VISIBILITY",
+                visibility: { ...state.indicatorVisibility, [id]: false },
               });
             }
           } else {
@@ -344,6 +383,9 @@ export function useUndoRedo(): UseUndoRedoReturn {
                 isMain,
                 paneId,
                 yAxisId,
+                calcParams,
+                visible,
+                styles,
               },
             },
           ]);
@@ -353,7 +395,7 @@ export function useUndoRedo(): UseUndoRedoReturn {
     } finally {
       isProcessingRef.current = false;
     }
-  }, [state.chart, state.mainIndicators, state.subIndicators, state.indicatorAxes, dispatch]);
+  }, [state.chart, state.mainIndicators, state.subIndicators, state.indicatorAxes, state.indicatorVisibility, dispatch]);
 
   // Keyboard shortcuts
   useEffect(() => {
