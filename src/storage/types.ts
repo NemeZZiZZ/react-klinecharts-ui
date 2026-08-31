@@ -21,13 +21,19 @@ export interface StorageAdapter {
  *   axes, grid, tooltips, …).
  * - `"indicators"` — the active main/sub indicator lists, their pane ids,
  *   custom Y-axis bindings, and visibility overrides.
+ * - `"layouts"` — saved chart layouts managed by `useLayoutManager`. Layouts
+ *   need more than one key, so unlike the slices above they do not use
+ *   `key("layouts")` directly: the index lives at
+ *   `${keyPrefix}layout_index` and each entry at `${keyPrefix}layout:<id>`,
+ *   written through the same adapter.
  */
-export type StorageNamespace = "alerts" | "settings" | "indicators";
+export type StorageNamespace = "alerts" | "settings" | "indicators" | "layouts";
 
 export const DEFAULT_STORAGE_NAMESPACES: readonly StorageNamespace[] = [
   "alerts",
   "settings",
   "indicators",
+  "layouts",
 ];
 
 /** Default key prefix; namespaced keys become `${prefix}${namespace}`. */

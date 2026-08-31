@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef, useEffect } from "react";
-import { useKlinechartsUI } from "../provider/ChartTerminalContext";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useKlinechartsUI, useKlinechartsUIDispatch } from "../provider/ChartTerminalContext";
 
 const STORAGE_KEY_PREFIX = "klinecharts_layout:";
 const INDEX_KEY = "klinecharts_layout_index";
@@ -74,53 +74,141 @@ function generateId(): string {
   );
 }
 
-// Guard against non-browser environments (SSR/Next.js/Astro). The lazy
-// useState initializer in useLayoutManager calls these during render, so they
-// must not throw when localStorage is undefined.
-function getLayoutIds(): string[] {
-  if (typeof localStorage === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(INDEX_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function getEntry(id: string): LayoutEntry | null {
-  if (typeof localStorage === "undefined") return null;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_PREFIX + id);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
- * Headless hook for saving, loading, and managing named chart layouts
- * via localStorage. Supports auto-save with 5-second debounce.
+ * Headless hook for saving, loading, and managing named chart layouts.
+ * Supports auto-save with 5-second debounce.
+ *
+ * Persistence routes through the provider's storage adapter when the consumer
+ * configured one (`<KlinechartsUIProvider storage={...}>`) — so custom
+ * adapters (sessionStorage, IndexedDB sync caches, remote backends) own
+ * layout data the same way they own alerts/settings/indicators. Without a
+ * configured storage, layouts fall back to direct `localStorage` under the
+ * historical keys, so layouts saved by earlier versions keep working.
  */
 export function useLayoutManager(): UseLayoutManagerReturn {
   const { state, dispatch } = useKlinechartsUI();
-  // Read saved layouts synchronously during the first render so there is no
-  // mount effect that triggers a cascading re-render.
-  const [layouts, setLayouts] = useState<LayoutEntry[]>(() =>
-    getLayoutIds()
-      .map((id) => getEntry(id))
-      .filter((e): e is LayoutEntry => e !== null),
-  );
+  const { storage } = useKlinechartsUIDispatch();
+
+  // --- Storage backend ------------------------------------------------------
+  // Adapter-backed when storage is configured; legacy raw localStorage
+  // otherwise. `null` when the consumer explicitly excluded "layouts" from
+  // `storage.namespaces` — persistence disabled, mirroring the opt-out
+  // semantics of the other slices. Every write is guarded: a failing backend
+  // (quota exceeded, private mode, remote hiccup) must never crash the chart,
+  // same contract as the provider's writeNs. Reads are guarded and SSR-safe.
+  const backend = useMemo(() => {
+    if (storage) {
+      if (!storage.persists("layouts")) return null;
+      return {
+        indexKey: `${storage.keyPrefix}layout_index`,
+        entryPrefix: `${storage.keyPrefix}layout:`,
+        getItem: (key: string) => {
+          try {
+            return storage.adapter.getItem(key);
+          } catch {
+            return null;
+          }
+        },
+        setItem: (key: string, value: string) => {
+          try {
+            storage.adapter.setItem(key, value);
+          } catch {
+            // non-fatal: adapter failure must not break save/rename/delete
+          }
+        },
+        removeItem: (key: string) => {
+          try {
+            storage.adapter.removeItem(key);
+          } catch {
+            // non-fatal
+          }
+        },
+      };
+    }
+    return {
+      indexKey: INDEX_KEY,
+      entryPrefix: STORAGE_KEY_PREFIX,
+      getItem: (key: string) => {
+        if (typeof localStorage === "undefined") return null;
+        try {
+          return localStorage.getItem(key);
+        } catch {
+          return null;
+        }
+      },
+      setItem: (key: string, value: string) => {
+        if (typeof localStorage === "undefined") return;
+        try {
+          localStorage.setItem(key, value);
+        } catch {
+          // non-fatal: quota/private-mode
+        }
+      },
+      removeItem: (key: string) => {
+        if (typeof localStorage === "undefined") return;
+        try {
+          localStorage.removeItem(key);
+        } catch {
+          // non-fatal
+        }
+      },
+    };
+  }, [storage]);
+
+  const readLayoutIds = useCallback((): string[] => {
+    if (!backend) return [];
+    try {
+      const raw = backend.getItem(backend.indexKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      // Shape check: a corrupted index must degrade to "no layouts", not
+      // crash every later .map/.filter on a non-array.
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }, [backend]);
+
+  const readLayoutEntry = useCallback((id: string): LayoutEntry | null => {
+    if (!backend) return null;
+    try {
+      const raw = backend.getItem(backend.entryPrefix + id);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }, [backend]);
+
+  const writeLayoutEntry = useCallback((id: string, entry: LayoutEntry) => {
+    backend?.setItem(backend.entryPrefix + id, JSON.stringify(entry));
+  }, [backend]);
+
+  const writeLayoutIndex = useCallback((ids: string[]) => {
+    backend?.setItem(backend.indexKey, JSON.stringify(ids));
+  }, [backend]);
+
+  const deleteLayoutEntry = useCallback((id: string) => {
+    backend?.removeItem(backend.entryPrefix + id);
+  }, [backend]);
+
+  // Layouts load in a mount effect, not in a lazy useState initializer:
+  // reading storage during the first render produced a server/client
+  // hydration mismatch (server renders [], client renders saved entries).
+  const [layouts, setLayouts] = useState<LayoutEntry[]>([]);
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(false);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoSaveIdRef = useRef<string | null>(null);
 
   const refreshLayouts = useCallback(() => {
     setLayouts(
-      getLayoutIds()
-        .map((id) => getEntry(id))
+      readLayoutIds()
+        .map((id) => readLayoutEntry(id))
         .filter((e): e is LayoutEntry => e !== null),
     );
-  }, []);
+  }, [readLayoutIds, readLayoutEntry]);
+
+  useEffect(() => {
+    refreshLayouts();
+  }, [refreshLayouts]);
 
   const serializeState = useCallback((): ChartLayoutState | null => {
     const chart = state.chart;
@@ -178,6 +266,10 @@ export function useLayoutManager(): UseLayoutManagerReturn {
 
   const saveLayout = useCallback(
     (name: string): string | null => {
+      // Persistence disabled (storage configured without the "layouts"
+      // namespace): report failure instead of returning an id that points
+      // at nothing.
+      if (!backend) return null;
       const chartState = serializeState();
       if (!chartState) return null;
 
@@ -193,25 +285,22 @@ export function useLayoutManager(): UseLayoutManagerReturn {
         state: chartState,
       };
 
-      localStorage.setItem(
-        STORAGE_KEY_PREFIX + id,
-        JSON.stringify(entry),
-      );
-      const ids = getLayoutIds();
+      writeLayoutEntry(id, entry);
+      const ids = readLayoutIds();
       if (!ids.includes(id)) {
         ids.push(id);
-        localStorage.setItem(INDEX_KEY, JSON.stringify(ids));
+        writeLayoutIndex(ids);
       }
 
       refreshLayouts();
       return id;
     },
-    [serializeState, refreshLayouts],
+    [backend, serializeState, refreshLayouts, writeLayoutEntry, readLayoutIds, writeLayoutIndex],
   );
 
   const loadLayout = useCallback(
     (id: string): boolean => {
-      const entry = getEntry(id);
+      const entry = readLayoutEntry(id);
       if (!entry || !state.chart) return false;
 
       const chartState = entry.state;
@@ -332,36 +421,32 @@ export function useLayoutManager(): UseLayoutManagerReturn {
 
       return true;
     },
-    [state.chart, dispatch],
+    [state.chart, dispatch, readLayoutEntry],
   );
 
   const deleteLayout = useCallback(
     (id: string) => {
-      localStorage.removeItem(STORAGE_KEY_PREFIX + id);
-      const ids = getLayoutIds().filter((i) => i !== id);
-      localStorage.setItem(INDEX_KEY, JSON.stringify(ids));
+      deleteLayoutEntry(id);
+      writeLayoutIndex(readLayoutIds().filter((i) => i !== id));
       refreshLayouts();
     },
-    [refreshLayouts],
+    [deleteLayoutEntry, writeLayoutIndex, readLayoutIds, refreshLayouts],
   );
 
   const renameLayout = useCallback(
     (id: string, name: string): boolean => {
-      const entry = getEntry(id);
+      const entry = readLayoutEntry(id);
       if (!entry) return false;
       const updated = {
         ...entry,
         name: name.trim(),
         lastModified: Date.now(),
       };
-      localStorage.setItem(
-        STORAGE_KEY_PREFIX + id,
-        JSON.stringify(updated),
-      );
+      writeLayoutEntry(id, updated);
       refreshLayouts();
       return true;
     },
-    [refreshLayouts],
+    [readLayoutEntry, writeLayoutEntry, refreshLayouts],
   );
 
   // Auto-save with 5-second debounce
@@ -378,17 +463,14 @@ export function useLayoutManager(): UseLayoutManagerReturn {
 
       if (autoSaveIdRef.current) {
         // Update existing auto-save slot
-        const entry = getEntry(autoSaveIdRef.current);
+        const entry = readLayoutEntry(autoSaveIdRef.current);
         if (entry) {
           const updated = {
             ...entry,
             lastModified: Date.now(),
             state: chartState,
           };
-          localStorage.setItem(
-            STORAGE_KEY_PREFIX + autoSaveIdRef.current,
-            JSON.stringify(updated),
-          );
+          writeLayoutEntry(autoSaveIdRef.current, updated);
           refreshLayouts();
         }
       } else {
@@ -404,13 +486,10 @@ export function useLayoutManager(): UseLayoutManagerReturn {
           lastModified: now,
           state: chartState,
         };
-        localStorage.setItem(
-          STORAGE_KEY_PREFIX + id,
-          JSON.stringify(entry),
-        );
-        const ids = getLayoutIds();
+        writeLayoutEntry(id, entry);
+        const ids = readLayoutIds();
         ids.push(id);
-        localStorage.setItem(INDEX_KEY, JSON.stringify(ids));
+        writeLayoutIndex(ids);
         autoSaveIdRef.current = id;
         refreshLayouts();
       }
@@ -428,6 +507,10 @@ export function useLayoutManager(): UseLayoutManagerReturn {
     state.subIndicators,
     serializeState,
     refreshLayouts,
+    readLayoutEntry,
+    writeLayoutEntry,
+    readLayoutIds,
+    writeLayoutIndex,
   ]);
 
   return {

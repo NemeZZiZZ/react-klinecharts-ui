@@ -1,0 +1,151 @@
+import { describe, it, expect, beforeEach } from "vitest";
+import { act, waitFor } from "@testing-library/react";
+import { renderHookWithProvider } from "../../test/renderHook";
+import { useLayoutManager, type LayoutEntry } from "./useLayoutManager";
+import type { StorageAdapter } from "../storage";
+
+/** In-memory StorageAdapter with an inspectable backing map. */
+function memoryAdapter(): StorageAdapter & { store: Map<string, string> } {
+  const store = new Map<string, string>();
+  return {
+    store,
+    getItem: (k) => (store.has(k) ? store.get(k)! : null),
+    setItem: (k, v) => void store.set(k, v),
+    removeItem: (k) => void store.delete(k),
+  };
+}
+
+function seedEntry(id: string, name: string): LayoutEntry {
+  return {
+    id,
+    name,
+    symbol: "TESTUSDT",
+    period: "1h",
+    timestamp: 1,
+    lastModified: 1,
+    state: {
+      version: "1.0",
+      meta: { symbol: "TESTUSDT", period: "1h", timestamp: 1, lastModified: 1 },
+      indicators: [],
+      drawings: [],
+    },
+  };
+}
+
+describe("useLayoutManager persistence routing", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("falls back to legacy localStorage keys when no storage is configured", () => {
+    const { result } = renderHookWithProvider(() => useLayoutManager());
+
+    let id: string | null = null;
+    act(() => {
+      id = result.current.saveLayout("Legacy");
+    });
+
+    expect(id).toBeTypeOf("string");
+    // Historical keys, so layouts saved by pre-2.0.4 versions stay visible.
+    expect(localStorage.getItem("klinecharts_layout_index")).toBeTruthy();
+    expect(localStorage.getItem(`klinecharts_layout:${id}`)).toBeTruthy();
+    expect(result.current.layouts).toHaveLength(1);
+  });
+
+  it("routes reads and writes through the provider storage adapter", () => {
+    const adapter = memoryAdapter();
+    const { result } = renderHookWithProvider(() => useLayoutManager(), {
+      storage: { adapter },
+    });
+
+    let id: string | null = null;
+    act(() => {
+      id = result.current.saveLayout("Adapted");
+    });
+
+    expect(id).toBeTypeOf("string");
+    expect(adapter.store.get("rkui:layout_index")).toBeTruthy();
+    expect(adapter.store.get(`rkui:layout:${id}`)).toBeTruthy();
+    // Nothing leaks into the legacy keys when an adapter is configured.
+    expect(localStorage.getItem("klinecharts_layout_index")).toBeNull();
+    expect(result.current.layouts).toHaveLength(1);
+  });
+
+  it("disables persistence when the layouts namespace is excluded", () => {
+    const adapter = memoryAdapter();
+    const { result } = renderHookWithProvider(() => useLayoutManager(), {
+      storage: { adapter, namespaces: ["alerts"] },
+    });
+
+    let id: string | null = null;
+    act(() => {
+      id = result.current.saveLayout("Denied");
+    });
+
+    expect(id).toBeNull();
+    // "alerts" is persisted by the provider itself, so only assert that no
+    // layout keys were touched.
+    expect([...adapter.store.keys()]).not.toContain("rkui:layout_index");
+    expect(localStorage.getItem("klinecharts_layout_index")).toBeNull();
+    expect(result.current.layouts).toHaveLength(0);
+  });
+
+  it("never throws when the adapter write fails (quota/private mode)", () => {
+    const adapter = memoryAdapter();
+    adapter.setItem = () => {
+      throw new Error("QuotaExceededError");
+    };
+    const { result } = renderHookWithProvider(() => useLayoutManager(), {
+      storage: { adapter },
+    });
+
+    expect(() =>
+      act(() => {
+        result.current.saveLayout("Quota");
+      }),
+    ).not.toThrow();
+  });
+
+  it("renames and deletes through the adapter", () => {
+    const adapter = memoryAdapter();
+    const { result } = renderHookWithProvider(() => useLayoutManager(), {
+      storage: { adapter },
+    });
+
+    let id: string | null = null;
+    act(() => {
+      id = result.current.saveLayout("Original");
+    });
+    const entryKey = `rkui:layout:${id}`;
+
+    act(() => {
+      result.current.renameLayout(id!, "Renamed");
+    });
+    const renamed = JSON.parse(adapter.store.get(entryKey)!) as LayoutEntry;
+    expect(renamed.name).toBe("Renamed");
+    expect(result.current.layouts[0]?.name).toBe("Renamed");
+
+    act(() => {
+      result.current.deleteLayout(id!);
+    });
+    expect(adapter.store.get(entryKey)).toBeUndefined();
+    expect(JSON.parse(adapter.store.get("rkui:layout_index")!)).toEqual([]);
+    expect(result.current.layouts).toHaveLength(0);
+  });
+
+  it("loads pre-seeded entries from the adapter after mount", async () => {
+    const adapter = memoryAdapter();
+    adapter.store.set("rkui:layout_index", JSON.stringify(["seed-1"]));
+    adapter.store.set(
+      "rkui:layout:seed-1",
+      JSON.stringify(seedEntry("seed-1", "Seeded")),
+    );
+
+    const { result } = renderHookWithProvider(() => useLayoutManager(), {
+      storage: { adapter },
+    });
+
+    await waitFor(() => expect(result.current.layouts).toHaveLength(1));
+    expect(result.current.layouts[0]?.name).toBe("Seeded");
+  });
+});
