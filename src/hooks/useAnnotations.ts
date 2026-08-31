@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useKlinechartsUI } from "../provider/ChartTerminalContext";
 
 export interface Annotation {
@@ -30,10 +30,16 @@ let annotationCounter = 0;
 export function useAnnotations(): UseAnnotationsReturn {
   const { state } = useKlinechartsUI();
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  // Ids of the overlays created by THIS instance. The groupId "annotations"
+  // is a module constant shared by every useAnnotations instance on the
+  // chart, so an unmount cleanup keyed by groupId wiped sibling instances'
+  // overlays while their React state still listed them.
+  const ownedIdsRef = useRef<Set<string>>(new Set());
 
   const addAnnotation = useCallback(
     (text: string, price: number, timestamp: number, color?: string): string => {
       const id = `annotation_${++annotationCounter}`;
+      ownedIdsRef.current.add(id);
 
       const annotation: Annotation = {
         id,
@@ -71,6 +77,7 @@ export function useAnnotations(): UseAnnotationsReturn {
   const removeAnnotation = useCallback(
     (id: string) => {
       setAnnotations((prev) => prev.filter((a) => a.id !== id));
+      ownedIdsRef.current.delete(id);
       state.chart?.removeOverlay({ id });
     },
     [state.chart],
@@ -109,14 +116,25 @@ export function useAnnotations(): UseAnnotationsReturn {
     // would otherwise call removeOverlay multiple times.
     for (const annotation of annotations) {
       state.chart?.removeOverlay({ id: annotation.id });
+      ownedIdsRef.current.delete(annotation.id);
     }
     setAnnotations([]);
   }, [state.chart, annotations]);
 
-  // Clean up on unmount
+  // Clean up on unmount — only the overlays created by THIS instance (see
+  // ownedIdsRef above).
   useEffect(() => {
+    const chart = state.chart;
+    const owned = ownedIdsRef.current;
     return () => {
-      state.chart?.removeOverlay({ groupId: "annotations" });
+      owned.forEach((id) => {
+        try {
+          chart?.removeOverlay({ id });
+        } catch {
+          // overlay may already be gone
+        }
+      });
+      owned.clear();
     };
   }, [state.chart]);
 

@@ -129,7 +129,17 @@ export function useOrderLines(): UseOrderLinesReturn {
   );
 
   const removeAllOrderLines = useCallback(() => {
-    state.chart?.removeOverlay({ name: "orderLine" });
+    // Remove only the lines created by THIS instance. The previous
+    // removeOverlay({ name: "orderLine" }) wiped every instance's lines on
+    // the chart, contradicting the doc — one panel's "remove all" destroyed
+    // another panel's lines while the latter's ownedIdsRef kept them.
+    ownedIdsRef.current.forEach((id) => {
+      try {
+        state.chart?.removeOverlay({ id });
+      } catch {
+        // overlay may already be gone
+      }
+    });
     callbacksRef.current.clear();
     ownedIdsRef.current.clear();
   }, [state.chart]);
