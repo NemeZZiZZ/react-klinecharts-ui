@@ -131,9 +131,17 @@ interface BrushData {
   pixels: Array<{ x: number; y: number }>;
   points: BrushDataPoint[];
   isDirty: boolean;
-  paneId?: string;
+  // NOTE: a legacy `paneId` field may still exist in persisted extendData
+  // from older versions; it is inert (see the onDrawing note below).
 }
 
+// This template intentionally REPLACES klinecharts' built-in "brush" overlay
+// (`registerOverlay` overwrites by name). The built-in draws in continuous
+// mode (press-drag-release); this variant uses the standard click-drag-click
+// flow, stores the stroke in data coordinates (so it survives resizes and
+// zooms), simplifies it with Ramer-Douglas-Peucker on draw end and renders
+// with quadratic-curve smoothing. Renaming the template would break saved
+// layouts and the drawing menu, so the shadowing is deliberate.
 const brush: OverlayTemplate = {
   name: "brush",
   totalStep: 3,
@@ -142,7 +150,6 @@ const brush: OverlayTemplate = {
   needDefaultYAxisFigure: false,
   onDrawing: (params: any) => {
     const { overlay, x, y } = params;
-    const paneId = params.paneId;
     if (x === undefined || y === undefined) return true;
     if (overlay.currentStep !== 2) return true;
 
@@ -151,12 +158,10 @@ const brush: OverlayTemplate = {
         pixels: [],
         points: [],
         isDirty: false,
-        paneId,
       } as BrushData;
     }
 
     const data = overlay.extendData as BrushData;
-    if (data.paneId && data.paneId !== paneId) return true;
 
     const lastPixel = data.pixels[data.pixels.length - 1];
     if (lastPixel) {
@@ -176,7 +181,7 @@ const brush: OverlayTemplate = {
     }
     return true;
   },
-  createPointFigures: ({ overlay, xAxis, yAxis, defaultStyles }: any) => {
+  createPointFigures: ({ chart, overlay, xAxis, yAxis }: any) => {
     const data = overlay.extendData as BrushData | undefined;
     if (!data || !xAxis || !yAxis) return [];
 
@@ -191,6 +196,7 @@ const brush: OverlayTemplate = {
     }
 
     let { points } = data;
+    let coordinates: Array<{ x: number; y: number }>;
 
     if (data.isDirty && points.length > 2) {
       const pixelPoints = points.map((p) => ({
@@ -206,26 +212,32 @@ const brush: OverlayTemplate = {
       }));
       points = data.points;
       data.isDirty = false;
+      // The simplified pixels are already chart coordinates — reuse them
+      // instead of a second data→pixel round-trip per frame (which also
+      // accumulated rounding drift on every simplify pass).
+      coordinates = simplified;
+    } else {
+      coordinates = points.map((p) => ({
+        x: xAxis.convertToPixel(p.timestamp),
+        y: yAxis.convertToPixel(p.value),
+      }));
     }
 
     if (points.length < 2) return [];
 
-    const coordinates = points.map((p) => ({
-      x: xAxis.convertToPixel(p.timestamp),
-      y: yAxis.convertToPixel(p.value),
-    }));
+    // Theme fallback: `defaultStyles` is NOT part of the v10 figure-creator
+    // params ({ chart, overlay, coordinates, bounding, xAxis, yAxis }) — it
+    // was silently undefined, hardcoding the stroke to a fixed blue in every
+    // theme. Read the active theme through the chart instead.
+    const themeLine = chart?.getStyles()?.overlay?.line;
 
     return [
       {
         type: "brush_path",
         attrs: { coordinates },
         styles: {
-          color:
-            overlay.styles?.line?.color ??
-            defaultStyles?.line?.color ??
-            "#1677ff",
-          size:
-            overlay.styles?.line?.size ?? defaultStyles?.line?.size ?? 2,
+          color: overlay.styles?.line?.color ?? themeLine?.color,
+          size: overlay.styles?.line?.size ?? themeLine?.size ?? 2,
         },
       },
     ];
