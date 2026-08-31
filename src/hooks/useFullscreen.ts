@@ -52,7 +52,14 @@ export function useFullscreen(): UseFullscreenReturn {
 
   useEffect(() => {
     const handler = () => {
-      setIsFullscreen(!!document.fullscreenElement);
+      // On engines where only the webkit-prefixed event fires, the standard
+      // fullscreenElement is undefined — without the webkit fallback the
+      // state stayed false forever and toggle kept re-entering fullscreen.
+      const element =
+        document.fullscreenElement ??
+        (document as Document & { webkitFullscreenElement?: Element })
+          .webkitFullscreenElement;
+      setIsFullscreen(!!element);
     };
     document.addEventListener("fullscreenchange", handler);
     document.addEventListener("webkitfullscreenchange", handler);
