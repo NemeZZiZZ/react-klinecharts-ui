@@ -88,7 +88,6 @@ export function useCompare(): UseCompareReturn {
       if (!state.chart || !datafeed) return;
       if (indicatorsRef.current.has(ticker) || pendingRef.current.has(ticker))
         return;
-      pendingRef.current.add(ticker);
 
       // Derive the color from the current number of comparisons instead of a
       // monotonically-growing module counter, so it stays stable across
@@ -113,6 +112,10 @@ export function useCompare(): UseCompareReturn {
         pricePrecision: mainSymbol?.pricePrecision ?? 2,
         volumePrecision: mainSymbol?.volumePrecision ?? 8,
       };
+      // All synchronous early-outs are past — occupy the pending slot for the
+      // whole flight. (Placing the add before the mainDataList check above
+      // would leak the slot when the chart has no data yet.)
+      pendingRef.current.add(ticker);
       let compareData: Awaited<
         ReturnType<typeof datafeed.getHistoryKLineData>
       >;
@@ -326,7 +329,8 @@ export function useCompare(): UseCompareReturn {
   useEffect(() => {
     return () => {
       pendingRef.current.clear();
-      indicatorsRef.current.forEach((info) => {        try {
+      indicatorsRef.current.forEach((info) => {
+        try {
           state.chart?.removeIndicator({ name: info.name } as any);
         } catch {
           // ignore
