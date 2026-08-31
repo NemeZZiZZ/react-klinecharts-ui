@@ -39,9 +39,10 @@ const depthOverlay: OverlayTemplate = {
     const maxBarPx = bounding.width * maxBarFraction;
     const askColor = d.askColor ?? "rgba(239,83,80,0.25)";
     const bidColor = d.bidColor ?? "rgba(38,166,154,0.25)";
-    // `?? 1` (not `|| 1`) so a legitimately-zero maxQty is still respected
-    // when explicitly provided, and only `null`/`undefined` fall back to 1.
-    const maxQty = d.maxQty ?? 1;
+    // Guard non-positive maxQty (an explicit 0 or a bad feed value): without
+    // it barWidth becomes Infinity/NaN and the canvas silently skips every
+    // rect — the whole depth panel just vanishes.
+    const maxQty = d.maxQty != null && d.maxQty > 0 ? d.maxQty : 1;
 
     const figures: any[] = [];
 
