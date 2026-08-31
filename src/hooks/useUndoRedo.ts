@@ -358,6 +358,19 @@ export function useUndoRedo(): UseUndoRedoReturn {
       const isCtrlOrMeta = e.ctrlKey || e.metaKey;
       if (!isCtrlOrMeta) return;
 
+      // Don't hijack native text undo/redo: typing in a symbol search, layout
+      // rename, indicator params or the script editor must keep the browser's
+      // own Ctrl+Z/Ctrl+Y instead of removing drawings from the chart.
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
       if (e.key === "z" && !e.shiftKey) {
         e.preventDefault();
         undo();
