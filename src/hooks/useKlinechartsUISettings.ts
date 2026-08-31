@@ -391,6 +391,15 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
   const resetToDefaults = useCallback(() => {
     setSettings(defaultSettings);
     state.chart?.setStyles(state.theme);
+    // setStyles(theme) restores klinecharts' built-in lastValueMark.show:
+    // false, while defaultSettings.showIndicatorLastValue is true (the
+    // bootstrap effect above exists for the same reason). Re-apply the
+    // library default so the UI toggle and the chart stay in sync.
+    if (defaultSettings.showIndicatorLastValue) {
+      state.chart?.setStyles({
+        indicator: { lastValueMark: { show: true } },
+      });
+    }
     // Reset axis options to defaults
     applyPaneAxis({ name: "normal", reverse: false, position: "right", inside: false });
   }, [state.chart, state.theme, applyPaneAxis]);
