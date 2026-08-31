@@ -49,12 +49,16 @@ const ichimoku: IndicatorTemplate = {
         item.kijun = highLowAvg(dataList, index - kijunPeriod + 1, index);
       }
 
-      // Chikou span = the current close plotted `offset` bars into the future.
-      // Reading `dataList[index + offset]` leaks a future close into the past
-      // (look-ahead bias). Instead read the close from `offset` bars ago, so
-      // the lagged line matches TradingView's Chikou.
-      const chikouIndex = index - offset;
-      if (chikouIndex >= 0) {
+      // Chikou (lagging) span = the current close displaced `offset` bars
+      // INTO THE PAST (TradingView behavior): the value displayed at bar
+      // `index` is the close of bar `index + offset`. The line therefore
+      // trails price and ends `offset` bars before the last bar — the last
+      // `offset` entries are null, so no unknown data is ever shown at the
+      // right edge. The displaced plot IS the definition of Chikou, not
+      // look-ahead bias: at display position `index` the "future" close is
+      // already `offset` bars in the past relative to the latest bar.
+      const chikouIndex = index + offset;
+      if (chikouIndex < dataList.length) {
         item.chikou = dataList[chikouIndex].close;
       }
 

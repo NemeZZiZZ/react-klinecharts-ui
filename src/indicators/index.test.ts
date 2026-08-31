@@ -131,13 +131,14 @@ describe("ichimoku", () => {
     }
     expect((r[8] as { tenkan: number | null }).tenkan).not.toBeNull();
   });
-  it("Chikou does NOT read future data (no look-ahead): equals the close from `offset` bars back", () => {
-    // regression for the round-2 look-ahead bug (index+offset → index-offset)
+  it("Chikou is the close displaced `offset` bars into the past (TradingView parity)", () => {
+    // The value displayed at bar i is the close of bar i + offset — the line
+    // trails price and ends `offset` bars before the last bar.
     const offset = 26;
     const i = 60;
-    const chikou = (r[i] as { chikou: number | null }).chikou;
-    if (chikou !== null) {
-      expect(chikou).toBe(DATA[i - offset].close);
+    expect((r[i] as { chikou: number | null }).chikou).toBe(DATA[i + offset].close);
+    for (let j = DATA.length - offset; j < DATA.length; j++) {
+      expect((r[j] as { chikou: number | null }).chikou).toBeNull();
     }
   });
 });
