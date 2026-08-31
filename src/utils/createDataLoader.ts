@@ -31,16 +31,35 @@ export interface ReplayDataLoaderContext {
  * during an active replay session to serve the saved buffer (see
  * {@link ReplayDataLoaderContext}). The replay intercept is scoped to this
  * loader only — direct `datafeed` consumers (e.g. `useCompare`) are unaffected.
+ *
+ * `genRef` optionally shares the init-generation counter across loader
+ * instances of the SAME chart (ChartCanvas passes one ref per chart, kept
+ * across datafeed swaps). Without it, an init still in flight on an OLD loader
+ * (e.g. the datafeed was swapped mid-load) passes its per-closure generation
+ * check and delivers stale bars onto the freshly reset chart. Never share one
+ * ref between different charts — every new init would wrongly invalidate the
+ * other chart's in-flight requests.
  */
 export function createDataLoader(
   datafeed: Datafeed,
   dispatch: Dispatch<KlinechartsUIAction>,
   replay?: ReplayDataLoaderContext,
+  genRef?: MutableRefObject<number>,
 ): DataLoader {
   let oldestTimestamp: number | null = null;
   // Incremented on every "init" request. Forward requests capture the value at
-  // their start and bail out if a newer init has begun while they were in-flight.
-  let currentGen = 0;
+  // their start and bail out if a newer init has begun while they were
+  // in-flight. Falls back to a per-loader counter when no shared ref is given.
+  const genCounter = genRef ?? { current: 0 };
+  // Concurrent init+forward requests share a single boolean in provider state;
+  // a naive finally-dispatch(false) lets whichever request settles first clear
+  // the flag while the other is still loading. Count in-flight requests and
+  // clear the flag only when the last one settles.
+  let pendingRequests = 0;
+  const setLoading = (isLoading: boolean) => {
+    pendingRequests = Math.max(0, pendingRequests + (isLoading ? 1 : -1));
+    dispatch({ type: "SET_LOADING", isLoading: pendingRequests > 0 });
+  };
 
   const isReplaying = () => replay?.active.current === true;
 
@@ -53,7 +72,7 @@ export function createDataLoader(
       // forward pagination until the next resetData.
       let gen: number | null = null;
       try {
-        dispatch({ type: "SET_LOADING", isLoading: true });
+        setLoading(true);
 
         // Replay short-circuit: serve the saved buffer truncated to the replay
         // index, regardless of the requested type. Only the "init" type is
@@ -71,14 +90,14 @@ export function createDataLoader(
 
         if (params.type === "init") {
           oldestTimestamp = null;
-          gen = ++currentGen;
+          gen = ++genCounter.current;
           const data = await datafeed.getHistoryKLineData(
             params.symbol,
             { ...params.period, label: "" },
             0,
             Date.now(),
           );
-          if (gen !== currentGen) return; // newer init started — discard stale result
+          if (gen !== genCounter.current) return; // newer init started — discard stale result
           if (data.length > 0) {
             oldestTimestamp = data[0].timestamp;
           }
@@ -87,14 +106,14 @@ export function createDataLoader(
             backward: false,
           });
         } else if (params.type === "forward" && oldestTimestamp !== null) {
-          gen = currentGen;
+          gen = genCounter.current;
           const data = await datafeed.getHistoryKLineData(
             params.symbol,
             { ...params.period, label: "" },
             0,
             oldestTimestamp - 1,
           );
-          if (gen !== currentGen) return; // init for new period started — discard
+          if (gen !== genCounter.current) return; // init for new period started — discard
           if (data.length > 0) {
             oldestTimestamp = data[0].timestamp;
           }
@@ -106,13 +125,20 @@ export function createDataLoader(
           // Backward pagination (loading data newer than what we have) is generally
           // not needed in typical terminal usage because we subscribe via ws for real-time.
           params.callback([], { forward: false, backward: false });
+        } else {
+          // Terminal fallback — a "forward" request that arrives before any
+          // init delivered (oldestTimestamp === null) must still invoke the
+          // callback: klinecharts sets its internal loading flag before
+          // getBars and only clears it inside the callback, so resolving bare
+          // would wedge every future load until the next resetData.
+          params.callback([], { forward: false, backward: false });
         }
       } catch (error) {
-        if (gen !== null && gen !== currentGen) return; // stale request — the newer init owns the pipeline
+        if (gen !== null && gen !== genCounter.current) return; // stale request — the newer init owns the pipeline
         console.error("Failed to load chart data:", error);
         params.callback([], { forward: false, backward: false });
       } finally {
-        dispatch({ type: "SET_LOADING", isLoading: false });
+        setLoading(false);
       }
     },
     subscribeBar: (params) => {

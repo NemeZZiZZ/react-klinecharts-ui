@@ -67,13 +67,26 @@ export function ChartCanvas({
     replayIndexRef,
   } = useKlinechartsUI();
 
+  // Generation counter shared by every loader instance of THIS chart: when the
+  // datafeed prop is swapped, the rebuilt loader bumps the same counter, so an
+  // init still in flight on the previous loader detects it is stale and
+  // discards its result instead of delivering old-feed bars onto the new chart.
+  // Kept per chart instance — sharing one ref across workspace charts would
+  // cross-invalidate their independent requests.
+  const loaderGenRef = useRef(0);
+
   const dataLoader = useMemo(
     () =>
-      createDataLoader(datafeed, dispatch, {
-        active: replayActiveRef,
-        savedData: replaySavedDataRef,
-        index: replayIndexRef,
-      }),
+      createDataLoader(
+        datafeed,
+        dispatch,
+        {
+          active: replayActiveRef,
+          savedData: replaySavedDataRef,
+          index: replayIndexRef,
+        },
+        loaderGenRef,
+      ),
     [datafeed, dispatch, replayActiveRef, replaySavedDataRef, replayIndexRef],
   );
 

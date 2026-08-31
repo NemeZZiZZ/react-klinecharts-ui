@@ -118,6 +118,124 @@ describe("createDataLoader", () => {
     // Recovery path calls back with empty data so klinecharts closes the request.
     expect(cb).toHaveBeenCalledWith([], expect.anything());
   });
+
+  it("forward before any init still invokes the callback (loading flag must not wedge)", async () => {
+    const dispatch = vi.fn();
+    const loader = createDataLoader(makeDatafeed(bars(5)), dispatch);
+    const cb = vi.fn();
+    // klinecharts clears its internal loading flag ONLY inside the callback —
+    // a bare resolve would block every future load until the next resetData.
+    await loader.getBars({
+      type: "forward",
+      symbol: { ticker: "T" },
+      period: { span: 1, type: "minute" },
+      callback: cb,
+    } as never);
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(cb).toHaveBeenCalledWith([], { forward: false, backward: false });
+  });
+
+  it("keeps isLoading true while any concurrent request is still in flight", async () => {
+    const dispatch = vi.fn();
+    let resolveForwardA!: (data: KLineData[]) => void;
+    let resolveForwardB!: (data: KLineData[]) => void;
+    const feed: Datafeed = {
+      searchSymbols: async () => [],
+      getHistoryKLineData: vi
+        .fn()
+        .mockImplementationOnce(async () => bars(5)) // init
+        .mockImplementationOnce(
+          () => new Promise<KLineData[]>((r) => (resolveForwardA = r)),
+        )
+        .mockImplementationOnce(
+          () => new Promise<KLineData[]>((r) => (resolveForwardB = r)),
+        ),
+      subscribe: () => {},
+      unsubscribe: () => {},
+    };
+    const loader = createDataLoader(feed, dispatch);
+    const loadingFlags = () =>
+      dispatch.mock.calls
+        .filter((c) => (c[0] as KlinechartsUIAction).type === "SET_LOADING")
+        .map((c) => (c[0] as { isLoading: boolean }).isLoading);
+
+    // Init completes first so forward requests have an oldestTimestamp anchor.
+    await loader.getBars({
+      type: "init",
+      symbol: { ticker: "T" },
+      period: { span: 1, type: "minute" },
+      callback: vi.fn(),
+    } as never);
+    expect(loadingFlags()).toEqual([true, false]);
+
+    // Two overlapping forwards (fast scroll): the first to settle must NOT
+    // clear the flag while the second is still loading.
+    const forwardA = loader.getBars({
+      type: "forward",
+      symbol: { ticker: "T" },
+      period: { span: 1, type: "minute" },
+      callback: vi.fn(),
+    } as never);
+    const forwardB = loader.getBars({
+      type: "forward",
+      symbol: { ticker: "T" },
+      period: { span: 1, type: "minute" },
+      callback: vi.fn(),
+    } as never);
+    await Promise.resolve();
+    expect(loadingFlags()).toEqual([true, false, true, true]);
+
+    resolveForwardA(bars(2));
+    await forwardA;
+    expect(loadingFlags()).toEqual([true, false, true, true, true]);
+
+    resolveForwardB(bars(2));
+    await forwardB;
+    expect(loadingFlags()).toEqual([true, false, true, true, true, false]);
+  });
+
+  it("a shared genRef discards a stale init in flight on a previous loader instance", async () => {
+    const dispatch = vi.fn();
+    const genRef = { current: 0 };
+    let resolveOld!: (data: KLineData[]) => void;
+    const oldFeed: Datafeed = {
+      searchSymbols: async () => [],
+      getHistoryKLineData: () =>
+        new Promise<KLineData[]>((r) => (resolveOld = r)),
+      subscribe: () => {},
+      unsubscribe: () => {},
+    };
+    const oldLoader = createDataLoader(oldFeed, dispatch, undefined, genRef);
+    const oldCb = vi.fn();
+    const oldDone = oldLoader.getBars({
+      type: "init",
+      symbol: { ticker: "OLD" },
+      period: { span: 1, type: "minute" },
+      callback: oldCb,
+    } as never);
+    await Promise.resolve();
+
+    // Datafeed swap: a new loader on the SAME chart (shared ref) starts init.
+    const newLoader = createDataLoader(
+      makeDatafeed(bars(3)),
+      dispatch,
+      undefined,
+      genRef,
+    );
+    const newCb = vi.fn();
+    await newLoader.getBars({
+      type: "init",
+      symbol: { ticker: "NEW" },
+      period: { span: 1, type: "minute" },
+      callback: newCb,
+    } as never);
+    expect(newCb).toHaveBeenCalledTimes(1);
+
+    // The old loader's init finally resolves — it must be discarded.
+    resolveOld(bars(10));
+    await oldDone;
+    expect(oldCb).not.toHaveBeenCalled();
+  });
 });
 
 describe("createDataLoader — replay intercept", () => {
