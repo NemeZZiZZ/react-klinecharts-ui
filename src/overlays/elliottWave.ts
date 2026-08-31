@@ -2,7 +2,11 @@ import type { OverlayTemplate } from "klinecharts";
 
 const elliottWave: OverlayTemplate = {
   name: "elliottWave",
-  totalStep: 6,
+  // A 5-wave Elliott pattern needs 6 anchor points (start + waves 1-5), and
+  // klinecharts totalStep = points + 1, so 7. With totalStep 6 only 5 points
+  // were collected and the "(5)" label branch below was unreachable.
+  // (fiveWaves.ts already uses 7 for the same shape.)
+  totalStep: 7,
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: true,
   needDefaultYAxisFigure: true,
