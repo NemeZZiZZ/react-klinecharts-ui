@@ -134,6 +134,19 @@ export function ChartCanvas({
     [dispatch],
   );
 
+  // Clear the registered chart on unmount: react-klinecharts disposes the
+  // klinecharts instance in its own cleanup without notifying onReady, and
+  // without this every `state.chart?.x()` across the hooks would keep driving
+  // a dead chart (the `?.` guard only covers null and would silently swallow
+  // the problem) — including the provider pollers reading getDataList() from
+  // a disposed instance.
+  useEffect(
+    () => () => {
+      dispatch({ type: "SET_CHART", chart: null });
+    },
+    [dispatch],
+  );
+
   return (
     <KLineChart
       className={className}

@@ -146,7 +146,7 @@ export interface KlinechartsUIState {
 }
 
 export type KlinechartsUIAction =
-  | { type: "SET_CHART"; chart: Chart }
+  | { type: "SET_CHART"; chart: Chart | null }
   | { type: "SET_SYMBOL"; symbol: PartialSymbolInfo }
   | { type: "SET_PERIOD"; period: TerminalPeriod }
   | { type: "SET_THEME"; theme: string }
