@@ -148,7 +148,10 @@ export function KlinechartsUIProvider({
           if (parsed === null || typeof parsed !== typeof fallback) {
             return fallback;
           }
-          if (Array.isArray(fallback) && !Array.isArray(parsed)) {
+          // Symmetric array check: [] for an object fallback (or an object for
+          // an array fallback) is the same structural mismatch as a wrong
+          // primitive and must fall back too.
+          if (Array.isArray(parsed) !== Array.isArray(fallback)) {
             return fallback;
           }
           return parsed as T;
