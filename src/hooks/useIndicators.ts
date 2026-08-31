@@ -315,10 +315,13 @@ export function useIndicators(): UseIndicatorsReturn {
   );
 
   const updateIndicatorParams = useCallback(
-    // `paneId` is kept in the signature for API stability; klinecharts v10
-    // `overrideIndicator` no longer accepts it and targets by name/id instead.
-    (name: string, _paneId: string, params: number[]) => {
-      state.chart?.overrideIndicator({ name, calcParams: params });
+    // Target the canonical indicator id derived from the pane. Overriding by
+    // name alone matches EVERY indicator with that name across all panes —
+    // with both main_MA and sub_MA active, editing either one's params
+    // changed both.
+    (name: string, paneId: string, params: number[]) => {
+      const id = paneId === "candle_pane" ? `main_${name}` : `sub_${name}`;
+      state.chart?.overrideIndicator({ id, name, calcParams: params });
     },
     [state.chart],
   );
