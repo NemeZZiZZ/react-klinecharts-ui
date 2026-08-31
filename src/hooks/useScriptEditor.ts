@@ -175,13 +175,16 @@ export function useScriptEditor(): UseScriptEditorReturn {
       }
 
       scriptCounter++;
-      // Use a STABLE indicator template name and let `registerIndicator`
-      // overwrite the previous one. klinecharts exposes no unregister API, so
-      // an incrementing name would leak a template into the global registry on
-      // every Run; the stable name keeps the registry at O(1) for this hook.
-      // Salted per hook instance: the registry is global, and an unsalted name
-      // collided across provider instances — running a script on chart B
-      // silently recomputed chart A's indicator with B's code and params.
+      // Use a STABLE indicator template name per hook instance and let
+      // `registerIndicator` overwrite the previous registration: klinecharts
+      // exposes no unregister API, so an incrementing name would leak a
+      // template into the global registry on every Run. The per-instance
+      // salt (useId) fixes the cross-provider collision — an unsalted name
+      // made a script run on chart B silently recompute chart A's indicator
+      // with B's code and params. Trade-off accepted: the registry now grows
+      // O(mounts) of script-editor components instead of O(1), and separate
+      // React roots share the klinecharts registry with independent useId
+      // counters, so the salt is unique only within one root.
       // `scriptCounter` is still used for display names below.
       const indicatorName = `_custom_script_active_${instanceSalt}`;
 
