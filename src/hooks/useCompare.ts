@@ -294,22 +294,26 @@ export function useCompare(): UseCompareReturn {
       const info = indicatorsRef.current.get(ticker);
       if (!info || !state.chart) return;
 
-      setSymbols((prev) => {
-        const sym = prev.find((s) => s.ticker === ticker);
-        if (!sym) return prev;
+      const sym = symbols.find((s) => s.ticker === ticker);
+      if (!sym) return;
+      const newVisible = !sym.visible;
 
-        const newVisible = !sym.visible;
-        state.chart?.overrideIndicator({
-          name: info.name,
-          visible: newVisible,
-        } as any);
-
-        return prev.map((s) =>
-          s.ticker === ticker ? { ...s, visible: newVisible } : s,
-        );
+      // Perform chart side effects outside the setState updater: updaters
+      // must stay pure — StrictMode double-invokes them and a concurrent
+      // render may discard the result, both toggling the chart without a
+      // committed state change (same discipline as useAnnotations).
+      state.chart.overrideIndicator({
+        name: info.name,
+        visible: newVisible,
       });
+
+      setSymbols((prev) =>
+        prev.map((s) =>
+          s.ticker === ticker ? { ...s, visible: newVisible } : s,
+        ),
+      );
     },
-    [state.chart],
+    [state.chart, symbols],
   );
 
   const clearAll = useCallback(() => {
