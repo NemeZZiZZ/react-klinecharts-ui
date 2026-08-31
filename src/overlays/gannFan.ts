@@ -2,7 +2,11 @@ import type { OverlayTemplate } from "klinecharts";
 
 const gannFan: OverlayTemplate = {
   name: "gannFan",
-  totalStep: 2,
+  // klinecharts totalStep = points + 1: the fan needs 2 points (anchor +
+  // slope reference), so totalStep must be 3. With totalStep 2 the drawing
+  // finished after a single click, p2 fell back to p1, dx/dy were 0 and all
+  // nine ratio lines degenerated into one horizontal line through p1.
+  totalStep: 3,
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: true,
   needDefaultYAxisFigure: true,
