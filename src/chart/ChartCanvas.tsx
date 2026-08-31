@@ -85,6 +85,10 @@ export function ChartCanvas({
           savedData: replaySavedDataRef,
           index: replayIndexRef,
         },
+        // Passing the ref OBJECT (never dereferencing `.current`) during
+        // render is safe: the loader only bumps/reads the counter inside its
+        // async getBars callbacks, long after render has committed.
+        // eslint-disable-next-line react-hooks/refs
         loaderGenRef,
       ),
     [datafeed, dispatch, replayActiveRef, replaySavedDataRef, replayIndexRef],

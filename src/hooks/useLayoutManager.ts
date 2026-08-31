@@ -206,7 +206,11 @@ export function useLayoutManager(): UseLayoutManagerReturn {
     );
   }, [readLayoutIds, readLayoutEntry]);
 
+  // Intentional setState-in-effect: persisted layouts are hydrated only after
+  // mount so the server and the client's first render agree on `[]` (reading
+  // localStorage during render would cause an SSR hydration mismatch).
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshLayouts();
   }, [refreshLayouts]);
 
