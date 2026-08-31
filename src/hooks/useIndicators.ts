@@ -370,10 +370,18 @@ export function useIndicators(): UseIndicatorsReturn {
       // Snapshot everything the recreation must carry — the indicator id
       // changes across the move, and with it every state-map key.
       const prev = state.chart.getIndicators({ id: fromId })?.[0];
-      const prevAxisId = prev?.yAxisId ?? state.indicatorAxes[fromId];
+      // The state map is authoritative for custom axis bindings: klinecharts
+      // fills `yAxisId` with the pane's DEFAULT axis id when none was given,
+      // so reading it from the indicator would transplant that default id
+      // onto the candle pane — creating a spurious extra axis there and
+      // writing a pane-default id into a map documented as custom-only.
+      const prevAxisId = state.indicatorAxes[fromId];
       const prevVisible = prev?.visible ?? true;
       state.chart.removeIndicator({ id: fromId });
-      state.chart.createIndicator(
+      // klinecharts dedupes by id and returns null when `toId` already
+      // exists. Merge semantics for that case: the existing target instance
+      // keeps its own params/styles/axis/visibility; we just drop the source.
+      const created = state.chart.createIndicator(
         {
           name,
           id: toId,
@@ -384,7 +392,7 @@ export function useIndicators(): UseIndicatorsReturn {
         },
         true,
       );
-      if (prev?.styles) {
+      if (created !== null && prev?.styles) {
         state.chart.overrideIndicator({ name, id: toId, styles: prev.styles });
       }
       // Migrate the axis binding and visibility entry to the new id. Without
@@ -393,19 +401,23 @@ export function useIndicators(): UseIndicatorsReturn {
       // resurfaced as visible while isIndicatorVisible kept reporting false.
       const nextAxes = { ...state.indicatorAxes };
       delete nextAxes[fromId];
-      if (prevAxisId) nextAxes[toId] = prevAxisId;
+      if (created !== null && prevAxisId) nextAxes[toId] = prevAxisId;
       dispatch({ type: "SET_INDICATOR_AXES", axes: nextAxes });
       const nextVisibility = { ...state.indicatorVisibility };
       delete nextVisibility[fromId];
-      if (prevVisible) delete nextVisibility[toId];
-      else nextVisibility[toId] = false;
+      if (created !== null) {
+        if (prevVisible) delete nextVisibility[toId];
+        else nextVisibility[toId] = false;
+      }
       dispatch({ type: "SET_INDICATOR_VISIBILITY", visibility: nextVisibility });
       const newSub = { ...state.subIndicators };
       delete newSub[name];
       dispatch({ type: "SET_SUB_INDICATORS", indicators: newSub });
       dispatch({
         type: "SET_MAIN_INDICATORS",
-        indicators: [...state.mainIndicators, name],
+        indicators: state.mainIndicators.includes(name)
+          ? state.mainIndicators
+          : [...state.mainIndicators, name],
       });
     },
     [
@@ -424,10 +436,15 @@ export function useIndicators(): UseIndicatorsReturn {
       const fromId = `main_${name}`;
       const toId = `sub_${name}`;
       const prev = state.chart.getIndicators({ id: fromId })?.[0];
-      const prevAxisId = prev?.yAxisId ?? state.indicatorAxes[fromId];
+      // Same as moveToMain: only the state map's CUSTOM bindings migrate —
+      // the live indicator's yAxisId is always set (pane default), and
+      // carrying a candle-pane default id here would spawn an extra axis on
+      // the fresh sub pane.
+      const prevAxisId = state.indicatorAxes[fromId];
       const prevVisible = prev?.visible ?? true;
       state.chart.removeIndicator({ id: fromId });
-      state.chart.createIndicator(
+      // Null when sub_<name> already exists — merge semantics (see above).
+      const created = state.chart.createIndicator(
         {
           name,
           id: toId,
@@ -437,7 +454,7 @@ export function useIndicators(): UseIndicatorsReturn {
         },
         false,
       );
-      if (prev?.styles) {
+      if (created !== null && prev?.styles) {
         state.chart.overrideIndicator({ name, id: toId, styles: prev.styles });
       }
       const paneId =
@@ -445,12 +462,14 @@ export function useIndicators(): UseIndicatorsReturn {
       // Same key migration as moveToMain, in the opposite direction.
       const nextAxes = { ...state.indicatorAxes };
       delete nextAxes[fromId];
-      if (prevAxisId) nextAxes[toId] = prevAxisId;
+      if (created !== null && prevAxisId) nextAxes[toId] = prevAxisId;
       dispatch({ type: "SET_INDICATOR_AXES", axes: nextAxes });
       const nextVisibility = { ...state.indicatorVisibility };
       delete nextVisibility[fromId];
-      if (prevVisible) delete nextVisibility[toId];
-      else nextVisibility[toId] = false;
+      if (created !== null) {
+        if (prevVisible) delete nextVisibility[toId];
+        else nextVisibility[toId] = false;
+      }
       dispatch({ type: "SET_INDICATOR_VISIBILITY", visibility: nextVisibility });
       const newMain = state.mainIndicators.filter((n) => n !== name);
       dispatch({ type: "SET_MAIN_INDICATORS", indicators: newMain });
@@ -544,10 +563,13 @@ export function useIndicators(): UseIndicatorsReturn {
       const swapIdx = direction === "up" ? idx - 1 : idx + 1;
       if (swapIdx < 0 || swapIdx >= subNames.length) return;
 
-      // Collect full indicator state for all sub-indicators. yAxisId must be
-      // carried too: the canonical ids stay stable across the reorder, but
-      // recreating an indicator without its axis binding silently lands it on
-      // the default axis while indicatorAxes still claims the custom one.
+      // Collect full indicator state for all sub-indicators. The custom axis
+      // binding must be carried too: recreating an indicator without it
+      // silently lands it on the default axis while indicatorAxes still
+      // claims the custom one. Read bindings from the state map only — the
+      // live indicator's yAxisId is always set (the pane's default axis), so
+      // carrying it would spawn a duplicate axis with the old pane's default
+      // id on every fresh pane.
       const subStates = subNames.map((n) => {
         const id = `sub_${n}`;
         const indicator = state.chart!.getIndicators({ id })?.[0];
@@ -556,7 +578,7 @@ export function useIndicators(): UseIndicatorsReturn {
           calcParams: indicator?.calcParams,
           visible: indicator?.visible ?? true,
           styles: indicator?.styles,
-          yAxisId: indicator?.yAxisId ?? state.indicatorAxes[id],
+          yAxisId: state.indicatorAxes[id],
           paneId: state.subIndicators[n],
         };
       });
