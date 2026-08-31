@@ -78,6 +78,10 @@ export function useSymbolSearch(debounceMs = 300): UseSymbolSearchReturn {
       dispatch({ type: "SET_SYMBOL", symbol });
       setQueryState("");
       setResults([]);
+      // The aborted fetch deliberately skips its state resets (see the
+      // finally above), so the searching flag must be cleared here — same
+      // as clearResults — or the spinner stays on after selecting mid-search.
+      setIsSearching(false);
     },
     [dispatch, cancelPending]
   );
