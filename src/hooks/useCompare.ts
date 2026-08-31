@@ -346,7 +346,10 @@ export function useCompare(): UseCompareReturn {
   useEffect(() => {
     if (indicatorsRef.current.size === 0 && pendingRef.current.size === 0)
       return;
-    clearAll();
+    // Deferred: calling setState synchronously inside an effect triggers
+    // cascading renders (react-hooks lint), and the chart's own reload effect
+    // runs in the same commit anyway.
+    queueMicrotask(() => clearAll());
   }, [state.symbol, state.period, clearAll]);
 
   return { symbols, addSymbol, removeSymbol, toggleSymbol, clearAll };
