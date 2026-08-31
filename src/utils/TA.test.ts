@@ -236,4 +236,23 @@ describe("TA.hma", () => {
       degenerate.every((v) => v === null || Number.isFinite(v)),
     ).toBe(true);
   });
+
+  it("matches a golden value composed with the ROUNDED sqrt window", () => {
+    const data = Array.from({ length: 40 }, (_, i) => 100 + Math.sin(i));
+    const out = TA.hma(data, 13);
+    // Golden: HMA(13) = wma(2*wma(6) - wma(13), round(sqrt(13)) = 4). The
+    // plain isFinite assertion above passes under floor too (window 3); this
+    // golden discriminates — a regression back to floor changes the values.
+    const wma1 = TA.wma(data, 6);
+    const wma2 = TA.wma(data, 13);
+    const diff = wma1.map((v, i) =>
+      v !== null && wma2[i] !== null ? 2 * v - (wma2[i] as number) : null,
+    );
+    const diffValues = diff.filter((v): v is number => v !== null);
+    const golden = TA.wma(diffValues, 4);
+    // diff first becomes non-null at index 12 (wma(13) warm-up), so
+    // diffValues[j] ↔ data[12 + j] and wma(4) first yields at j = 3.
+    expect(out[15]).toBeCloseTo(golden[3] as number, 12);
+    expect(out[30]).toBeCloseTo(golden[18] as number, 12);
+  });
 });
