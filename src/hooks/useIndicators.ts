@@ -365,18 +365,41 @@ export function useIndicators(): UseIndicatorsReturn {
   const moveToMain = useCallback(
     (name: string) => {
       if (!state.chart) return;
-      const prevCalcParams =
-        state.chart.getIndicators({ id: `sub_${name}` })?.[0]?.calcParams;
-      state.chart.removeIndicator({ id: `sub_${name}` });
+      const fromId = `sub_${name}`;
+      const toId = `main_${name}`;
+      // Snapshot everything the recreation must carry — the indicator id
+      // changes across the move, and with it every state-map key.
+      const prev = state.chart.getIndicators({ id: fromId })?.[0];
+      const prevAxisId = prev?.yAxisId ?? state.indicatorAxes[fromId];
+      const prevVisible = prev?.visible ?? true;
+      state.chart.removeIndicator({ id: fromId });
       state.chart.createIndicator(
         {
           name,
-          id: `main_${name}`,
+          id: toId,
           paneId: "candle_pane",
-          ...(prevCalcParams ? { calcParams: prevCalcParams } : {}),
+          ...(prev?.calcParams ? { calcParams: prev.calcParams } : {}),
+          ...(prevAxisId ? { yAxisId: prevAxisId } : {}),
+          visible: prevVisible,
         },
         true,
       );
+      if (prev?.styles) {
+        state.chart.overrideIndicator({ name, id: toId, styles: prev.styles });
+      }
+      // Migrate the axis binding and visibility entry to the new id. Without
+      // this, a bound indicator silently lost its axis on the chart while
+      // indicatorAxes kept a stale sub_* key forever, and a hidden indicator
+      // resurfaced as visible while isIndicatorVisible kept reporting false.
+      const nextAxes = { ...state.indicatorAxes };
+      delete nextAxes[fromId];
+      if (prevAxisId) nextAxes[toId] = prevAxisId;
+      dispatch({ type: "SET_INDICATOR_AXES", axes: nextAxes });
+      const nextVisibility = { ...state.indicatorVisibility };
+      delete nextVisibility[fromId];
+      if (prevVisible) delete nextVisibility[toId];
+      else nextVisibility[toId] = false;
+      dispatch({ type: "SET_INDICATOR_VISIBILITY", visibility: nextVisibility });
       const newSub = { ...state.subIndicators };
       delete newSub[name];
       dispatch({ type: "SET_SUB_INDICATORS", indicators: newSub });
@@ -385,26 +408,50 @@ export function useIndicators(): UseIndicatorsReturn {
         indicators: [...state.mainIndicators, name],
       });
     },
-    [state.chart, state.mainIndicators, state.subIndicators, dispatch],
+    [
+      state.chart,
+      state.mainIndicators,
+      state.subIndicators,
+      state.indicatorAxes,
+      state.indicatorVisibility,
+      dispatch,
+    ],
   );
 
   const moveToSub = useCallback(
     (name: string) => {
       if (!state.chart) return;
-      const prevCalcParams =
-        state.chart.getIndicators({ id: `main_${name}` })?.[0]?.calcParams;
-      state.chart.removeIndicator({ id: `main_${name}` });
-      const subId = `sub_${name}`;
+      const fromId = `main_${name}`;
+      const toId = `sub_${name}`;
+      const prev = state.chart.getIndicators({ id: fromId })?.[0];
+      const prevAxisId = prev?.yAxisId ?? state.indicatorAxes[fromId];
+      const prevVisible = prev?.visible ?? true;
+      state.chart.removeIndicator({ id: fromId });
       state.chart.createIndicator(
         {
           name,
-          id: subId,
-          ...(prevCalcParams ? { calcParams: prevCalcParams } : {}),
+          id: toId,
+          ...(prev?.calcParams ? { calcParams: prev.calcParams } : {}),
+          ...(prevAxisId ? { yAxisId: prevAxisId } : {}),
+          visible: prevVisible,
         },
         false,
       );
+      if (prev?.styles) {
+        state.chart.overrideIndicator({ name, id: toId, styles: prev.styles });
+      }
       const paneId =
-        state.chart.getIndicators({ id: subId })?.[0]?.paneId ?? "";
+        state.chart.getIndicators({ id: toId })?.[0]?.paneId ?? "";
+      // Same key migration as moveToMain, in the opposite direction.
+      const nextAxes = { ...state.indicatorAxes };
+      delete nextAxes[fromId];
+      if (prevAxisId) nextAxes[toId] = prevAxisId;
+      dispatch({ type: "SET_INDICATOR_AXES", axes: nextAxes });
+      const nextVisibility = { ...state.indicatorVisibility };
+      delete nextVisibility[fromId];
+      if (prevVisible) delete nextVisibility[toId];
+      else nextVisibility[toId] = false;
+      dispatch({ type: "SET_INDICATOR_VISIBILITY", visibility: nextVisibility });
       const newMain = state.mainIndicators.filter((n) => n !== name);
       dispatch({ type: "SET_MAIN_INDICATORS", indicators: newMain });
       dispatch({
@@ -412,7 +459,14 @@ export function useIndicators(): UseIndicatorsReturn {
         indicators: { ...state.subIndicators, [name]: paneId },
       });
     },
-    [state.chart, state.mainIndicators, state.subIndicators, dispatch],
+    [
+      state.chart,
+      state.mainIndicators,
+      state.subIndicators,
+      state.indicatorAxes,
+      state.indicatorVisibility,
+      dispatch,
+    ],
   );
 
   const isMainIndicatorActive = useCallback(
@@ -490,7 +544,10 @@ export function useIndicators(): UseIndicatorsReturn {
       const swapIdx = direction === "up" ? idx - 1 : idx + 1;
       if (swapIdx < 0 || swapIdx >= subNames.length) return;
 
-      // Collect full indicator state for all sub-indicators
+      // Collect full indicator state for all sub-indicators. yAxisId must be
+      // carried too: the canonical ids stay stable across the reorder, but
+      // recreating an indicator without its axis binding silently lands it on
+      // the default axis while indicatorAxes still claims the custom one.
       const subStates = subNames.map((n) => {
         const id = `sub_${n}`;
         const indicator = state.chart!.getIndicators({ id })?.[0];
@@ -499,6 +556,7 @@ export function useIndicators(): UseIndicatorsReturn {
           calcParams: indicator?.calcParams,
           visible: indicator?.visible ?? true,
           styles: indicator?.styles,
+          yAxisId: indicator?.yAxisId ?? state.indicatorAxes[id],
           paneId: state.subIndicators[n],
         };
       });
@@ -520,6 +578,7 @@ export function useIndicators(): UseIndicatorsReturn {
             name: sub.name,
             id,
             ...(sub.calcParams ? { calcParams: sub.calcParams } : {}),
+            ...(sub.yAxisId ? { yAxisId: sub.yAxisId } : {}),
             visible: sub.visible,
           },
           false,
@@ -539,7 +598,7 @@ export function useIndicators(): UseIndicatorsReturn {
 
       dispatch({ type: "SET_SUB_INDICATORS", indicators: newSubIndicators });
     },
-    [state.chart, state.subIndicators, dispatch],
+    [state.chart, state.subIndicators, state.indicatorAxes, dispatch],
   );
 
   const getIndicatorAxis = useCallback(
