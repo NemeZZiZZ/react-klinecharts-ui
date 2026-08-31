@@ -70,6 +70,13 @@ export function useCompare(): UseCompareReturn {
   const indicatorsRef = useRef<
     Map<string, { name: string; indicatorId: string | null }>
   >(new Map());
+  // Tickers with an in-flight addSymbol fetch. The indicatorsRef entry only
+  // appears AFTER the await, so without this two rapid addSymbol calls for
+  // the same ticker both passed the guard and registered duplicate
+  // indicators; and a removeSymbol during the fetch was "resurrected" when
+  // the continuation ran. removeSymbol/clearAll/unmount delete from this set,
+  // which is how the post-await continuation knows to bail out.
+  const pendingRef = useRef<Set<string>>(new Set());
   // Per-instance salt so two simultaneously-mounted useCompare instances
   // (e.g. multi-terminal on one page) comparing the SAME ticker don't
   // overwrite each other's `calc` closure in klinecharts' global registry.
@@ -79,7 +86,9 @@ export function useCompare(): UseCompareReturn {
   const addSymbol = useCallback(
     async (ticker: string, color?: string) => {
       if (!state.chart || !datafeed) return;
-      if (indicatorsRef.current.has(ticker)) return;
+      if (indicatorsRef.current.has(ticker) || pendingRef.current.has(ticker))
+        return;
+      pendingRef.current.add(ticker);
 
       // Derive the color from the current number of comparisons instead of a
       // monotonically-growing module counter, so it stays stable across
@@ -104,12 +113,26 @@ export function useCompare(): UseCompareReturn {
         pricePrecision: mainSymbol?.pricePrecision ?? 2,
         volumePrecision: mainSymbol?.volumePrecision ?? 8,
       };
-      const compareData = await datafeed.getHistoryKLineData(
-        symbol,
-        state.period,
-        from,
-        to,
-      );
+      let compareData: Awaited<
+        ReturnType<typeof datafeed.getHistoryKLineData>
+      >;
+      try {
+        compareData = await datafeed.getHistoryKLineData(
+          symbol,
+          state.period,
+          from,
+          to,
+        );
+      } catch {
+        // Fetch failed — release the pending slot so a retry is possible.
+        pendingRef.current.delete(ticker);
+        return;
+      }
+
+      // Removed/cleared (or the hook unmounted) while the fetch was in
+      // flight — the pending slot is already gone; do not register anything.
+      if (!pendingRef.current.has(ticker)) return;
+      pendingRef.current.delete(ticker);
 
       if (!compareData || compareData.length === 0) return;
 
@@ -246,6 +269,9 @@ export function useCompare(): UseCompareReturn {
 
   const removeSymbol = useCallback(
     (ticker: string) => {
+      // Also drop a possible in-flight add: its post-await continuation bails
+      // when the pending slot is gone.
+      pendingRef.current.delete(ticker);
       const info = indicatorsRef.current.get(ticker);
       if (info && state.chart) {
         try {
@@ -284,6 +310,7 @@ export function useCompare(): UseCompareReturn {
   );
 
   const clearAll = useCallback(() => {
+    pendingRef.current.clear();
     indicatorsRef.current.forEach((info) => {
       try {
         state.chart?.removeIndicator({ name: info.name } as any);
@@ -298,6 +325,7 @@ export function useCompare(): UseCompareReturn {
   // Clean up on unmount
   useEffect(() => {
     return () => {
+      pendingRef.current.clear();
       indicatorsRef.current.forEach((info) => {
         try {
           state.chart?.removeIndicator({ name: info.name } as any);
