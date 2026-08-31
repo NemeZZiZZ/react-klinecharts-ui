@@ -174,6 +174,7 @@ export type {
 
 // Utils
 export { createDataLoader } from "./utils/createDataLoader";
+export type { ReplayDataLoaderContext } from "./utils/createDataLoader";
 export { default as TA } from "./utils/TA";
 
 // Persistence (pluggable storage adapter)
