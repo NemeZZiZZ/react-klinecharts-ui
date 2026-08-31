@@ -4,6 +4,11 @@ import { useKlinechartsUI } from "../provider/ChartTerminalContext";
 const STORAGE_KEY_PREFIX = "klinecharts_layout:";
 const INDEX_KEY = "klinecharts_layout_index";
 const STATE_VERSION = "1.0";
+// Same group id as useDrawingTools/useUndoRedo (already duplicated there).
+// Layouts persist ONLY user drawings — alert lines ("price_alerts"), order
+// lines, annotations and the measure overlay are owned by their own
+// subsystems and must neither be serialized nor wiped by a layout load.
+const DRAWING_GROUP_ID = "drawing_tools";
 
 export interface ChartLayoutState {
   version: string;
@@ -142,7 +147,11 @@ export function useLayoutManager(): UseLayoutManagerReturn {
     }
 
     const drawings: ChartLayoutState["drawings"] = [];
-    const allOverlays = chart.getOverlays({});
+    // Only drawing-tools overlays. Serializing everything here previously
+    // captured alert/order lines too, and loadLayout then recreated them
+    // without id/groupId/lock — breaking the alert line↔state pairing and
+    // duplicating them as plain drawings on every save.
+    const allOverlays = chart.getOverlays({ groupId: DRAWING_GROUP_ID });
     if (allOverlays) {
       for (const overlay of allOverlays) {
         drawings.push({
@@ -210,8 +219,11 @@ export function useLayoutManager(): UseLayoutManagerReturn {
 
       const chart = state.chart;
 
-      // Clear existing overlays
-      chart.removeOverlay();
+      // Clear existing drawings only. A bare removeOverlay() (no filter)
+      // matches EVERY overlay in klinecharts — it wiped alert lines
+      // ("price_alerts" group) and order lines whose state lives elsewhere,
+      // permanently breaking their line↔state pairing.
+      chart.removeOverlay({ groupId: DRAWING_GROUP_ID });
 
       // Clear existing indicators. Use the public `getIndicators()` API
       // (flat Indicator[]). The previous code relied on `getIndicatorByPaneId`,
@@ -297,6 +309,9 @@ export function useLayoutManager(): UseLayoutManagerReturn {
             points: drawing.points,
             styles: drawing.styles,
             extendData: drawing.extendData,
+            // Restore into the drawing group so useDrawingTools (which lists
+            // and removes by groupId) sees the restored overlays.
+            groupId: DRAWING_GROUP_ID,
           });
         }
       }
