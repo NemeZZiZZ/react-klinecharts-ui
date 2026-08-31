@@ -211,8 +211,6 @@ export function KlinechartsUIProvider({
   // intercept (in createDataLoader, wired by ChartCanvas). A ref (not state) so
   // the loader — created once per chart — always sees the current flag.
   const replayActiveRef = useRef(false);
-  // Last seen close price, used by the alerts poller to detect crossings.
-  const alertPrevCloseRef = useRef<number | null>(null);
 
   // Tracks the current state so enhancedDispatch can compute the new state
   // synchronously (reducer is pure, so we can call it before dispatch).
@@ -317,8 +315,6 @@ export function KlinechartsUIProvider({
     const chart = state.chart;
     if (!chart || !hasAlerts) return;
 
-    // Seed on (re)start so the first tick never fires a spurious crossing.
-    alertPrevCloseRef.current = null;
     // Per-alert previous value cache (alertId → last seen value), so indicator
     // targets get their own crossing baseline (the price baseline only works
     // for price targets). Seeded lazily — first observation never fires.
@@ -402,16 +398,12 @@ export function KlinechartsUIProvider({
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [state.chart, hasAlerts, enhancedDispatch]);
-
-  // When the underlying data is replaced (symbol/period change), the KLineChart
-  // component is NOT remounted — it just reloads data — so the poller effect
-  // above does not re-run and alertPrevCloseRef keeps the OLD symbol's last
-  // close. That would compare the new symbol's close against the old one,
-  // producing spurious triggers or missed crossings. Reset the baseline here.
-  useEffect(() => {
-    alertPrevCloseRef.current = null;
-  }, [state.symbol, state.period]);
+    // state.symbol/state.period are deps so the per-alert baseline Map is
+    // recreated when the underlying data is replaced: the KLineChart component
+    // is NOT remounted on a symbol/period change (it just reloads data), and
+    // keeping the old baseline would compare the new symbol's first close
+    // against the old symbol's last one — spurious crossings.
+  }, [state.chart, state.symbol, state.period, hasAlerts, enhancedDispatch]);
 
   // --- Persistence write-back ------------------------------------------------
   // Each persisted slice is written through its own effect on the relevant
