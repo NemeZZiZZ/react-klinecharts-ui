@@ -25,7 +25,14 @@ const vwap: IndicatorTemplate = {
       cumulativeVolume += kLineData.volume ?? 0;
       cumulativePriceVolume += price * (kLineData.volume ?? 0);
       return {
-        vwap: cumulativePriceVolume / (cumulativeVolume || 1),
+        // Zero-volume prefix (illiquid open, volume-less feeds): fall back
+        // to the typical price — same semantics as TA.vwap — instead of
+        // `|| 1`, which rendered a misleading 0 line until the first
+        // non-zero volume bar.
+        vwap:
+          cumulativeVolume === 0
+            ? price
+            : cumulativePriceVolume / cumulativeVolume,
       };
     });
   },
