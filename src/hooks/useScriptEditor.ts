@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useId } from "react";
 import { registerIndicator } from "klinecharts";
 import type { KLineData } from "klinecharts";
 import { useKlinechartsUI } from "../provider/ChartTerminalContext";
@@ -114,6 +114,11 @@ export function useScriptEditor(): UseScriptEditorReturn {
   const activeNameRef = useRef<string | null>(null);
   activeNameRef.current = activeName;
   const hasActiveScript = activeName !== null;
+  // Per-instance salt for the registered template name (same pattern as
+  // useCompare). The klinecharts registry is global: two provider instances
+  // (multi-chart workspace) sharing one template name would silently
+  // recompute chart A's indicator with chart B's code/params.
+  const instanceSalt = useId().replace(/[^a-zA-Z0-9]/g, "");
 
   const runScript = useCallback(() => {
     const chart = state.chart;
@@ -174,8 +179,11 @@ export function useScriptEditor(): UseScriptEditorReturn {
       // overwrite the previous one. klinecharts exposes no unregister API, so
       // an incrementing name would leak a template into the global registry on
       // every Run; the stable name keeps the registry at O(1) for this hook.
+      // Salted per hook instance: the registry is global, and an unsalted name
+      // collided across provider instances — running a script on chart B
+      // silently recomputed chart A's indicator with B's code and params.
       // `scriptCounter` is still used for display names below.
-      const indicatorName = `_custom_script_active`;
+      const indicatorName = `_custom_script_active_${instanceSalt}`;
 
       const figures = seriesKeys.map((key, i) => ({
         key,
@@ -237,7 +245,7 @@ export function useScriptEditor(): UseScriptEditorReturn {
     } finally {
       setIsRunning(false);
     }
-  }, [state.chart, code, scriptName, params, placement]);
+  }, [state.chart, code, scriptName, params, placement, instanceSalt]);
 
   const removeScript = useCallback(() => {
     const chart = state.chart;
