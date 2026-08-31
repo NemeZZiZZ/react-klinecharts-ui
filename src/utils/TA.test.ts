@@ -223,4 +223,17 @@ describe("TA.hma", () => {
     expect(out.length).toBe(data.length);
     expect(out[0]).toBeNull();
   });
+
+  it("rounds the sqrt window (TV parity) and never leaks NaN on degenerate periods", () => {
+    const data = Array.from({ length: 40 }, (_, i) => 100 + Math.sin(i));
+    // Period 13 → sqrt window 4 (round), not 3 (floor).
+    const out = TA.hma(data, 13);
+    expect(out.length).toBe(data.length);
+    expect(Number.isFinite(out[30] as number)).toBe(true);
+    // Period 1 clamps both windows to 1 instead of 0-length (NaN) WMAs.
+    const degenerate = TA.hma(data, 1);
+    expect(
+      degenerate.every((v) => v === null || Number.isFinite(v)),
+    ).toBe(true);
+  });
 });

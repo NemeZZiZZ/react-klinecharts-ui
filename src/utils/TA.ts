@@ -305,8 +305,13 @@ const TA = {
    * Hull Moving Average (HMA)
    */
   hma: (data: number[], period: number): (number | null)[] => {
-    const halfPeriod = Math.floor(period / 2);
-    const sqrtPeriod = Math.floor(Math.sqrt(period));
+    // TradingView parity: Pine smooths over math.round(sqrt(len)) (and
+    // int(len/2), which floors). Flooring the square root diverged for
+    // periods like 13, 21, 24, 32. The max(1, …) clamps keep degenerate
+    // periods (e.g. 1) from producing zero-length windows — wma would
+    // divide by sumWeight 0 and leak NaN into the figures.
+    const halfPeriod = Math.max(1, Math.floor(period / 2));
+    const sqrtPeriod = Math.max(1, Math.round(Math.sqrt(period)));
     const wma1 = TA.wma(data, halfPeriod);
     const wma2 = TA.wma(data, period);
 
