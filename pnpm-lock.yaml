@@ -42,8 +42,8 @@ importers:
         specifier: ^20.10.6
         version: 20.10.6
       klinecharts:
-        specifier: ^10.0.1
-        version: 10.0.1
+        specifier: ^10.0.3
+        version: 10.0.3
       prettier:
         specifier: ^3.0.0
         version: 3.8.1
@@ -3572,8 +3572,8 @@ packages:
     resolution: {integrity: sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ==}
     engines: {node: '>=6'}
 
-  klinecharts@10.0.1:
-    resolution: {integrity: sha512-JdtuAyWzt1GIO//JwgBlVHcv2J79s8o/9WZqgU4Ephu9M5mQBBe3zYhn+WemuJ5eVMsmQN70rMOhRpa6CJ20Qg==}
+  klinecharts@10.0.3:
+    resolution: {integrity: sha512-phvf5CyS7oGE46nuC+nxQxl9D+8+5w8q3reExh0oNeMV1Jws4X0CMHNkOI9xlNA/XWctNS5whZ3PqIJi8YM2Tw==}
 
   klona@2.0.6:
     resolution: {integrity: sha512-dhG34DXATL5hSxJbIexCft8FChFXtmskoZYnoPWjXQuebWYCNkVeV3KkGegCK9CP1oswI/vQibS2GY7Em/sJJA==}
@@ -8810,7 +8810,7 @@ snapshots:
 
   kleur@4.1.5: {}
 
-  klinecharts@10.0.1: {}
+  klinecharts@10.0.3: {}
 
   klona@2.0.6: {}
 
@@ -9816,7 +9816,7 @@ snapshots:
 
   react-klinecharts@1.0.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4):
     dependencies:
-      klinecharts: 10.0.1
+      klinecharts: 10.0.3
       react: 19.2.4
       react-dom: 19.2.4(react@19.2.4)
 

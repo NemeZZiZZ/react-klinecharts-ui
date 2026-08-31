@@ -26,6 +26,11 @@ const depthOverlay: OverlayTemplate = {
   lock: true,
   visible: true,
   zLevel: -1,
+  // klinecharts >= 10.0.3: keep the overlay below the candles even while
+  // hovered — by default hovering temporarily raises an overlay above every
+  // other overlay, which would lift the depth bars over the candle series.
+  // Ignored (harmless) on older klinecharts versions.
+  fixedZLevel: true,
   createPointFigures: ({ overlay, bounding, yAxis }) => {
     const d = overlay.extendData as DepthOverlayExtendData | undefined;
     if (!d || !d.rows || d.rows.length === 0 || !yAxis) return [];

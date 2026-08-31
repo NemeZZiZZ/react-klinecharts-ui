@@ -4,6 +4,55 @@ All notable changes to **react-klinecharts-ui** are documented in this file.
 
 ---
 
+## 2.0.4 — 2026-08-31
+
+Patch (dependency maintenance) release backing the klinecharts upstream patches
+(`10.0.1` → `10.0.3`), plus one small overlay-behaviour improvement that opts
+into a new upstream option. Typecheck, lint, the full test suite (197 tests),
+and the build pass against the bumped version. Backwards compatible.
+
+### Changed
+
+- **klinecharts `^10.0.1` → `^10.0.3`** (dev dependency). Diffing the published
+  `.d.ts` between `10.0.1` and `10.0.3` shows zero removed symbols and exactly
+  one added field: `Overlay.fixedZLevel` (optional in `OverlayTemplate` /
+  `OverlayCreate`); all symbols the library imports are preserved. No
+  `react-klinecharts` bump is required — `1.0.1` depends on
+  `klinecharts ^10.0.1`, which already resolves to `10.0.3`, so the dependency
+  tree keeps a single klinecharts copy. The peer ranges
+  (`klinecharts >=10.0.0`, `react-klinecharts >=1.0.0`) are unchanged.
+
+- **`depthOverlay` now declares `fixedZLevel: true`.** klinecharts 10.0.3 added
+  the `fixedZLevel` overlay option, which keeps an overlay at its configured
+  `zLevel` while hovered instead of temporarily raising it above every other
+  overlay. The depth overlay deliberately renders at `zLevel: -1` (behind the
+  candle series); `fixedZLevel: true` makes that placement sticky, so hovering
+  can no longer lift the liquidity bars over the candles. On klinecharts
+  `< 10.0.3` the property is unknown to the runtime and ignored, so behaviour
+  there is unchanged.
+
+### Notable upstream behaviour in klinecharts 10.0.2 / 10.0.3 (picked up automatically)
+
+These ship in klinecharts and apply through the chart instance — no library
+change is required to benefit:
+
+- 10.0.3: fixed backward data loading not being triggered after forward loading
+  was exhausted — relevant to `createDataLoader`-based setups that page history
+  in both directions.
+- 10.0.3: optimised default indicator style parsing, removing repeated
+  calculations during rendering.
+- 10.0.2: optimised path figure parsing/caching (less SVG path parsing
+  overhead) and faster value lookup for simple fields during formatting.
+- 10.0.2: fixed indicator math in the built-in `CR`, `ROC`, and `SAR`
+  indicators; fixed `formatBigNumber` for negative values and exact magnitude
+  boundaries; fixed the percentage y-axis producing `NaN` for flat data or a
+  zero base price.
+- 10.0.2: fixed dragging an overlay control point potentially replacing a valid
+  timestamp with an invalid value (drawing-tool robustness); fixed y-axis tick
+  label collision detection using the x-axis text size; fixed repeated `init`
+  calls failing to identify a chart already initialized on the same container;
+  fixed crosshair path features not accounting for padding.
+
 ## 2.0.3 — 2026-08-01
 
 Patch (dependency maintenance) release. No source code or public API changes;
