@@ -304,6 +304,20 @@ export function useLayoutManager(): UseLayoutManagerReturn {
       // Restore drawings
       if (chartState.drawings) {
         for (const drawing of chartState.drawings) {
+          // Pre-2.0.4 layouts serialized EVERY overlay (getOverlays({})),
+          // including subsystem-owned ones. Skip those on restore so a legacy
+          // layout doesn't resurrect ghost lines the alert/order/annotation
+          // systems know nothing about. None of these names appear in the
+          // drawing-tools menu, so no legitimate user drawing is dropped
+          // ("measure" IS user-drawable and therefore restored normally).
+          if (
+            drawing.name === "alertLine" ||
+            drawing.name === "orderLine" ||
+            drawing.name === "depthOverlay" ||
+            drawing.name === "simpleAnnotation"
+          ) {
+            continue;
+          }
           chart.createOverlay({
             name: drawing.name,
             points: drawing.points,
