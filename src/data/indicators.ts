@@ -59,6 +59,37 @@ export const SUB_INDICATORS: string[] = [
 ];
 
 export const INDICATOR_PARAMS: Record<string, IndicatorDefinition> = {
+  // Built-in MA/EMA/RSI were missing even though they appear in the
+  // MAIN_/SUB_INDICATORS lists, so the params editor couldn't cover them.
+  // Defaults mirror the klinecharts built-in calcParams.
+  MA: {
+    name: "MA",
+    localeKey: "ma",
+    params: [
+      { label: "params_1", defaultValue: 5 },
+      { label: "params_2", defaultValue: 10 },
+      { label: "params_3", defaultValue: 30 },
+      { label: "params_4", defaultValue: 60 },
+    ],
+  },
+  EMA: {
+    name: "EMA",
+    localeKey: "ema",
+    params: [
+      { label: "params_1", defaultValue: 6 },
+      { label: "params_2", defaultValue: 12 },
+      { label: "params_3", defaultValue: 20 },
+    ],
+  },
+  RSI: {
+    name: "RSI",
+    localeKey: "rsi",
+    params: [
+      { label: "params_1", defaultValue: 6 },
+      { label: "params_2", defaultValue: 12 },
+      { label: "params_3", defaultValue: 24 },
+    ],
+  },
   SMA: {
     name: "SMA",
     localeKey: "sma",
