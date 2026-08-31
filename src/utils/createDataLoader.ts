@@ -46,6 +46,12 @@ export function createDataLoader(
 
   return {
     getBars: async (params) => {
+      // Generation captured by the init/forward branches; read by the catch
+      // path so a STALE request that rejects after a newer init delivered does
+      // not invoke its callback: an empty init response would wipe the freshly
+      // loaded chart, and an empty forward response would permanently disable
+      // forward pagination until the next resetData.
+      let gen: number | null = null;
       try {
         dispatch({ type: "SET_LOADING", isLoading: true });
 
@@ -65,7 +71,7 @@ export function createDataLoader(
 
         if (params.type === "init") {
           oldestTimestamp = null;
-          const gen = ++currentGen;
+          gen = ++currentGen;
           const data = await datafeed.getHistoryKLineData(
             params.symbol,
             { ...params.period, label: "" },
@@ -81,7 +87,7 @@ export function createDataLoader(
             backward: false,
           });
         } else if (params.type === "forward" && oldestTimestamp !== null) {
-          const gen = currentGen;
+          gen = currentGen;
           const data = await datafeed.getHistoryKLineData(
             params.symbol,
             { ...params.period, label: "" },
@@ -102,6 +108,7 @@ export function createDataLoader(
           params.callback([], { forward: false, backward: false });
         }
       } catch (error) {
+        if (gen !== null && gen !== currentGen) return; // stale request — the newer init owns the pipeline
         console.error("Failed to load chart data:", error);
         params.callback([], { forward: false, backward: false });
       } finally {
