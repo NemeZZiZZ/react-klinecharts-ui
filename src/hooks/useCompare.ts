@@ -326,8 +326,7 @@ export function useCompare(): UseCompareReturn {
   useEffect(() => {
     return () => {
       pendingRef.current.clear();
-      indicatorsRef.current.forEach((info) => {
-        try {
+      indicatorsRef.current.forEach((info) => {        try {
           state.chart?.removeIndicator({ name: info.name } as any);
         } catch {
           // ignore
@@ -336,6 +335,19 @@ export function useCompare(): UseCompareReturn {
       indicatorsRef.current.clear();
     };
   }, [state.chart]);
+
+  // The projection is anchored to the main series: compareMap and both base
+  // prices are baked into the registered indicator's calc closure, and the
+  // chart reloads data WITHOUT remounting on a symbol/period change. Keeping
+  // the comparisons would draw the old anchors over the new symbol's scale
+  // (shared timestamps) or render silent nulls while the symbol stays listed
+  // (non-overlapping ones). Drop them — re-adding re-anchors to the new
+  // series.
+  useEffect(() => {
+    if (indicatorsRef.current.size === 0 && pendingRef.current.size === 0)
+      return;
+    clearAll();
+  }, [state.symbol, state.period, clearAll]);
 
   return { symbols, addSymbol, removeSymbol, toggleSymbol, clearAll };
 }
