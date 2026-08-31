@@ -196,7 +196,6 @@ const brush: OverlayTemplate = {
     }
 
     let { points } = data;
-    let coordinates: Array<{ x: number; y: number }>;
 
     if (data.isDirty && points.length > 2) {
       const pixelPoints = points.map((p) => ({
@@ -212,16 +211,16 @@ const brush: OverlayTemplate = {
       }));
       points = data.points;
       data.isDirty = false;
-      // The simplified pixels are already chart coordinates — reuse them
-      // instead of a second data→pixel round-trip per frame (which also
-      // accumulated rounding drift on every simplify pass).
-      coordinates = simplified;
-    } else {
-      coordinates = points.map((p) => ({
-        x: xAxis.convertToPixel(p.timestamp),
-        y: yAxis.convertToPixel(p.value),
-      }));
     }
+
+    // Always derive the stroke from data.points: the simplify frame must
+    // render the same quantized positions as every later frame — reusing the
+    // raw RDP pixels here made the stroke snap by up to half a bar width on
+    // the frame right after draw end.
+    const coordinates = points.map((p) => ({
+      x: xAxis.convertToPixel(p.timestamp),
+      y: yAxis.convertToPixel(p.value),
+    }));
 
     if (points.length < 2) return [];
 
