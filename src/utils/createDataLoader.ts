@@ -118,7 +118,13 @@ export function createDataLoader(
       );
     },
     unsubscribeBar: (params) => {
-      if (isReplaying()) return;
+      // Always forwarded — even during replay. startReplay flips the replay
+      // flag BEFORE chart.resetData(), and resetData() routes the teardown of
+      // the live subscription through here; swallowing it kept the live
+      // datafeed subscription alive for the whole replay session (live ticks
+      // streaming into the replayed prefix) and leaked the old symbol's
+      // channel on a mid-replay symbol change. Only getBars/subscribeBar are
+      // replay-gated.
       datafeed.unsubscribe(params.symbol, { ...params.period, label: "" });
     },
   };
