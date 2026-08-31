@@ -105,7 +105,13 @@ const TA = {
    * Relative Strength Index (RSI)
    */
   rsi: (data: number[], period: number): (number | null)[] => {
-    const changes: number[] = [0];
+    // Canonical Wilder seeding: the first average covers the FIRST `period`
+    // price changes (bars 1..period), so the first RSI value lands on bar
+    // `period` (Pine's ta.rsi matches: ta.change(src) is na on bar 0 and the
+    // rma seed spans the first `length` non-na changes). A fake leading 0
+    // change would both start the series one bar early and bias the seed —
+    // and, through Wilder smoothing, every later value on mixed series.
+    const changes: number[] = [];
     for (let i = 1; i < data.length; i++) {
       changes.push(data[i] - data[i - 1]);
     }
@@ -116,13 +122,24 @@ const TA = {
     const avgUps = TA.rma(ups, period);
     const avgDowns = TA.rma(downs, period);
 
-    return avgUps.map((up, i) => {
-      const down = avgDowns[i];
-      if (up === null || down === null) return null;
-      if (down === 0) return 100;
+    // changes[k] describes data bar k+1 — shift results back onto the data
+    // index axis with a leading null for bar 0.
+    const result: (number | null)[] = [null];
+    for (let k = 0; k < changes.length; k++) {
+      const up = avgUps[k];
+      const down = avgDowns[k];
+      if (up === null || down === null) {
+        result.push(null);
+        continue;
+      }
+      if (down === 0) {
+        result.push(100);
+        continue;
+      }
       const rs = up / down;
-      return 100 - 100 / (1 + rs);
-    });
+      result.push(100 - 100 / (1 + rs));
+    }
+    return result;
   },
 
   /**

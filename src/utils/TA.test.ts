@@ -95,7 +95,22 @@ describe("TA.rsi", () => {
 
   it("returns null during the warm-up window", () => {
     const out = TA.rsi(CLOSE, 14);
-    for (let i = 0; i < 13; i++) expect(out[i]).toBeNull();
+    // Canonical Wilder: the seed covers the first 14 changes (bars 1..14),
+    // so the first value lands on bar 14.
+    for (let i = 0; i < 14; i++) expect(out[i]).toBeNull();
+    expect(out[14]).not.toBeNull();
+  });
+
+  it("seeds the first value with the plain average of the first `period` changes (Wilder)", () => {
+    // Hand-computable series: 15 bars, period 14 → a single RSI value.
+    const series = [10, 11, 12, 11, 12, 13, 12, 13, 14, 13, 14, 15, 14, 15, 16];
+    const changes = series.slice(1).map((v, i) => v - series[i]);
+    const avgUp = changes.reduce((s, c) => s + Math.max(c, 0), 0) / 14;
+    const avgDown = changes.reduce((s, c) => s + Math.max(-c, 0), 0) / 14;
+    const expected = 100 - 100 / (1 + avgUp / avgDown);
+    const out = TA.rsi(series, 14);
+    expect(out[13]).toBeNull();
+    expect(out[14]).toBeCloseTo(expected, 10);
   });
 });
 
