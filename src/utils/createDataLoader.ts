@@ -80,6 +80,12 @@ export function createDataLoader(
         // handle every type uniformly so a forward/backward request can never
         // escape into the live datafeed mid-replay.
         if (isReplaying() && replay) {
+          // Bump the generation so a LIVE request still in flight when the
+          // replay started is discarded when it settles: startReplay flips
+          // the flag before resetData(), so this replayed init would
+          // otherwise leave the counter untouched and the late live init
+          // would pass the staleness check and wipe the replayed prefix.
+          gen = ++genCounter.current;
           const slice = replay.savedData.current.slice(
             0,
             replay.index.current,

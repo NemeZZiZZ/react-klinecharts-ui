@@ -298,6 +298,52 @@ describe("createDataLoader — replay intercept", () => {
     expect(data).toHaveLength(5);
   });
 
+  it("discards a live init that settles after the replay started", async () => {
+    const dispatch = vi.fn();
+    let resolveLive!: (data: KLineData[]) => void;
+    const feed: Datafeed = {
+      searchSymbols: async () => [],
+      getHistoryKLineData: () =>
+        new Promise<KLineData[]>((r) => (resolveLive = r)),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    };
+    const replay = {
+      active: { current: false },
+      savedData: { current: bars(10) },
+      index: { current: 5 },
+    };
+    const loader = createDataLoader(feed, dispatch, replay);
+
+    // A live init is in flight when the replay starts (startReplay flips the
+    // flag BEFORE calling resetData, so the replayed init must invalidate it).
+    const liveCb = vi.fn();
+    const liveDone = loader.getBars({
+      type: "init",
+      symbol: { ticker: "T" },
+      period: { span: 1, type: "minute" },
+      callback: liveCb,
+    } as never);
+    await Promise.resolve();
+
+    replay.active.current = true;
+    const replayCb = vi.fn();
+    await loader.getBars({
+      type: "init",
+      symbol: { ticker: "T" },
+      period: { span: 1, type: "minute" },
+      callback: replayCb,
+    } as never);
+    expect(replayCb).toHaveBeenCalledTimes(1);
+    const [data] = replayCb.mock.calls[0];
+    expect(data).toHaveLength(5);
+
+    // The live init resolves late — it must NOT wipe the replayed prefix.
+    resolveLive(bars(20));
+    await liveDone;
+    expect(liveCb).not.toHaveBeenCalled();
+  });
+
   it("subscribeBar is a no-op while replay is active", () => {
     const dispatch = vi.fn();
     const feed: Datafeed = {
