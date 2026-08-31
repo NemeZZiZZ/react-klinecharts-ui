@@ -102,26 +102,26 @@ export function useUndoRedo(): UseUndoRedoReturn {
         case "overlays_removed": {
           // Restore all overlays that were removed
           const { overlays } = action.data;
-          const restoredIds: string[] = [];
+          // Zip in the loop: createOverlay returns null when the overlay
+          // template is not registered, and the previous map-by-index put
+          // undefined ids into the redo payload — redo then called
+          // removeOverlay({ id: undefined }), an empty filter that matches
+          // EVERY overlay in the chart (including alert/order lines).
+          const restored: Array<Record<string, unknown> & { id: string }> = [];
           for (const overlay of overlays) {
             const newId = state.chart.createOverlay({
               ...overlay,
               groupId: DRAWING_GROUP_ID,
             });
             if (typeof newId === "string") {
-              restoredIds.push(newId);
+              restored.push({ ...overlay, id: newId });
             }
           }
           setRedoStack((prev) => [
             ...prev,
             {
               type: "overlays_removed",
-              data: {
-                overlays: overlays.map((o: any, i: number) => ({
-                  ...o,
-                  id: restoredIds[i],
-                })),
-              },
+              data: { overlays: restored },
             },
           ]);
           break;
@@ -258,6 +258,9 @@ export function useUndoRedo(): UseUndoRedoReturn {
               : o;
           });
           for (const overlay of overlays) {
+            // Defense in depth: a payload entry without a valid id must never
+            // reach removeOverlay — an empty filter matches every overlay.
+            if (typeof (overlay as { id?: unknown }).id !== "string") continue;
             state.chart.removeOverlay({ id: overlay.id });
           }
           setUndoStack((prev) => [
