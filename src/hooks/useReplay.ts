@@ -94,9 +94,16 @@ export function useReplay(): UseReplayReturn {
   const startReplay = useCallback(() => {
     if (!state.chart) return;
     // Guard against double-start: calling startReplay while a session is
-    // already running would overwrite replaySavedDataRef with the truncated
+    // still playing would overwrite replaySavedDataRef with the truncated
     // (partially-played) chart data, permanently losing the unplayed tail.
-    if (isReplaying) return;
+    // A replay that ran to completion is safe to restart: the chart currently
+    // shows the full buffer (index reached the end), so re-saving it loses
+    // nothing.
+    const finishedNaturally =
+      isReplaying &&
+      replaySavedDataRef.current.length > 0 &&
+      replayIndexRef.current >= replaySavedDataRef.current.length;
+    if (isReplaying && !finishedNaturally) return;
 
     const dataList = state.chart.getDataList();
     if (!dataList || dataList.length === 0) return;
