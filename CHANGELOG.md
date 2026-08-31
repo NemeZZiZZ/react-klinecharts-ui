@@ -8,10 +8,11 @@ All notable changes to **react-klinecharts-ui** are documented in this file.
 
 Patch release backing the klinecharts upstream patches (`10.0.1` → `10.0.3`),
 a full-codebase audit with 19 bug fixes followed by a hardening pass (13
-risk-class fixes and 8 optimizations), and one small overlay-behaviour
-improvement that opts into a new upstream option. Typecheck, lint, the full
-test suite (212 tests), and the build pass. Backwards compatible (one additive
-type export; see **Added**).
+risk-class fixes and 8 optimizations) and a self-review of that pass (9
+further fixes), plus one small overlay-behaviour improvement that opts into a
+new upstream option. Typecheck, lint, the full test suite (215 tests), and
+the build pass. Backwards compatible (additive type exports only; see
+**Added**).
 
 ### Changed
 
@@ -216,6 +217,59 @@ separate commit:
   overlay visibility without a committed state change; the visibility is
   computed before the updater now (the same pattern `useAnnotations`
   documents).
+
+### Self-review of this patch
+
+The hardening pass itself was reviewed (four independent reviewers over the
+full diff against `main`, every claim re-verified against the klinecharts
+`10.0.3` runtime and typings), which caught defects the pass had introduced
+or missed:
+
+- **Indicator move/reorder transplanted the pane-default axis id.** Reading
+  the previous axis via `indicator.yAxisId` never yields `undefined` in v10
+  (klinecharts fills it with the pane's default axis id), so the intended
+  fallback to the custom-binding map never fired: an unbound indicator moved
+  to the candle pane sprouted a spurious extra Y-axis, and the pane-default
+  id polluted the custom-only `indicatorAxes` map (persisted by layouts).
+  The state map is now authoritative everywhere. Moving an indicator onto a
+  pane where the target id already exists now merges into the existing
+  instance instead of corrupting its axis/visibility tracking.
+- **The symbol-search spinner stuck after selecting mid-search.** The new
+  cancel-on-select aborted the fetch, whose `finally` deliberately skips the
+  reset when aborted; `selectSymbol` now resets `isSearching` itself.
+- **Starting a replay did not invalidate in-flight live requests.** The
+  replay intercept answered from the buffer without bumping the generation
+  counter, so a live init that was in flight when the replay started passed
+  the staleness check and wiped the replayed prefix off the chart. The replay
+  path now bumps the generation (regression test included).
+- **Pre-2.0.4 layouts would have vanished for adapter-configured apps.**
+  Earlier versions always wrote layouts to raw `localStorage`; routing them
+  through a newly configured adapter orphanised those entries. A one-time
+  merge-migration now copies legacy entries into the adapter (existing
+  adapter entries keep their order) and removes the legacy keys. Auto-save
+  also exits early when persistence is disabled instead of churning through
+  no-op writes.
+- **The hydration shape check accepted an array for an object fallback** —
+  symmetric now (`[]` vs `{}` is the same mismatch as a wrong primitive).
+- **`UndoRedoInstance` / `UndoRedoListener` are exported** — both are
+  referenced by the exported `KlinechartsUIDispatchValue` and previously
+  needed a deep import. The storage docs saying "all three" namespaces were
+  corrected to all four.
+- **The brush no longer snaps on the frame after draw end.** The simplify
+  pass rendered the raw RDP pixels (sub-bar x precision) for one frame while
+  every later frame re-derived coordinates from the quantized data points —
+  the stroke jumped up to half a bar width, then snapped back. Coordinates
+  are now always derived from the same quantized points.
+- **Degenerate indicator periods can't leak NaN.** `TA.rsi(…, 0)` seeded the
+  RMA at index −1, `TA.hma`/`HMA` divided by a zero-length WMA weight on
+  period 0, and `RSI_TV` with an MA period of 0 walked its window out of
+  bounds and divided by zero — all clamped to period ≥ 1 (with an all-null
+  MA fallback). The HMA test now pins the TradingView rounding with a golden
+  value that a regression back to `floor` provably fails (verified by
+  reverting the fix and watching the test fail).
+- A stale comment claiming the script-editor registry stays O(1) now
+  correctly describes the per-mount-salt growth (O(mounts)) and the
+  single-root uniqueness boundary of `useId`.
 
 ### Performance and internals
 
