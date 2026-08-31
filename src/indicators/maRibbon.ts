@@ -7,21 +7,34 @@ const COLORS = [
   "#FF4400", "#FF0000", "#C4003E", "#8A007B", "#4E00B8",
 ];
 
+/**
+ * One figure per calc param. Keys stay `ma{i}` for backwards compatibility
+ * with consumers reading `indicator.result` fields, even though the values
+ * are EMAs (the ribbon has always been EMA-based).
+ */
+function buildFigures(calcParams: readonly unknown[]) {
+  return calcParams.map((_, i) => ({
+    key: `ma${i}`,
+    title: `MA${i + 1}: `,
+    type: "line" as const,
+    styles: () => ({ color: COLORS[i % COLORS.length] }),
+  }));
+}
+
 const maRibbon: IndicatorTemplate = {
   name: "MA_Ribbon",
   shortName: "Ribbon",
   series: "price",
   calcParams: [10, 20, 30, 40],
-  figures: Array.from({ length: 15 }).map((_, i) => ({
-    key: `ma${i}`,
-    title: `MA${i + 1}: `,
-    type: "line" as const,
-    styles: () => ({ color: COLORS[i] }),
-  })),
+  // Figures follow the calc params: the previous static list of 15 kept the
+  // tooltip legend stuck at 15 rows (eleven "-" placeholders with the default
+  // 4 params) and silently capped longer ribbons.
+  figures: buildFigures([10, 20, 30, 40]),
+  regenerateFigures: (calcParams) => buildFigures(calcParams),
   calc: (dataList: KLineData[], indicator: Indicator) => {
     const params = indicator.calcParams as number[];
     const closes = dataList.map((d) => d.close);
-    const count = Math.min(params.length, COLORS.length);
+    const count = params.length;
 
     const emas: (number | null)[][] = [];
     for (let i = 0; i < count; i++) {
