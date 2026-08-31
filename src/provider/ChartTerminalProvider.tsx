@@ -139,7 +139,19 @@ export function KlinechartsUIProvider({
         if (!s || !s.persists(ns)) return fallback;
         try {
           const raw = s.adapter.getItem(s.key(ns));
-          return raw ? (JSON.parse(raw) as T) : fallback;
+          if (!raw) return fallback;
+          const parsed: unknown = JSON.parse(raw);
+          // Shape check, not just syntax: a stored "null", a string where an
+          // array is expected, etc. parses fine but crashes at first use
+          // (storedIndicators.main, state.alerts.length, ...). Fall back on
+          // any structural mismatch.
+          if (parsed === null || typeof parsed !== typeof fallback) {
+            return fallback;
+          }
+          if (Array.isArray(fallback) && !Array.isArray(parsed)) {
+            return fallback;
+          }
+          return parsed as T;
         } catch {
           return fallback;
         }

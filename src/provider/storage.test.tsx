@@ -131,4 +131,28 @@ describe("storage adapter — adapter failure is non-fatal", () => {
     const { result } = renderHookWithProvider(() => useAlerts(), { storage: { adapter: a } });
     expect(result.current.alerts).toEqual([]);
   });
+
+  it("syntactically valid but wrong-shaped JSON falls back to defaults", () => {
+    // JSON.parse succeeds on all of these; only the shape check rejects them.
+    for (const raw of ["null", "\"just a string\"", "42", "{\"alerts\": []}"]) {
+      const a = memoryAdapter();
+      a.store.set("rkui:alerts", raw);
+      const { result, unmount } = renderHookWithProvider(() => useAlerts(), {
+        storage: { adapter: a },
+      });
+      expect(result.current.alerts).toEqual([]);
+      unmount();
+    }
+  });
+
+  it("a wrong-shaped indicators payload does not crash provider init", () => {
+    const a = memoryAdapter();
+    a.store.set("rkui:indicators", "null");
+    const { result } = renderHookWithProvider(() => useIndicators(), {
+      storage: { adapter: a },
+    });
+    // Defaults apply: MA main / VOL sub.
+    expect(result.current.isMainIndicatorActive("MA")).toBe(true);
+    expect(result.current.isSubIndicatorActive("VOL")).toBe(true);
+  });
 });
