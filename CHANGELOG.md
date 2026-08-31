@@ -310,6 +310,16 @@ or missed:
   `new Function` — it is not a security boundary and should not be presented
   as one.
 
+### Documentation
+
+- README and docs synced with the new behaviour: layouts persistence now
+  routed through the provider `storage` adapter (`layouts` namespace, legacy
+  key migration) instead of raw `localStorage`; `useUndoRedo` multi-instance
+  ownership and text-input skip documented; the `brush` note rewritten — the
+  library intentionally replaces the built-in continuous-mode brush with a
+  click-based, simplified, theme-aware stroke; default storage namespaces
+  listed as four (`alerts` / `settings` / `indicators` / `layouts`).
+
 ### Notable upstream behaviour in klinecharts 10.0.2 / 10.0.3 (picked up automatically)
 
 These ship in klinecharts and apply through the chart instance — no library

@@ -24,7 +24,7 @@ with no extra wiring:
 ```
 
 `storage={{}}` uses sane defaults (`localStorage`, the `alerts`/`settings`/
-`indicators` namespaces, a `"rkui:"` key prefix). Override any of them — for
+`indicators`/`layouts` namespaces, a `"rkui:"` key prefix). Override any of them — for
 example to plug in a remote-backed adapter:
 
 ```tsx
@@ -77,7 +77,10 @@ function readJSON<T>(key: string, fallback: T): T {
 For complete, named chart layouts (indicators + drawings + axes + symbol +
 period, as a single snapshot the user can save/load/delete), use
 [`useLayoutManager`](../../hooks/use-layout-manager/). It serializes the whole
-chart on demand to its own keys — orthogonal to the live `storage` adapter.
+chart on demand. When the provider `storage` adapter is configured, layouts
+persist through it (the `layouts` namespace, legacy `localStorage` keys are
+migrated automatically); without an adapter they fall back to raw
+`localStorage`.
 
 ## Catch-all with onStateChange
 

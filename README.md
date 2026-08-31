@@ -173,7 +173,7 @@ of the box:
 ```
 
 `storage={{}}` uses the defaults: `localStorage` adapter, the `alerts` /
-`settings` / `indicators` namespaces, and a `"rkui:"` key prefix. You can
+`settings` / `indicators` / `layouts` namespaces, and a `"rkui:"` key prefix. You can
 override any of them — e.g. plug in a remote or IndexedDB-backed adapter:
 
 ```tsx
@@ -192,13 +192,13 @@ const remoteAdapter: StorageAdapter = {
 ```
 
 **Scope.** The adapter covers the reducer store today: `alerts`, `settings`
-(`useKlinechartsUISettings`), and `indicators` (the active lists, pane ids,
-axis bindings, and visibility). Per-hook `useState` values — script code
-(`useScriptEditor`), compared symbols (`useCompare`), watchlist, annotations —
-are not yet covered by the adapter and remain in memory. `useLayoutManager`
-(named snapshot presets) is orthogonal: it serializes the whole chart
-(indicators + drawings + meta) on demand to its own keys, independent of the
-live `storage` adapter.
+(`useKlinechartsUISettings`), `indicators` (the active lists, pane ids,
+axis bindings, and visibility), and named chart layouts (`useLayoutManager`,
+the `layouts` namespace — layouts saved with 2.0.3 and earlier in raw
+`localStorage` keys are migrated automatically on first use). Per-hook
+`useState` values — script code (`useScriptEditor`), compared symbols
+(`useCompare`), watchlist, annotations — are not yet covered by the adapter
+and remain in memory.
 
 The adapter contract is **synchronous** (matching the Web Storage API). For
 async backends, keep a synchronous in-memory cache and flush in the
@@ -838,7 +838,7 @@ const { overlays, removeDrawing, setDrawingVisible, setDrawingLocked } = useDraw
 | `wave`           | xabcd, abcd, threeWaves, fiveWaves, eightWaves, anyWaves                                                                                                               |
 | `annotation`     | brush                                                                                                                                                                  |
 
-> **Freehand drawing.** The `brush` tool (category `annotation`) uses klinecharts' continuous (freehand) drawing mode — hold and drag to sketch. It is a built-in overlay that requires **klinecharts 10.0.0** (stable) or later to render.
+> **Freehand drawing.** The `brush` tool (category `annotation`) is shipped by this library and intentionally replaces klinecharts' built-in continuous-mode brush of the same name: click to start a stroke, move/drag to sketch, click again (or release) to finish. Strokes are simplified (Ramer–Douglas–Peucker) and follow the chart theme color. Requires **klinecharts 10.0.0** (stable) or later to render.
 
 ---
 
@@ -1039,7 +1039,7 @@ removeOrderLine(id!);
 
 Undo/redo history for drawing overlays and indicator toggles. Automatically connected to `useDrawingTools` and `useIndicators` via a shared context ref — actions are recorded without manual wiring.
 
-**Keyboard shortcuts:** `Ctrl+Z` (undo), `Ctrl+Y` / `Ctrl+Shift+Z` (redo).
+**Keyboard shortcuts:** `Ctrl+Z` (undo), `Ctrl+Y` / `Ctrl+Shift+Z` (redo). Shortcuts are ignored while typing in `input`/`textarea`/`contentEditable` elements. When multiple `useUndoRedo` instances share one provider, only the first mounted instance owns the keyboard shortcuts and the shared listener; ownership moves to the next instance on unmount.
 
 ```typescript
 import { useUndoRedo } from "react-klinecharts-ui";
@@ -1068,13 +1068,13 @@ const { canUndo, canRedo, undo, redo, pushAction, clear } = useUndoRedo();
 
 #### Cross-hook communication
 
-`useUndoRedo` registers a `pushAction` callback on `undoRedoListenerRef` (shared via provider context). When `useDrawingTools` finishes a drawing or `useIndicators` toggles an indicator, they call the ref to record the action — no prop drilling required.
+`useUndoRedo` registers a `pushAction` callback on `undoRedoListenerRef` (shared via provider context). When `useDrawingTools` finishes a drawing or `useIndicators` toggles an indicator, they call the ref to record the action — no prop drilling required. Multiple instances are safe: the provider keeps an ownership registry, and only the current owner receives recorded actions and keyboard events.
 
 ---
 
 ### useLayoutManager
 
-Save, load, rename, and delete named chart layouts via `localStorage`. Captures indicators, drawings, symbol, and period. Optional auto-save with 5-second debounce.
+Save, load, rename, and delete named chart layouts. Captures indicators, drawings, symbol, and period. Optional auto-save with 5-second debounce. Layouts persist through the provider `storage` adapter when it is configured (the `layouts` namespace; legacy raw-`localStorage` layouts are migrated on first use) and fall back to raw `localStorage` otherwise.
 
 ```typescript
 import { useLayoutManager } from "react-klinecharts-ui";
@@ -1100,7 +1100,7 @@ const {
 | `loadLayout` | `(id: string) => boolean` | Load and apply a layout by ID |
 | `deleteLayout` | `(id: string) => void` | Delete a layout |
 | `renameLayout` | `(id: string, name: string) => boolean` | Rename a layout |
-| `refreshLayouts` | `() => void` | Refresh the list from localStorage |
+| `refreshLayouts` | `() => void` | Refresh the list from the persistence backend |
 | `autoSaveEnabled` | `boolean` | Whether auto-save is enabled |
 | `setAutoSaveEnabled` | `(enabled: boolean) => void` | Toggle auto-save |
 

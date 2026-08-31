@@ -11,6 +11,10 @@ connected to [`useDrawingTools`](../use-drawing-tools/) and
 recorded without manual wiring.
 
 **Keyboard shortcuts:** `Ctrl+Z` (undo), `Ctrl+Y` / `Ctrl+Shift+Z` (redo).
+Shortcuts are ignored while typing in `input`/`textarea`/`contentEditable`
+elements. Multiple instances are safe: only the first mounted instance owns
+the shortcuts and the shared listener (ownership moves to the next instance
+on unmount).
 
 ```ts
 import { useUndoRedo } from "react-klinecharts-ui";
@@ -41,4 +45,5 @@ const { canUndo, canRedo, undo, redo, pushAction, clear } = useUndoRedo();
 via provider context). When `useDrawingTools` finishes a drawing or
 `useIndicators` toggles an indicator, they call the ref to record the action — no
 prop drilling required. Just mount `useUndoRedo` once and the history fills in
-automatically.
+automatically. The provider keeps an ownership registry of all instances, and
+only the current owner receives recorded actions and keyboard events.
