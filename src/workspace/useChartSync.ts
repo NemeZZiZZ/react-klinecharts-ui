@@ -113,12 +113,13 @@ export function useChartSync({ cellId }: UseChartSyncOptions): void {
     if (state.symbol) {
       workspaceDispatch({ type: "SET_CELL_SYMBOL", id: cellId, symbol: state.symbol });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.symbol]);
+    // cellId is a dep on purpose: without it a cell whose id prop changes
+    // keeps dispatching symbol updates for the OLD id (workspaceDispatch is
+    // the stable useReducer dispatch).
+  }, [state.symbol, cellId, workspaceDispatch]);
 
   useEffect(() => {
     workspaceDispatch({ type: "SET_CELL_PERIOD", id: cellId, period: state.period });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.period]);
+  }, [state.period, cellId, workspaceDispatch]);
 }
 

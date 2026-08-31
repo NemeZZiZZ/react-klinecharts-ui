@@ -83,6 +83,12 @@ export function WorkspaceProvider({
   // Re-entrancy guard so mirroring doesn't feedback-loop.
   const broadcastingRef = useRef(false);
 
+  // Deliberately captured by value (not reference), matching the storage
+  // option in KlinechartsUIProvider: an inline consumer `sync={{...}}` object
+  // must not churn the resolved config, or every useChartSync cell would
+  // tear down and re-subscribe its action listeners on each parent render.
+  // Runtime changes to the `sync` prop after mount are ignored — hoist the
+  // object if it ever needs to change.
   const resolvedSync = useMemo<Record<SyncChannel, boolean>>(
     () => ({ ...DEFAULT_SYNC_CONFIG, ...sync }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
