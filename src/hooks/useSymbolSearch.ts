@@ -54,7 +54,10 @@ export function useSymbolSearch(debounceMs = 300): UseSymbolSearchReturn {
         abortRef.current = controller;
 
         try {
-          const data = await datafeed.searchSymbols(q, controller.signal);
+          // searchSymbols is optional on the Datafeed — without it the search
+          // resolves to an empty result list instead of throwing.
+          const data =
+            (await datafeed.searchSymbols?.(q, controller.signal)) ?? [];
           if (!controller.signal.aborted) {
             setResults(data);
           }

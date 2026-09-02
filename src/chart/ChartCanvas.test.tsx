@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, act } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { createRef, type ReactNode, type Ref } from "react";
 import type { Chart } from "klinecharts";
 
 // Capture the onReady callback passed to the mocked <KLineChart> so tests can
@@ -17,7 +17,7 @@ vi.mock("react-klinecharts", () => ({
 }));
 
 // Import AFTER the mock is registered.
-import { ChartCanvas } from "./ChartCanvas";
+import { ChartCanvas, type ChartCanvasProps } from "./ChartCanvas";
 import { KlinechartsUIProvider } from "../provider/ChartTerminalProvider";
 import { useKlinechartsUI } from "../provider/ChartTerminalContext";
 import type { Datafeed } from "../provider/types";
@@ -40,6 +40,13 @@ function StateProbe({ onState }: { onState: (s: ReturnType<typeof useKlinecharts
 }
 
 function renderCanvas() {
+  return renderCanvasWithProps();
+}
+
+/** Renders ChartCanvas with explicit props (style, ref, …) inside a provider. */
+function renderCanvasWithProps(
+  props: ChartCanvasProps & { ref?: Ref<Chart> } = {},
+) {
   const chart: MockChart = createMockChart();
   let latest: ReturnType<typeof useKlinechartsUI> | null = null;
   const wrapper = ({ children }: { children: ReactNode }) => (
@@ -47,7 +54,7 @@ function renderCanvas() {
   );
   const utils = render(
     <>
-      <ChartCanvas />
+      <ChartCanvas {...props} />
       <StateProbe onState={(s) => (latest = s)} />
     </>,
     { wrapper },
@@ -85,7 +92,7 @@ describe("ChartCanvas", () => {
   });
 
   it("onReady bootstraps the provider's default indicators onto the chart", () => {
-    const { chart } = renderCanvas();
+    renderCanvas();
     const fakeChart = createMockChart();
     act(() => capturedOnReady!(fakeChart as unknown as Chart));
     // The provider defaults to mainIndicators ["MA"] and subIndicators {VOL:""}.
@@ -108,5 +115,88 @@ describe("ChartCanvas", () => {
     expect(firstCall[0].name).toBe("MA");
     expect(firstCall[0].paneId).toBe("candle_pane");
     expect(firstCall[1]).toBe(true);
+  });
+
+  it("forwards the style prop to <KLineChart> (container sizing passthrough)", () => {
+    const style = { height: 500 };
+    renderCanvasWithProps({ style });
+    expect(lastProps.style).toBe(style);
+  });
+
+  it("forwards a ref to <KLineChart> (Chart instance ref forwarding)", () => {
+    // Under React 19 the ref flows to the mocked function component as a
+    // regular prop, so passthrough is observable via lastProps.
+    const ref = createRef<Chart>();
+    renderCanvasWithProps({ ref });
+    expect(lastProps.ref).toBe(ref);
+  });
+
+  describe("dev-mode zero-height warning", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("warns when the chart container still has zero height after mount", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      // A real, attached div: happy-dom reports clientHeight 0 for it (no
+      // layout engine), which is exactly the collapsed-container case.
+      const div = document.createElement("div");
+      document.body.appendChild(div);
+      const chart = createMockChart();
+      chart.getDom.mockReturnValue(div);
+
+      renderCanvas();
+      act(() => capturedOnReady!(chart as unknown as Chart));
+      expect(warnSpy).not.toHaveBeenCalled();
+
+      act(() => {
+        vi.advanceTimersByTime(1500);
+      });
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain("zero height");
+      expect(warnSpy.mock.calls[0][0]).toContain("Chart sizing");
+
+      warnSpy.mockRestore();
+      div.remove();
+    });
+
+    it("does not warn while the container is deliberately hidden (display: none)", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const div = document.createElement("div");
+      div.style.display = "none";
+      document.body.appendChild(div);
+      const chart = createMockChart();
+      chart.getDom.mockReturnValue(div);
+
+      renderCanvas();
+      act(() => capturedOnReady!(chart as unknown as Chart));
+      act(() => {
+        vi.advanceTimersByTime(1500);
+      });
+      expect(warnSpy).not.toHaveBeenCalled();
+
+      warnSpy.mockRestore();
+      div.remove();
+    });
+
+    it("does not warn when the container is detached or missing", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const detached = document.createElement("div");
+      const chart = createMockChart();
+      chart.getDom.mockReturnValue(detached); // never attached
+
+      renderCanvas();
+      act(() => capturedOnReady!(chart as unknown as Chart));
+      act(() => {
+        vi.advanceTimersByTime(1500);
+      });
+      expect(warnSpy).not.toHaveBeenCalled();
+
+      warnSpy.mockRestore();
+    });
   });
 });

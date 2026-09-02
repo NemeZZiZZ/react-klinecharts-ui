@@ -3,17 +3,20 @@ title: Datafeed
 description: The data interface you implement to feed market data into the chart.
 ---
 
-The `Datafeed` is the contract between your data source and the chart. You
-implement four methods; the library calls them as the user searches symbols,
-scrolls history, and watches live updates.
+The `Datafeed` is the contract between your data source and the chart. Three
+methods are required — `getHistoryKLineData`, `subscribe`, `unsubscribe` —
+plus the optional `searchSymbols` (only used by `useSymbolSearch`); the
+library calls them as the user searches symbols, scrolls history, and watches
+live updates.
 
 ```ts
 interface Datafeed {
   /**
-   * Search symbols by a query string.
+   * Search symbols by a query string. Optional — when omitted,
+   * useSymbolSearch simply returns no results.
    * signal — AbortSignal to cancel the request when a newer query is typed.
    */
-  searchSymbols(
+  searchSymbols?(
     search: string,
     signal?: AbortSignal,
   ): Promise<PartialSymbolInfo[]>;

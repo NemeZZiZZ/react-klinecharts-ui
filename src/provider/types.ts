@@ -27,7 +27,12 @@ export interface PartialSymbolInfo {
 }
 
 export interface Datafeed {
-  searchSymbols(
+  /**
+   * Search symbols by a query string. Optional — when omitted,
+   * `useSymbolSearch` simply returns no results.
+   * signal — AbortSignal to cancel the request when a newer query is typed.
+   */
+  searchSymbols?(
     search: string,
     signal?: AbortSignal,
   ): Promise<PartialSymbolInfo[]>;

@@ -62,23 +62,21 @@ Many features in this library — including 11 TradingView-style indicators, 9 d
 ## Installation
 
 ```bash
-npm install react-klinecharts-ui klinecharts
+npm install react-klinecharts-ui klinecharts react-klinecharts
 # or with pnpm
-pnpm add react-klinecharts-ui klinecharts
+pnpm add react-klinecharts-ui klinecharts react-klinecharts
 # or with yarn
-yarn add react-klinecharts-ui klinecharts
+yarn add react-klinecharts-ui klinecharts react-klinecharts
 ```
 
-> **Rendering a chart?** `react-klinecharts-ui` is headless — it does not render
-> the canvas itself. The fastest path is the optional `ChartCanvas` wrapper,
-> which needs `react-klinecharts`:
->
-> ```bash
-> npm install react-klinecharts-ui klinecharts react-klinecharts
-> ```
->
-> You can also initialise the chart yourself with `klinecharts.init()` and skip
-> `react-klinecharts` entirely — see [Renderer-agnostic](#renderer-agnostic).
+> **Why three packages?** `react-klinecharts-ui` is headless — it owns state
+> and drives a klinecharts `Chart` instance, but does not render the canvas.
+> `klinecharts` is the charting core, and `react-klinecharts` provides the
+> `<KLineChart>` React renderer used by the `ChartCanvas` wrapper
+> (`react-klinecharts-ui/chart`). Both are peer dependencies — npm 7+ and pnpm
+> install them automatically. Building a fully custom renderer with
+> `klinecharts.init()`? The headless core never imports `react-klinecharts` —
+> see [Renderer-agnostic](#renderer-agnostic).
 
 ---
 
@@ -103,14 +101,18 @@ dispatch({ type: "SET_CHART", chart });
 
 Once the chart instance is registered, every hook (`useIndicators`, `useAlerts`, `useReplay`, …) reads and mutates it via `state.chart.*`. You can initialise that instance **three ways**:
 
-**1. `ChartCanvas` (fastest, optional peer `react-klinecharts`)** — the thin wrapper shipped at `react-klinecharts-ui/chart` wires the `<KLineChart>` renderer, builds the data loader, forwards symbol/period/theme from provider state, and dispatches `SET_CHART` for you:
+**1. `ChartCanvas` (fastest)** — the thin wrapper shipped at `react-klinecharts-ui/chart` wires the `<KLineChart>` renderer, builds the data loader, forwards symbol/period/theme from provider state, and dispatches `SET_CHART` for you. It accepts a `ref` to the `Chart` instance:
 
 ```tsx
+import { useRef } from "react";
 import { KlinechartsUIProvider } from "react-klinecharts-ui";
 import { ChartCanvas } from "react-klinecharts-ui/chart";
+import type { Chart } from "klinecharts";
+
+const chartRef = useRef<Chart>(null);
 
 <KlinechartsUIProvider datafeed={datafeed} defaultSymbol={symbol} defaultTheme="dark">
-  <ChartCanvas className="h-[500px]" />
+  <ChartCanvas ref={chartRef} style={{ height: 500 }} />
 </KlinechartsUIProvider>;
 ```
 
@@ -157,6 +159,30 @@ function ChartView() {
 ```
 
 Whatever route you pick, the hooks work the same — they only care about the `Chart` instance in the store.
+
+### Chart sizing
+
+`ChartCanvas` (like `<KLineChart>` and `klinecharts.init()`) renders the chart inside a plain container `<div>` that has **no default size** — klinecharts fills whatever space that div gets. If the div's height resolves to `0`, the canvas is created at zero height and stays blank, without any error. Give the container a height one of three ways:
+
+```tsx
+// 1. Inline style (forwarded straight to the container div)
+<ChartCanvas style={{ height: 500 }} />
+
+// 2. A className that sets a height (e.g. Tailwind)
+<ChartCanvas className="h-[500px]" />
+
+// 3. A parent with a constrained height — the div fills it (100%)
+<div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
+  <Toolbar />
+  <div style={{ flex: 1, minHeight: 0 }}>
+    <ChartCanvas />
+  </div>
+</div>
+```
+
+Common pitfall: `height: 100%` only works when the **parent** already has a definite height. In dock-style layouts (dockview, flex/grid dashboards) make sure every ancestor up to a sized root contributes height — including `min-height: 0` on flex children — or the chain collapses to 0 and the chart renders as an empty stripe. The height must land on the `ChartCanvas` container div itself; `height: 100%` on distant wrappers does nothing if some intermediate element still has `height: auto`.
+
+Late sizing is fine: klinecharts observes the container with a `ResizeObserver`, so a chart that mounts at zero size (hidden tab, panel sized on a later frame) redraws automatically once it gets real dimensions. In development builds `ChartCanvas` logs a console warning if the container still has zero height ~1.5s after mount.
 
 ### Persistence
 
@@ -322,10 +348,11 @@ Data interface implemented by the consumer.
 ```typescript
 interface Datafeed {
   /**
-   * Search symbols by a query string.
+   * Search symbols by a query string. Optional — when omitted,
+   * useSymbolSearch simply returns no results.
    * signal — AbortSignal to cancel the request when a newer query is typed.
    */
-  searchSymbols(
+  searchSymbols?(
     search: string,
     signal?: AbortSignal,
   ): Promise<PartialSymbolInfo[]>;
@@ -600,7 +627,7 @@ const {
 | `selectSymbol` | `(symbol: PartialSymbolInfo) => void` | Select a symbol — dispatches `SET_SYMBOL`     |
 | `clearResults` | `() => void`                          | Clear search results                          |
 
-The hook automatically cancels in-flight requests via `AbortController` on every new keystroke and on unmount.
+The hook automatically cancels in-flight requests via `AbortController` on every new keystroke and on unmount. If your datafeed does not implement the optional `searchSymbols` method, the search resolves to an empty result list.
 
 ```tsx
 const { query, results, isSearching, selectSymbol, setQuery } =

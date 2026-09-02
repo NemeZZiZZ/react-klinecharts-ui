@@ -11,14 +11,17 @@ WebSocket.
 
 ## 1. Implement a datafeed
 
-The datafeed is your bridge to market data. Implement four methods —
-`searchSymbols`, `getHistoryKLineData`, `subscribe`, `unsubscribe`. See the
-[Datafeed reference](../../core/datafeed/) for the full contract.
+The datafeed is your bridge to market data. Implement three required methods —
+`getHistoryKLineData`, `subscribe`, `unsubscribe` — plus the optional
+`searchSymbols` (used by `useSymbolSearch`; skip it if you don't need symbol
+search). See the [Datafeed reference](../../core/datafeed/) for the full
+contract.
 
 ```ts
 import type { Datafeed } from "react-klinecharts-ui";
 
 export const datafeed: Datafeed = {
+  // Optional — powers useSymbolSearch. Returns matching symbols.
   async searchSymbols(query) {
     /* return matching symbols */
   },

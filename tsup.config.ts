@@ -10,8 +10,8 @@ export default defineConfig({
   dts: true,
   sourcemap: true,
   clean: true,
-  // react-klinecharts is an OPTIONAL peer (only the ./chart entry needs it),
-  // so it must stay external and not be bundled.
+  // react-klinecharts is a peer dependency (only the ./chart entry imports
+  // it), so it must stay external and not be bundled.
   external: ["react", "react-dom", "klinecharts", "react-klinecharts"],
   treeshake: true,
   splitting: true,

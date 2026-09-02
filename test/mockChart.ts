@@ -11,6 +11,7 @@ import type { KLineData } from "klinecharts";
 export interface MockChart {
   getDataList: ReturnType<typeof vi.fn>;
   getSymbol: ReturnType<typeof vi.fn>;
+  getDom: ReturnType<typeof vi.fn>;
   resetData: ReturnType<typeof vi.fn>;
   createOverlay: ReturnType<typeof vi.fn>;
   removeOverlay: ReturnType<typeof vi.fn>;
@@ -73,6 +74,9 @@ export function createMockChart(initialData: KLineData[] = []): MockChart {
     },
     getDataList: vi.fn(() => data),
     getSymbol: vi.fn(() => ({ ticker: "TESTUSDT", pricePrecision: 2, volumePrecision: 8 })),
+    // klinecharts v10: getDom() returns the chart's root container element.
+    // Defaults to null; tests override it (or rely on the null guard).
+    getDom: vi.fn(() => null),
     // klinecharts v10: resetData() triggers a DataLoader reload. The mock
     // records the call; tests that need to observe the reloaded data set it
     // via __setData (or the replay-aware DataLoader intercept).

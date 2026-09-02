@@ -55,4 +55,5 @@ const { query, results, isSearching, selectSymbol, setQuery } =
 
 The search itself is delegated to your [`Datafeed.searchSymbols`](../../core/datafeed/)
 implementation — forward the provided `AbortSignal` to `fetch` to cancel stale
-requests.
+requests. `searchSymbols` is optional: when your datafeed does not implement
+it, the hook simply resolves every search to an empty result list.

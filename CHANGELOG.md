@@ -4,6 +4,61 @@ All notable changes to **react-klinecharts-ui** are documented in this file.
 
 ---
 
+## 2.1.0 — 2026-09-03
+
+Integration-DX release prompted by third-party integration feedback: chart
+container sizing gets a first-class API and documentation, the chart instance
+is reachable via ref, `searchSymbols` is no longer a mandatory part of the
+datafeed contract, and the `react-klinecharts` peer can no longer be silently
+missing. Typecheck, lint, the full test suite, and the build pass.
+
+### Added
+
+- **`ChartCanvas` forwards a ref to the klinecharts `Chart` instance.** The
+  chart was already reachable via `useKlinechartsUI().state.chart`, but as a
+  `Chart | null` state field; now `<ChartCanvas ref={chartRef} />` works the
+  same way as `<KLineChart ref={…} />` upstream — populated on ready, reset
+  to `null` on unmount.
+- **`ChartCanvas` accepts a `style` prop**, forwarded straight to the chart
+  container `<div>` (same passthrough as `className`). The container has no
+  default size, and the single most common integration failure is a height
+  chain that collapses to 0 — `style={{ height: 500 }}` is now the one-liner
+  fix documented up front.
+- **Dev-only zero-height warning in `ChartCanvas`.** If the chart container
+  still has zero height ~1.5s after mount (and is not deliberately hidden
+  via `display: none` / `visibility: hidden`), a console warning explains
+  the three ways to give the container a height and points at the README
+  "Chart sizing" section. klinecharts resizes via a `ResizeObserver`, so
+  late-sized containers (hidden tabs, dock panels) keep recovering on their
+  own — the delay and the hidden-element guard keep the warning quiet for
+  those legitimate cases. Stripped from production builds via
+  `process.env.NODE_ENV`.
+- **README "Chart sizing" section**: why the container div has no default
+  size, the three ways to give it a height, the `height: 100%` /
+  `min-height: 0` pitfalls in flex/grid/dock layouts, and a note that late
+  sizing recovers automatically. The installation section now shows a single
+  command including `react-klinecharts` and explains the headless split.
+
+### Changed
+
+- **`react-klinecharts` is now a required peer dependency** (the
+  `peerDependenciesMeta.optional` marker is removed). The `./chart` entry
+  statically imports it, and the optional marker let consumers install
+  without it and only discover the break as a bundler error on first import
+  of `react-klinecharts-ui/chart`. npm 7+ and pnpm auto-install required
+  peers, so the common path now just works; consumers rendering via direct
+  `klinecharts.init()` never import the `./chart` entry, so the extra
+  installed package is unused (and tree-shaken) for them. The peer range
+  (`react-klinecharts >=1.0.0`) is unchanged.
+- **`Datafeed.searchSymbols` is optional.** It is consumed by exactly one
+  call site (`useSymbolSearch`), and datafeeds without a symbol-search
+  backend previously had to ship a stub. The hook now resolves to an empty
+  result list when the method is absent. Existing datafeeds that implement
+  it are unaffected. README, docs-site datafeed/quick-start/useSymbolSearch
+  pages updated to mark the method optional.
+
+---
+
 ## 2.0.4 — 2026-08-31
 
 Patch release backing the klinecharts upstream patches (`10.0.1` → `10.0.3`),
@@ -94,7 +149,7 @@ landed 19 fixes, each as a separate commit:
   hook instance (same pattern as `useCompare`).
 - **`resetToDefaults` desynced the indicator last-value toggle.**
   `setStyles(theme)` restored klinecharts' built-in `lastValueMark.show:
-  false` while the settings state kept `true`; the library default is now
+false` while the settings state kept `true`; the library default is now
   re-applied after the theme reset.
 - **Symbol-search results resurrected after select/clear.** Only `setQuery`
   cancelled the pending debounce/fetch; `selectSymbol` and `clearResults` now
@@ -109,7 +164,7 @@ landed 19 fixes, each as a separate commit:
 - **Redo of `overlays_removed` could wipe every overlay on the chart.** A
   failed restore (`createOverlay` returns null for an unregistered template)
   put an undefined id into the redo payload, and `removeOverlay({ id:
-  undefined })` matches all overlays. The redo payload now only contains
+undefined })` matches all overlays. The redo payload now only contains
   successfully restored overlays, and redo skips entries without a string id.
 - **Undoing an indicator removal restored it with library defaults.** The
   payload now snapshots `calcParams`/`styles`/`visible` before removal, and
@@ -509,14 +564,12 @@ This is a **breaking release**: it targets the klinecharts `10.0.0` stable relea
 ### New Features
 
 - **Optional `ChartCanvas` renderer wrapper (`react-klinecharts-ui/chart`).** A thin component that wires the `<KLineChart>` renderer from `react-klinecharts` to the provider for you — building the data loader, forwarding `symbol` / `period` / `locale` / `timezone` / `theme` from provider state, bootstrapping the default indicators, and dispatching `SET_CHART` on ready. This removes the ~30-line `onReady → dispatch SET_CHART + createDataLoader` boilerplate that every consumer previously had to copy from `examples/ChartView.tsx`.
-
   - New entry point: `import { ChartCanvas } from "react-klinecharts-ui/chart"`.
   - `react-klinecharts` is now declared as an **optional** peer dependency (`peerDependenciesMeta.react-klinecharts.optional = true`). It is only required when importing the `./chart` entry; the core library and the `./extensions` entry remain renderer-agnostic and do not pull it in. Install it explicitly when you use `ChartCanvas`: `npm install react-klinecharts-ui klinecharts react-klinecharts`.
   - `tsup.config.ts` `external` array now includes `react-klinecharts` so it is never bundled.
   - The library remains fully headless: `ChartCanvas` is opt-in convenience, not a requirement. The three ways to put a `Chart` into the store (`ChartCanvas`, `<KLineChart>` + manual `onReady` bridge, or direct `klinecharts.init()`) are all documented in the README "Renderer-agnostic" section.
 
 - **Pluggable storage adapter (`storage` provider option).** User-facing state in the reducer store — price alerts, chart settings (`useKlinechartsUISettings`), and the active indicator set (main/sub lists, pane ids, axis bindings, visibility) — is now hydratable on mount and auto-persisted on change through a pluggable adapter. Before this, all of it lived only in memory and was lost on every page reload.
-
   - New provider option `storage?: StorageOptions`. Omit it entirely to disable persistence (the default). `storage={{}}` enables defaults: the `localStorage` adapter, the `alerts` / `settings` / `indicators` namespaces, and a `"rkui:"` key prefix.
   - The adapter mirrors the **Web Storage API** (`getItem` / `setItem` / `removeItem`), so `localStorage`, `sessionStorage`, or a custom wrapper can be passed directly. New public exports: `StorageAdapter`, `StorageNamespace`, `StorageOptions`, `ResolvedStorage`, `createDefaultStorage`, `resolveStorage`, plus the `DEFAULT_STORAGE_NAMESPACES` / `DEFAULT_STORAGE_KEY_PREFIX` constants.
   - Override the adapter to plug in IndexedDB or a remote backend (keep a synchronous cache and flush in the background — the contract is sync). Override `keyPrefix` / `namespaces` for fine-grained control.
@@ -527,7 +580,6 @@ This is a **breaking release**: it targets the klinecharts `10.0.0` stable relea
 - **Multi-listener `onAlertTriggered`.** Previously the firing callback was a single ref (last writer wins), so a second component registering a listener silently disabled the first. `onAlertTriggered` now adds to a listener `Set`, invokes **every** registered callback on each firing, and returns an unsubscribe function — so a toolbar, a status bar, and a sound trigger can all observe crossings simultaneously.
 
 - **Workspace & multi-chart foundation.** New `WorkspaceProvider` + `useWorkspace` + `useChartSync` exports let you render a grid of `<KlinechartsUIProvider>` trees whose charts mirror crosshair / scroll / zoom (and keep the workspace's notion of each cell's symbol / period in sync). Previously the library assumed a single chart per provider, so grid layouts, linked charts, and synced viewports required ad-hoc consumer code (the `examples/multi-chart` page shipped a local version of this; it is now a published primitive).
-
   - **`<WorkspaceProvider defaultCells={...} sync={...}>`** holds the layout state (`WorkspaceState`: cells + active cell id), a chart-instance registry, a re-entrancy broadcast guard, and the resolved per-channel sync config.
   - **`useChartSync({ cellId })`** is the bridge hook — call it inside each `KlinechartsUIProvider` (via a `<ChartSyncBridge cellId={...} />` component). It registers that provider's chart with the workspace and subscribes to `onCrosshairChange` / `onScroll` / `onZoom`, mirroring to siblings.
   - Mirroring uses only the **public** klinecharts API (`executeAction`, `scrollToTimestamp`, `setBarSpace`) — no internal `_chartStore`, so it survives klinecharts version upgrades. A `broadcastingRef` guard prevents feedback loops. Per-channel enable/disable via the `sync` prop (e.g. `{ scroll: false }`); defaults to every channel on.
@@ -555,7 +607,6 @@ This is a **breaking release**: it targets the klinecharts `10.0.0` stable relea
 ### Breaking Changes
 
 - **Peer dependency switched from `react-klinecharts` to `klinecharts`.** The library never used any React export of `react-klinecharts` (the `KLineChart` component, `useIndicator` / `useOverlay` hooks, `Widget`, `KLineChartContext`, etc.) — every type and function it consumed (`OverlayTemplate`, `IndicatorTemplate`, `Chart`, `registerOverlay`, `registerIndicator`, `registerFigure`, `utils`, `registerHotkey`, `getHotkey`, `getSupportedHotkeys`, and the supporting types) originates in `klinecharts` and only reached the code through `react-klinecharts`'s blanket `export * from "klinecharts"`. All imports now come directly from `klinecharts`, so `react-klinecharts` is no longer required to use this library.
-
   - `peerDependencies`: `react-klinecharts >= 0.3.0` → `klinecharts >= 10.0.0-beta3`. `react-klinecharts` is removed from both `peerDependencies` and `devDependencies`.
   - **Migration for consumers:** install `klinecharts` directly. Drop `react-klinecharts` unless you render the chart with its `<KLineChart>` component (which this library does not — it is headless). A typical install becomes `npm install react-klinecharts-ui klinecharts`.
   - The library's public API (exported hooks, types, overlays, indicators, extensions, utils) is **unchanged** — no symbol was added, removed, or renamed. This is purely a dependency-graph correction that makes the package's actual dependency explicit.
@@ -624,7 +675,6 @@ This release also resolves a broad set of correctness bugs uncovered in a full a
 ### New Features
 
 - **Labelled price alerts (`useAlerts`).** Alerts previously drew a bare `horizontalStraightLine` with no text — the `message` was stored on the `Alert` but never rendered, and there was no way to style the line. Alerts now draw a dedicated **`alertLine`** overlay (modelled on `orderLine`) that shows a Y-axis price mark plus a bell-marked caption above the line, and they accept a style object:
-
   - `addAlert(price, condition, message?, extendData?)` — new optional 4th argument typed `AlertLineExtendData` (`color`, `text`, `line`, `mark`, `label`, `showBell`). The `line` / `mark` / `label` sub-types are reused from `orderLine`. When `extendData.text` is omitted, the caption falls back to `message ?? formatted price` using the symbol's `pricePrecision`. Older positional calls (`addAlert(price, condition)` / `addAlert(price, condition, message)`) are unchanged.
   - `Alert` gained an optional `extendData?: AlertLineExtendData` field, persisted in `state.alerts` so the alert's look survives undo/redo and layout presets.
   - New `alertLine` overlay template + `AlertLineExtendData` type are exported from the package root and the `extensions` entry point.
@@ -652,7 +702,6 @@ This release also resolves a broad set of correctness bugs uncovered in a full a
 ### New Features
 
 - **Reactive indicator visibility** (`useIndicators`). Visibility was previously write-only: `setIndicatorVisible` pushed the flag into klinecharts via `overrideIndicator`, but there was no way to read it back through the hook — a UI building an indicator dialog had to mirror the state locally or reach into the chart instance, and that copy silently drifted whenever `collapseSubIndicator` / `expandSubIndicator` changed visibility behind its back. Visibility is now mirrored in provider state and exposed for reading:
-
   - `isIndicatorVisible(name, isMain)` — the reactive read counterpart to `setIndicatorVisible`. Returns `true` for the default (un-toggled) state and for inactive indicators.
   - `IndicatorInfo.visible` — the `mainIndicators` / `subIndicators` arrays now carry a `visible` field alongside `isActive`, so a dialog can render the eye/checkbox state directly from the hook.
   - `indicatorVisibility` — the raw map (keyed by indicator id `main_<name>` / `sub_<name>`), exposed as the live source of truth for layout/rendering.
@@ -660,7 +709,6 @@ This release also resolves a broad set of correctness bugs uncovered in a full a
   A new additive `indicatorVisibility` field (keyed by indicator id) was added to the provider state, following the existing `indicatorAxes` pattern. The map is kept **sparse** — only indicators hidden away from the default are stored; an absent key means visible. `setIndicatorVisible`, `collapseSubIndicator` and `expandSubIndicator` all update it through the new `SET_INDICATOR_VISIBILITY` action (so collapse/expand no longer desync from the dialog), `removeMainIndicator` / `removeSubIndicator` drop the key to avoid stale entries, and `useLayoutManager` rebuilds the map when a preset is restored so the mirror never drifts from the chart.
 
 - **Shared state for `useAlerts` / `useMeasure` / `useReplay`.** These hooks previously kept their state in per-instance `useState` / `useRef` and only read `state.chart` from the shared store. Mounting a hook in more than one component (e.g. a toolbar control + a bottom panel + a status bar) therefore created **independent copies** that silently diverged — replay "wouldn't start" when the controlling component and the displaying component were different instances, and each `useAlerts` / `useReplay` spawned its own polling/playback interval. The observable state now lives in the provider store, and the imperative machinery has a single owner:
-
   - **`useAlerts`** — the alert list moved to `state.alerts`. The 1s crossing poller and the `onAlertTriggered` listener are now owned by the provider; the poller runs only while there is a chart and at least one alert. Any number of `useAlerts()` instances observe one list and share one poller.
   - **`useMeasure`** — `isActive` / `fromPoint` / `result` moved to `state.measure`. The toolbar toggle and a separate result-readout panel now stay in sync wherever each is mounted. (Dropped a dead `clickCountRef` that was assigned but never read.)
   - **`useReplay`** — control state (`isReplaying`, `isPaused`, `speed`, `barIndex`, `totalBars`) moved to `state.replay`. The playback `setInterval` and the saved-data / current-index buffers are owned by the provider (shared via stable refs), so there is exactly one playback session regardless of how many instances are mounted — starting in one component and stepping in another drives the same timer.
@@ -679,7 +727,6 @@ Compatibility release for **react-klinecharts 0.2.0** / **klinecharts 10.0.0-bet
 ### New Features
 
 - **Secondary Y-axis binding for indicators** (`useIndicators`). klinecharts v10 allows several independent Y-axes on a single pane, so an indicator with a value range very different from price (e.g. RSI 0–100, volume) can get its own scale instead of distorting the shared price axis or being pushed into a separate sub-pane.
-
   - `addMainIndicator(name, { yAxis })` and `addSubIndicator(name, { yAxis })` — accept an optional `yAxis: YAxisOverride`. Provide a stable `yAxis.id` to create/share a secondary axis (e.g. `{ id: "rsi_axis", position: "left" }`); omit it for the pane's default (shared) axis.
   - `bindIndicatorToNewAxis(name, isMain, yAxis?)` — moves an existing indicator to a different axis. Because v10 `overrideIndicator` cannot rebind an axis, this removes and recreates the indicator while preserving its calc params, styles and visibility. Omitting `yAxis` returns it to the default axis. This lets a UI offer "move to a separate axis / back to price / left-right" with a single call instead of duplicating the remove-and-recreate logic in every component.
   - `indicatorAxes` / `getIndicatorAxis(name, isMain)` — read which indicators are bound to a custom axis (the live source of truth a UI can render against).
@@ -689,8 +736,6 @@ Compatibility release for **react-klinecharts 0.2.0** / **klinecharts 10.0.0-bet
 ### Examples
 
 - **Secondary Y-axis** example page (`#secondary-axis`) demonstrating an RSI oscillator on the price pane — shared axis (squished) vs its own left axis — with Undo/Redo to show the binding persists. The indicator dialog also gained a per-main-indicator "separate axis" toggle.
-
-
 
 ### Breaking Changes
 
@@ -729,6 +774,7 @@ Major feature release with 5 new hooks for real-time trading terminal functional
 ### Example Components
 
 Added 8 comprehensive example UI components demonstrating each new hook and feature:
+
 - `WatchlistPanel` — Symbol list with live prices and 24h % change
 - `CompareDialog` — Multi-symbol comparison with quick-add buttons
 - `MeasureButton` — Measurement tool with price/time/bar count display
@@ -767,58 +813,59 @@ Extended the library with features ported from the [QUANTIX Extended Edition](ht
 
 ### New Indicator Templates (11)
 
-| Indicator | Template name | Placement | Description |
-|-----------|---------------|-----------|-------------|
-| Bollinger Bands (TV) | `BOLL_TV` | main | TradingView-style with fill between upper/lower bands |
-| CCI | `CCI` | sub | Commodity Channel Index with +100/-100 reference lines |
-| HMA | `HMA` | main | Hull Moving Average — low-lag smoothing |
-| Ichimoku Cloud | `ICHIMOKU` | main | Tenkan-sen, Kijun-sen, Senkou Span A/B, Chikou Span with cloud fill |
-| MA Ribbon | `MA_RIBBON` | main | 6-period moving average ribbon for trend visualization |
-| MACD (TV) | `MACD_TV` | sub | 4-color histogram (growing/shrinking x positive/negative), TradingView style |
-| Pivot Points | `PIVOT_POINTS` | main | Standard pivot with R1, R2, S1, S2 levels |
-| RSI (TV) | `RSI_TV` | sub | RMA-based RSI + MA line, dashed 70/50/30 levels, gradient overbought/oversold fills |
-| Stochastic | `STOCHASTIC` | sub | %K and %D lines, TradingView-style calculation |
-| SuperTrend | `SUPERTREND` | main | ATR-based trend indicator with dynamic up/down coloring |
-| VWAP | `VWAP` | main | Volume-weighted average price |
+| Indicator            | Template name  | Placement | Description                                                                         |
+| -------------------- | -------------- | --------- | ----------------------------------------------------------------------------------- |
+| Bollinger Bands (TV) | `BOLL_TV`      | main      | TradingView-style with fill between upper/lower bands                               |
+| CCI                  | `CCI`          | sub       | Commodity Channel Index with +100/-100 reference lines                              |
+| HMA                  | `HMA`          | main      | Hull Moving Average — low-lag smoothing                                             |
+| Ichimoku Cloud       | `ICHIMOKU`     | main      | Tenkan-sen, Kijun-sen, Senkou Span A/B, Chikou Span with cloud fill                 |
+| MA Ribbon            | `MA_RIBBON`    | main      | 6-period moving average ribbon for trend visualization                              |
+| MACD (TV)            | `MACD_TV`      | sub       | 4-color histogram (growing/shrinking x positive/negative), TradingView style        |
+| Pivot Points         | `PIVOT_POINTS` | main      | Standard pivot with R1, R2, S1, S2 levels                                           |
+| RSI (TV)             | `RSI_TV`       | sub       | RMA-based RSI + MA line, dashed 70/50/30 levels, gradient overbought/oversold fills |
+| Stochastic           | `STOCHASTIC`   | sub       | %K and %D lines, TradingView-style calculation                                      |
+| SuperTrend           | `SUPERTREND`   | main      | ATR-based trend indicator with dynamic up/down coloring                             |
+| VWAP                 | `VWAP`         | main      | Volume-weighted average price                                                       |
 
 ### New Overlay Templates (9)
 
-| Overlay | Template name | Category | Description |
-|---------|---------------|----------|-------------|
-| Elliott Wave | `elliottWave` | wave | Five-wave cycle markup with numbered vertices |
-| Gann Fan | `gannFan` | fibonacci | Gann angle fans (1x1, 1x2, etc.) |
-| Fibonacci Retracement | `fibRetracement` | fibonacci | Standard retracement levels |
-| Parallel Channel | `parallelChannel` | moreLine | Two-point channel with parallel lines |
-| Long Position | `longPosition` | position | Risk/reward calculator with TP/SL levels and % labels |
-| Short Position | `shortPosition` | position | Risk/reward calculator for short trades |
-| Measure | `measure` | measure | Price change %, bar count, and time interval between two points |
-| Brush | `brush` | annotation | Freehand drawing with Bezier smoothing |
-| Ray | `ray` | singleLine | Infinite ray from a point |
+| Overlay               | Template name     | Category   | Description                                                     |
+| --------------------- | ----------------- | ---------- | --------------------------------------------------------------- |
+| Elliott Wave          | `elliottWave`     | wave       | Five-wave cycle markup with numbered vertices                   |
+| Gann Fan              | `gannFan`         | fibonacci  | Gann angle fans (1x1, 1x2, etc.)                                |
+| Fibonacci Retracement | `fibRetracement`  | fibonacci  | Standard retracement levels                                     |
+| Parallel Channel      | `parallelChannel` | moreLine   | Two-point channel with parallel lines                           |
+| Long Position         | `longPosition`    | position   | Risk/reward calculator with TP/SL levels and % labels           |
+| Short Position        | `shortPosition`   | position   | Risk/reward calculator for short trades                         |
+| Measure               | `measure`         | measure    | Price change %, bar count, and time interval between two points |
+| Brush                 | `brush`           | annotation | Freehand drawing with Bezier smoothing                          |
+| Ray                   | `ray`             | singleLine | Infinite ray from a point                                       |
 
 ### New TA (Technical Analysis) Library
 
 A standalone math library (`TA`) exported for use in custom scripts and indicator templates:
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `sma` | `(data, period) => number[]` | Simple Moving Average |
-| `ema` | `(data, period) => number[]` | Exponential Moving Average |
-| `rma` | `(data, period) => number[]` | Running (Wilder's) Moving Average |
-| `wma` | `(data, period) => number[]` | Weighted Moving Average |
-| `hma` | `(data, period) => number[]` | Hull Moving Average |
-| `rsi` | `(data, period) => (number \| null)[]` | Relative Strength Index |
-| `macd` | `(data, fast, slow, signal) => { dif, dea, macd }` | MACD |
-| `bollinger` | `(data, period, mult) => { upper, mid, lower }` | Bollinger Bands |
-| `stdev` | `(data, period) => number[]` | Standard Deviation |
-| `tr` | `(highs, lows, closes) => number[]` | True Range |
-| `atr` | `(highs, lows, closes, period) => number[]` | Average True Range |
-| `vwap` | `(highs, lows, closes, volumes) => number[]` | Volume Weighted Average Price |
-| `cci` | `(highs, lows, closes, period) => number[]` | Commodity Channel Index |
-| `stoch` | `(highs, lows, closes, kPeriod, kSmooth, dPeriod) => { k, d }` | Stochastic Oscillator |
+| Function    | Signature                                                      | Description                       |
+| ----------- | -------------------------------------------------------------- | --------------------------------- |
+| `sma`       | `(data, period) => number[]`                                   | Simple Moving Average             |
+| `ema`       | `(data, period) => number[]`                                   | Exponential Moving Average        |
+| `rma`       | `(data, period) => number[]`                                   | Running (Wilder's) Moving Average |
+| `wma`       | `(data, period) => number[]`                                   | Weighted Moving Average           |
+| `hma`       | `(data, period) => number[]`                                   | Hull Moving Average               |
+| `rsi`       | `(data, period) => (number \| null)[]`                         | Relative Strength Index           |
+| `macd`      | `(data, fast, slow, signal) => { dif, dea, macd }`             | MACD                              |
+| `bollinger` | `(data, period, mult) => { upper, mid, lower }`                | Bollinger Bands                   |
+| `stdev`     | `(data, period) => number[]`                                   | Standard Deviation                |
+| `tr`        | `(highs, lows, closes) => number[]`                            | True Range                        |
+| `atr`       | `(highs, lows, closes, period) => number[]`                    | Average True Range                |
+| `vwap`      | `(highs, lows, closes, volumes) => number[]`                   | Volume Weighted Average Price     |
+| `cci`       | `(highs, lows, closes, period) => number[]`                    | Commodity Channel Index           |
+| `stoch`     | `(highs, lows, closes, kPeriod, kSmooth, dPeriod) => { k, d }` | Stochastic Oscillator             |
 
 ### New Drawing Tool Categories
 
 Extended `DRAWING_CATEGORIES` with 3 additional categories:
+
 - **measure** — Measurement tools
 - **position** — Long/Short position calculators
 - **annotation** — Freehand brush drawing
