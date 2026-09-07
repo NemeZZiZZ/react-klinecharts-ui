@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   useKlinechartsUI,
   useKlinechartsUIDispatch,
@@ -6,6 +6,29 @@ import {
 import type { ReplaySpeed } from "../provider/featureTypes";
 
 export type { ReplaySpeed } from "../provider/featureTypes";
+
+/**
+ * Upper bound on `chart.resetData()` calls per second during playback.
+ *
+ * klinecharts v10 exposes no incremental data API (only `setDataLoader` +
+ * `resetData`), so every replayed bar costs a full O(n) reload: slice the
+ * buffer, rebuild the data list, recalculate every indicator, redraw. A
+ * session therefore does O(n²) work. Playback above this rate advances several
+ * bars per tick instead, which cuts the total proportionally while keeping the
+ * wall-clock pace (and, at these speeds, the visible result) the same.
+ */
+const MAX_RELOADS_PER_SECOND = 6;
+
+export interface UseReplayOptions {
+  /**
+   * Replay at most the last N bars of the loaded history (opt-in).
+   *
+   * Per-bar cost grows with the buffer size, so capping it is the only way to
+   * keep very long histories smooth. The bars before the window never appear —
+   * they are not skipped, they are outside the replayed range.
+   */
+  maxBars?: number;
+}
 
 export interface UseReplayReturn {
   /** Whether a replay session is active */
@@ -46,7 +69,8 @@ export interface UseReplayReturn {
  * mounted in several components (e.g. toolbar + bottom controls + status bar):
  * starting in one and stepping in another drives the same timer and buffer.
  */
-export function useReplay(): UseReplayReturn {
+export function useReplay(options?: UseReplayOptions): UseReplayReturn {
+  const maxBars = options?.maxBars;
   const { state, dispatch } = useKlinechartsUI();
   const { replayIntervalRef, replaySavedDataRef, replayIndexRef, replayActiveRef } =
     useKlinechartsUIDispatch();
@@ -60,35 +84,70 @@ export function useReplay(): UseReplayReturn {
     }
   }, [replayIntervalRef]);
 
+  // Продвинуть окно реплея на `count` баров (по умолчанию 1).
+  //
+  // klinecharts v10 owns data through the DataLoader; the imperative
+  // updateData/clearData API was removed. The replay-aware DataLoader
+  // (createDataLoader, wired by ChartCanvas) serves the saved buffer truncated
+  // to [0, replayIndexRef.current), so advancing the index and asking the chart
+  // to reload renders the next bar(s). One reload costs O(n) (slice + full
+  // indicator recalc), so advancing several bars per tick is what keeps fast
+  // playback affordable — see MAX_RELOADS_PER_SECOND.
+  const advanceBars = useCallback(
+    (count: number) => {
+      if (!state.chart) return;
+
+      const data = replaySavedDataRef.current;
+      const idx = replayIndexRef.current;
+
+      if (idx >= data.length) {
+        // Replay finished — stop the interval but keep replay state
+        clearInterval_();
+        dispatch({ type: "SET_REPLAY", replay: { isPaused: true } });
+        return;
+      }
+
+      const next = Math.min(idx + Math.max(1, count), data.length);
+      // Nothing to render — skip the reload (a no-op resetData still rebuilds
+      // the whole dataList and recalculates every indicator).
+      if (next === idx) return;
+
+      replayIndexRef.current = next;
+      state.chart.resetData();
+      dispatch({ type: "SET_REPLAY", replay: { barIndex: next } });
+    },
+    [state.chart, clearInterval_, replaySavedDataRef, replayIndexRef, dispatch],
+  );
+
   const addNextBar = useCallback(() => {
-    if (!state.chart) return;
+    advanceBars(1);
+  }, [advanceBars]);
 
-    const data = replaySavedDataRef.current;
-    const idx = replayIndexRef.current;
-
-    if (idx >= data.length) {
-      // Replay finished — stop the interval but keep replay state
-      clearInterval_();
-      dispatch({ type: "SET_REPLAY", replay: { isPaused: true } });
-      return;
-    }
-
-    // klinecharts v10 owns data through the DataLoader; the imperative
-    // updateData/clearData API was removed. The replay-aware DataLoader
-    // (createDataLoader, wired by ChartCanvas) serves the saved buffer truncated
-    // to [0, replayIndexRef.current), so advancing the index and asking the chart
-    // to reload renders the next bar.
-    replayIndexRef.current = idx + 1;
-    state.chart.resetData();
-    dispatch({ type: "SET_REPLAY", replay: { barIndex: idx + 1 } });
-  }, [state.chart, clearInterval_, replaySavedDataRef, replayIndexRef, dispatch]);
+  // Indirection ref so the interval closure always calls the current
+  // `advanceBars` without restarting playback when its deps change.
+  const advanceBarsRef = useRef(advanceBars);
+  useEffect(() => {
+    advanceBarsRef.current = advanceBars;
+  });
 
   const startInterval = useCallback(
     (currentSpeed: ReplaySpeed) => {
       clearInterval_();
-      replayIntervalRef.current = setInterval(addNextBar, 1000 / currentSpeed);
+      // Cap the reload rate: each tick costs O(n) (DataLoader slice + full
+      // indicator recalculation), and a session performs n / barsPerTick ticks —
+      // i.e. O(n²) work with barsPerTick = 1. Above MAX_RELOADS_PER_SECOND the
+      // eye cannot resolve single bars anyway, so advance in groups and keep
+      // the wall-clock pace (interval = barsPerTick / speed) identical.
+      const barsPerTick = Math.max(
+        1,
+        Math.ceil(currentSpeed / MAX_RELOADS_PER_SECOND),
+      );
+      replayIntervalRef.current = setInterval(
+        () => advanceBarsRef.current(barsPerTick),
+        (1000 * barsPerTick) / currentSpeed,
+      );
     },
-    [addNextBar, clearInterval_, replayIntervalRef],
+    [clearInterval_, replayIntervalRef],
   );
 
   const startReplay = useCallback(() => {
@@ -108,8 +167,12 @@ export function useReplay(): UseReplayReturn {
     const dataList = state.chart.getDataList();
     if (!dataList || dataList.length === 0) return;
 
-    // Save a copy of the original data
-    replaySavedDataRef.current = [...dataList];
+    // Save a copy of the original data, optionally trimmed to the last
+    // `maxBars` (see UseReplayOptions.maxBars).
+    replaySavedDataRef.current =
+      maxBars !== undefined && maxBars > 0 && dataList.length > maxBars
+        ? dataList.slice(-maxBars)
+        : [...dataList];
     replayIndexRef.current = 0;
 
     // Activate the replay-aware DataLoader intercept synchronously (before
@@ -119,7 +182,7 @@ export function useReplay(): UseReplayReturn {
     dispatch({
       type: "SET_REPLAY",
       replay: {
-        totalBars: dataList.length,
+        totalBars: replaySavedDataRef.current.length,
         barIndex: 0,
         isReplaying: true,
         isPaused: false,
@@ -130,7 +193,7 @@ export function useReplay(): UseReplayReturn {
 
     // Start the playback interval
     startInterval(speed);
-  }, [state.chart, state.symbol, state.period, speed, startInterval, isReplaying, replaySavedDataRef, replayIndexRef, replayActiveRef, dispatch]);
+  }, [state.chart, state.symbol, state.period, speed, startInterval, isReplaying, replaySavedDataRef, replayIndexRef, replayActiveRef, maxBars, dispatch]);
 
   // Stop the replay session automatically when the symbol or period changes.
   // The dataLoader reloads the chart with the new symbol's bars, but without

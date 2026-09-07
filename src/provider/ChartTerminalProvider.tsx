@@ -4,6 +4,7 @@ import {
   useEffect,
   useCallback,
   useRef,
+  useSyncExternalStore,
   type ReactElement,
 } from "react";
 import type {
@@ -19,6 +20,24 @@ import { DEFAULT_PERIODS } from "../data/periods";
 import { registerExtensions, ensureAlertLineRegistered } from "../extensions";
 import { registerOverlay } from "klinecharts";
 import { resolveStorage, type ResolvedStorage, type StorageOptions } from "../storage";
+import { createUndoRedoStore } from "./undoRedoStore";
+import { createSharedState } from "./sharedState";
+import {
+  readDrawingOverlays,
+  drawingOverlaysEqual,
+  type DrawingOverlayInfo,
+} from "./drawingOverlays";
+import {
+  createLayoutBackend,
+  readLayoutEntry,
+  writeLayoutEntry,
+  readLayoutIds,
+  writeLayoutIndex,
+  serializeChartLayout,
+  layoutContentSignature,
+  generateLayoutId,
+  type LayoutEntry,
+} from "./layouts";
 import type { Alert } from "./featureTypes";
 
 export function reducer(
@@ -27,7 +46,9 @@ export function reducer(
 ): KlinechartsUIState {
   switch (action.type) {
     case "SET_CHART":
-      return { ...state, chart: action.chart };
+      // A fresh chart mints fresh pane ids, so any recorded collapsed pane
+      // (and the height it should expand back to) belongs to the old instance.
+      return { ...state, chart: action.chart, collapsedPanes: {} };
     case "SET_SYMBOL":
       return { ...state, symbol: action.symbol };
     case "SET_PERIOD":
@@ -46,6 +67,8 @@ export function reducer(
       return { ...state, indicatorAxes: action.axes };
     case "SET_INDICATOR_VISIBILITY":
       return { ...state, indicatorVisibility: action.visibility };
+    case "SET_COLLAPSED_PANES":
+      return { ...state, collapsedPanes: action.panes };
     case "SET_ALERTS":
       return { ...state, alerts: action.alerts };
     case "ADD_ALERT":
@@ -195,6 +218,7 @@ export function KlinechartsUIProvider({
             : { VOL: "" }),
         indicatorAxes: storedIndicators.axes ?? {},
         indicatorVisibility: storedIndicators.visibility ?? {},
+        collapsedPanes: {},
         alerts: read<Alert[]>("alerts", []),
         measure: { isActive: false, fromPoint: null, result: null },
         replay: {
@@ -213,6 +237,42 @@ export function KlinechartsUIProvider({
   const fullscreenContainerRef = useRef<HTMLElement | null>(null);
   const undoRedoListenerRef = useRef<import("./types").UndoRedoListener | null>(null);
   const undoRedoInstancesRef = useRef<import("./types").UndoRedoInstance[]>([]);
+  // Shared undo/redo history (see createUndoRedoStore). One store per provider
+  // so independent charts keep separate histories, while every useUndoRedo
+  // instance of a chart sees the same one.
+  const undoRedoStore = useMemo(() => createUndoRedoStore(), []);
+  const undoRedoStoreRef = useRef(undoRedoStore);
+  // Shared chart settings (see createSharedState).
+  const settingsStore = useMemo(() => createSharedState<unknown>(null), []);
+
+  // --- Shared drawing-overlay snapshot + single poller ----------------------
+  // klinecharts v10 has no overlay add/remove event, so the drawing list has to
+  // be polled. The provider owns the snapshot and ONE interval (started at the
+  // first useDrawingTools subscriber, stopped at the last unsubscribe) instead
+  // of one interval per hook instance — N toolbars used to mean N getOverlays()
+  // calls per second, each allocating a fresh array.
+  const drawingOverlaysStore = useMemo(
+    () => createSharedState<unknown>([] as DrawingOverlayInfo[]),
+    [],
+  );
+  const drawingPollCountRef = useRef(0);
+  const drawingPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // --- Shared layouts list + auto-save --------------------------------------
+  // Both are a property of the provider (one storage key), not of a hook: with
+  // hook-local state two useLayoutManager() consumers hydrated two lists and
+  // each ran its own 5s auto-save sweep against the same key.
+  const layoutStore = useMemo(
+    () => createSharedState<unknown>([] as LayoutEntry[]),
+    [],
+  );
+  const layoutAutoSaveStore = useMemo(() => createSharedState(false), []);
+  const layoutBackend = useMemo(
+    () => createLayoutBackend(resolvedStorage),
+    [resolvedStorage],
+  );
+  const autoSaveIdRef = useRef<string | null>(null);
+  const autoSaveSignatureRef = useRef<string | null>(null);
 
   // Provider-owned feature resources (single owner across all hook instances).
   // Multi-listener: several components (toolbar, status bar, sound trigger) can
@@ -260,6 +320,53 @@ export function KlinechartsUIProvider({
       onSubIndicatorsChange,
     };
   });
+
+  // --- Shared drawing-overlay polling (one interval per provider) -----------
+  const refreshDrawingOverlays = useCallback(() => {
+    const next = readDrawingOverlays(stateRef.current.chart);
+    const prev = drawingOverlaysStore.get() as DrawingOverlayInfo[];
+    // Equality check: the interval ticks every second, and an unconditional
+    // `set` would re-render every subscriber with a fresh array even when no
+    // drawing changed.
+    if (!drawingOverlaysEqual(prev, next)) drawingOverlaysStore.set(next);
+  }, [drawingOverlaysStore]);
+
+  const stopDrawingPoll = useCallback(() => {
+    if (drawingPollTimerRef.current !== null) {
+      clearInterval(drawingPollTimerRef.current);
+      drawingPollTimerRef.current = null;
+    }
+  }, []);
+
+  const startDrawingPoll = useCallback(() => {
+    if (drawingPollTimerRef.current !== null) return;
+    // No subscribers (no useDrawingTools mounted) or no chart yet — nothing to
+    // poll. The effect below starts it as soon as both exist.
+    if (drawingPollCountRef.current === 0) return;
+    if (!stateRef.current.chart) return;
+    drawingPollTimerRef.current = setInterval(() => {
+      refreshDrawingOverlays();
+    }, 1000);
+  }, [refreshDrawingOverlays]);
+
+  const subscribeDrawingOverlays = useCallback(() => {
+    drawingPollCountRef.current += 1;
+    startDrawingPoll();
+    return () => {
+      drawingPollCountRef.current -= 1;
+      if (drawingPollCountRef.current <= 0) stopDrawingPoll();
+    };
+  }, [startDrawingPoll, stopDrawingPoll]);
+
+  // (Re)start the single poller when the chart instance changes, and refresh
+  // immediately so the shared snapshot never shows the previous chart's
+  // drawings (a new chart starts with none).
+  useEffect(() => {
+    stopDrawingPoll();
+    refreshDrawingOverlays();
+    startDrawingPoll();
+    return stopDrawingPoll;
+  }, [state.chart, startDrawingPoll, stopDrawingPoll, refreshDrawingOverlays]);
 
   /**
    * Wraps dispatch so that per-action callbacks are called synchronously.
@@ -399,19 +506,53 @@ export function KlinechartsUIProvider({
 
         const target = alert.target ?? { type: "price" } as const;
         let currentValue: number | null;
+        // Range of the last bar. Only price targets have one: a 1s sample of
+        // the last close misses a crossing that happened *inside* the bar (the
+        // wick touched the level and came back between two ticks), so the
+        // high/low of the forming bar is used as a second, wider signal.
+        let barLow: number | null = null;
+        let barHigh: number | null = null;
         if (target.type === "indicator") {
           currentValue = readIndicatorValue(target.indicatorId, target.figureKey);
         } else {
-          currentValue = dataList[lastIdx].close;
+          const bar = dataList[lastIdx];
+          currentValue = bar.close;
+          barLow = bar.low;
+          barHigh = bar.high;
         }
         if (currentValue === null || !Number.isFinite(currentValue)) continue;
 
         const prevValue = prevValueByAlert.get(alert.id) ?? null;
         prevValueByAlert.set(alert.id, currentValue);
-        if (prevValue === null) continue; // first observation seeds the baseline
 
-        const crossedUp = prevValue < alert.price && currentValue >= alert.price;
-        const crossedDown = prevValue > alert.price && currentValue <= alert.price;
+        // Baseline = close of the PREVIOUS (already final) bar: the value the
+        // level had to be on the other side of for a crossing to count. Using
+        // the previous bar's close instead of the previous 1s sample keeps the
+        // baseline correct even when the poll interval is slower than the bar
+        // rate. On the very first bar there is no previous bar — fall back to
+        // the previous sample (and skip when it is not seeded yet).
+        const prevBar = lastIdx > 0 ? dataList[lastIdx - 1] : null;
+        const prevBarClose =
+          prevBar && typeof prevBar.close === "number" ? prevBar.close : null;
+        const baseline =
+          barLow !== null && barHigh !== null && prevBarClose !== null
+            ? prevBarClose
+            : prevValue;
+        if (baseline === null || !Number.isFinite(baseline)) continue;
+
+        // The level lies inside the last bar's range, i.e. it was touched at
+        // some point during the bar even though the close is back on the
+        // baseline side.
+        const touched =
+          barLow !== null &&
+          barHigh !== null &&
+          barLow <= alert.price &&
+          barHigh >= alert.price;
+
+        const crossedUp =
+          baseline < alert.price && (currentValue >= alert.price || touched);
+        const crossedDown =
+          baseline > alert.price && (currentValue <= alert.price || touched);
         const shouldTrigger =
           alert.condition === "crossing_up"
             ? crossedUp
@@ -444,6 +585,14 @@ export function KlinechartsUIProvider({
     // keeping the old baseline would compare the new symbol's first close
     // against the old symbol's last one — spurious crossings.
   }, [state.chart, state.symbol, state.period, hasAlerts, enhancedDispatch]);
+
+  // Auto-save flag for layouts, mirrored from the shared store so the sweep
+  // below re-runs when any useLayoutManager instance toggles it.
+  const layoutAutoSaveEnabled = useSyncExternalStore(
+    layoutAutoSaveStore.subscribe,
+    layoutAutoSaveStore.get,
+    layoutAutoSaveStore.get,
+  );
 
   // --- Persistence write-back ------------------------------------------------
   // Each persisted slice is written through its own effect on the relevant
@@ -486,6 +635,162 @@ export function KlinechartsUIProvider({
     writeNs,
   ]);
 
+  // --- Layout auto-save sweep (one timer per provider) -----------------------
+  //
+  // A periodic sweep (every 5s) instead of a deps-driven debounce: the debounce
+  // could only observe the state slices in its dependency array, so drawing
+  // edits — which live inside klinecharts, have no provider state and no change
+  // event — never re-armed it and were never auto-saved, while an untouched
+  // chart still got an "Auto-save" entry 5s after enabling.
+  //
+  // The sweep serializes the chart on an interval and writes only when the
+  // layout content actually differs from the last written one. State is read
+  // through `stateRef` (not deps) so a symbol/period/axis change does not
+  // restart the 5s window — only a chart swap or a toggle does.
+  useEffect(() => {
+    // Persistence disabled (storage configured without the "layouts"
+    // namespace, or no chart): running the timer would only churn no-op writes.
+    if (!layoutBackend || !layoutAutoSaveEnabled || !state.chart) {
+      // Re-baseline on the next enable so a re-enable does not diff against a
+      // stale snapshot from a previous session of the flag.
+      autoSaveSignatureRef.current = null;
+      return;
+    }
+
+    const serialize = () => {
+      const current = stateRef.current;
+      return serializeChartLayout({
+        chart: current.chart,
+        symbol: current.symbol?.ticker ?? "",
+        period: current.period?.label ?? "",
+        indicatorAxes: current.indicatorAxes,
+      });
+    };
+
+    const upsertEntry = (entry: LayoutEntry) => {
+      const prev = layoutStore.get() as LayoutEntry[];
+      const index = prev.findIndex((e) => e.id === entry.id);
+      if (index === -1) {
+        layoutStore.set([...prev, entry]);
+        return;
+      }
+      const next = prev.slice();
+      next[index] = entry;
+      layoutStore.set(next);
+    };
+
+    // Baseline: remember what is already on the chart, so merely enabling
+    // auto-save (or this effect re-running) does not write an unchanged copy.
+    if (autoSaveSignatureRef.current === null) {
+      autoSaveSignatureRef.current = (() => {
+        const chartState = serialize();
+        return chartState ? layoutContentSignature(chartState) : null;
+      })();
+    }
+
+    const timer = setInterval(() => {
+      const chartState = serialize();
+      if (!chartState) return;
+      const signature = layoutContentSignature(chartState);
+      if (signature === autoSaveSignatureRef.current) return;
+      autoSaveSignatureRef.current = signature;
+
+      if (autoSaveIdRef.current) {
+        // Update the existing auto-save slot.
+        const entry = readLayoutEntry(layoutBackend, autoSaveIdRef.current);
+        if (entry) {
+          const updated: LayoutEntry = {
+            ...entry,
+            lastModified: Date.now(),
+            state: chartState,
+          };
+          writeLayoutEntry(layoutBackend, autoSaveIdRef.current, updated);
+          upsertEntry(updated);
+        }
+        return;
+      }
+
+      // First sweep that saw a change: create the auto-save slot.
+      const id = generateLayoutId();
+      const now = Date.now();
+      const entry: LayoutEntry = {
+        id,
+        name: "Auto-save",
+        symbol: chartState.meta.symbol,
+        period: chartState.meta.period,
+        timestamp: now,
+        lastModified: now,
+        state: chartState,
+      };
+      writeLayoutEntry(layoutBackend, id, entry);
+      const ids = readLayoutIds(layoutBackend);
+      ids.push(id);
+      writeLayoutIndex(layoutBackend, ids);
+      autoSaveIdRef.current = id;
+      upsertEntry(entry);
+    }, 5000);
+
+    return () => clearInterval(timer);
+  }, [
+    layoutBackend,
+    layoutStore,
+    layoutAutoSaveEnabled,
+    state.chart,
+    // `state.symbol`/`state.period` are intentionally NOT deps (read through
+    // stateRef) — including them would restart the 5s window on every symbol
+    // switch and delay the first auto-save after it.
+  ]);
+
+  // Provider owns the undo/redo hotkeys: one window listener for the whole
+  // chart, driving the owning useUndoRedo instance (registry[0]). Previously
+  // every instance added its own listener and all but the owner bailed out at
+  // the top of the handler — N listeners doing one instance's worth of work,
+  // and a single Ctrl+Z was one keystroke away from being applied twice if the
+  // ownership guard ever slipped.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const owner = undoRedoInstancesRef.current[0];
+      if (!owner) return;
+
+      if (!e.ctrlKey && !e.metaKey) return;
+
+      // Don't hijack native text undo/redo: typing in a symbol search, layout
+      // rename, indicator params or the script editor must keep the browser's
+      // own Ctrl+Z/Ctrl+Y instead of removing drawings from the chart.
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        owner.undo();
+      } else if (e.key === "y" || (e.key === "z" && e.shiftKey)) {
+        e.preventDefault();
+        owner.redo();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [undoRedoInstancesRef]);
+
+  // Invalidate undo/redo history once its targets are gone: recorded actions
+  // carry overlay ids (and indicator pane ids) that only exist on the chart
+  // instance / symbol / period they were recorded against. Undoing them later
+  // no-ops silently — or hits an unrelated overlay whose id was recycled.
+  // Owned by the provider: N useUndoRedo instances must clear the shared store
+  // once, not once per instance (a mount-time clear in the hook would wipe the
+  // history every time a modal with useUndoRedo() opens).
+  useEffect(() => {
+    undoRedoStore.clear();
+  }, [undoRedoStore, state.chart, state.symbol, state.period]);
+
   // Provider owns the replay playback interval — clear it if the provider
   // unmounts (the hook no longer clears it on its own unmount, since the timer
   // is shared across instances).
@@ -511,6 +816,13 @@ export function KlinechartsUIProvider({
       fullscreenContainerRef,
       undoRedoListenerRef,
       undoRedoInstancesRef,
+      undoRedoStoreRef,
+      settingsStore,
+      drawingOverlaysStore,
+      subscribeDrawingOverlays,
+      refreshDrawingOverlays,
+      layoutStore,
+      layoutAutoSaveStore,
       alertTriggeredListenersRef,
       replayIntervalRef,
       replaySavedDataRef,
@@ -518,7 +830,18 @@ export function KlinechartsUIProvider({
       replayActiveRef,
       storage: resolvedStorage,
     }),
-    [enhancedDispatch, resolvedStorage, datafeed, onSettingsChange],
+    [
+      enhancedDispatch,
+      resolvedStorage,
+      datafeed,
+      onSettingsChange,
+      settingsStore,
+      drawingOverlaysStore,
+      subscribeDrawingOverlays,
+      refreshDrawingOverlays,
+      layoutStore,
+      layoutAutoSaveStore,
+    ],
   );
 
   return (

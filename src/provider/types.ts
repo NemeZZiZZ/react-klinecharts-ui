@@ -127,6 +127,17 @@ export interface KlinechartsUIState {
    */
   indicatorVisibility: Record<string, boolean>;
   /**
+   * Collapsed sub-indicator panes (`useIndicators`): pane id -> the pane
+   * height it had before collapsing, so expanding can restore it.
+   *
+   * Shared (instead of the `useRef` set/height map the hook used to keep) so
+   * `isSubIndicatorCollapsed` is reactive — a ref read never re-renders, so a
+   * UI that renders a collapse/expand button from it kept showing the stale
+   * state — and so every consumer of the hook agrees. Cleared by `SET_CHART`:
+   * pane ids are minted per chart instance and never reused.
+   */
+  collapsedPanes: Record<string, number>;
+  /**
    * Price alerts (`useAlerts`). Lives in the shared store rather than per-hook
    * local state so every consumer (toolbar, list panel, status bar, sound
    * trigger) observes one synchronized list. The crossing poller and the
@@ -161,6 +172,7 @@ export type KlinechartsUIAction =
   | { type: "SET_SUB_INDICATORS"; indicators: Record<string, string> }
   | { type: "SET_INDICATOR_AXES"; axes: Record<string, string> }
   | { type: "SET_INDICATOR_VISIBILITY"; visibility: Record<string, boolean> }
+  | { type: "SET_COLLAPSED_PANES"; panes: Record<string, number> }
   | { type: "SET_ALERTS"; alerts: Alert[] }
   // Granular alert actions. `SET_ALERTS` does a full replace, which loses
   // updates when two writers race (the hook mutators read `state.alerts` from
@@ -185,6 +197,70 @@ export interface UndoRedoInstance {
   pushAction: UndoRedoListener;
   undo: () => void;
   redo: () => void;
+}
+
+/**
+ * Minimal external store shared by every hook instance of one provider, read
+ * with `useSyncExternalStore` (see `createSharedState`).
+ */
+export interface SharedState<T> {
+  /** Register a subscriber; returns the unsubscribe function. */
+  subscribe: (listener: () => void) => () => void;
+  /** Current value (stable reference until the next `set`). */
+  get: () => T;
+  /** Replace the value (or compute it from the previous one) and notify. */
+  set: (next: T | ((prev: T) => T)) => void;
+}
+
+export type UndoRedoActionType =
+  | "overlay_added"
+  | "overlays_removed"
+  | "indicator_toggled";
+
+export interface UndoRedoAction {
+  type: UndoRedoActionType;
+  /** Snapshot data needed to undo/redo this action */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data: any;
+}
+
+/**
+ * The undo/redo history, owned by the provider (`undoRedoStoreRef`) instead of
+ * by any single `useUndoRedo` instance — see `createUndoRedoStore`.
+ *
+ * `subscribe`/`getUndoStack`/`getRedoStack` are consumed with
+ * `useSyncExternalStore`, so every mounted instance renders the same history.
+ * Mutations come in two flavours: `pushAction` and `clear` notify immediately,
+ * while `popUndo`/`popRedo`/`appendUndo`/`appendRedo` stay silent so undo() and
+ * redo() can apply a whole batch and then `notify()` once.
+ */
+export interface UndoRedoStore {
+  /** Register a subscriber; returns the unsubscribe function. */
+  subscribe: (listener: () => void) => () => void;
+  /** Current undo stack (stable reference until the next mutation). */
+  getUndoStack: () => UndoRedoAction[];
+  /** Current redo stack (stable reference until the next mutation). */
+  getRedoStack: () => UndoRedoAction[];
+  /** Record a new action: appends to the undo stack, clears redo, notifies. */
+  pushAction: (action: UndoRedoAction) => void;
+  /** Remove and return the top of the undo stack (does not notify). */
+  popUndo: () => UndoRedoAction | undefined;
+  /** Remove and return the top of the redo stack (does not notify). */
+  popRedo: () => UndoRedoAction | undefined;
+  /** Push onto the undo stack (does not notify). */
+  appendUndo: (action: UndoRedoAction) => void;
+  /** Push onto the redo stack (does not notify). */
+  appendRedo: (action: UndoRedoAction) => void;
+  /** Drop both stacks and notify. */
+  clear: () => void;
+  /** Notify subscribers after a batch of silent mutations. */
+  notify: () => void;
+  /**
+   * Claim the shared re-entrancy guard. Returns false when undo/redo is
+   * already running, so a second (auto-repeat) call is a no-op.
+   */
+  beginProcessing: () => boolean;
+  endProcessing: () => void;
 }
 
 /** The stable, dispatch-only slice of the context (never changes after mount). */
@@ -213,6 +289,50 @@ export interface KlinechartsUIDispatchValue {
    * owner.
    */
   undoRedoInstancesRef: RefObject<UndoRedoInstance[]>;
+  /**
+   * Provider-owned undo/redo history shared by every `useUndoRedo` instance of
+   * this provider (the stacks are a property of the chart, not of a hook).
+   * Instances mirror it with `useSyncExternalStore`, so all of them report the
+   * same `canUndo`/`canRedo` and undo the same entry.
+   */
+  undoRedoStoreRef: RefObject<UndoRedoStore>;
+  /**
+   * Provider-owned chart settings (`useKlinechartsUISettings`), shared by every
+   * instance of that hook: the settings are a property of the chart, so two
+   * components using the hook must read/write one value instead of two
+   * divergent copies that overwrite each other in storage. `null` until the
+   * first instance hydrates it. Exposed as the store itself (not a ref) — it
+   * is created once with `useMemo`, like `dispatch` and `storage`.
+   */
+  settingsStore: SharedState<unknown>;
+  /**
+   * Provider-owned snapshot of the `drawing_tools` overlays, shared by every
+   * `useDrawingTools` instance. klinecharts v10 exposes no overlay
+   * add/remove event, so the list has to be polled — the provider runs ONE
+   * interval for the whole chart instead of one per hook instance, and only
+   * while at least one instance is mounted.
+   */
+  drawingOverlaysStore: SharedState<unknown>;
+  /**
+   * Register a consumer of `drawingOverlaysStore`. The polling interval starts
+   * at the first subscriber and stops at the last unsubscribe, so a chart that
+   * never mounts a drawing toolbar pays nothing. Returns the unsubscribe.
+   */
+  subscribeDrawingOverlays: () => () => void;
+  /** Re-read the overlays now (after a create/remove/override in any hook). */
+  refreshDrawingOverlays: () => void;
+  /**
+   * Provider-owned list of saved layouts, shared by every `useLayoutManager`
+   * instance (previously hook-local state: two instances hydrated two copies
+   * and each ran its own auto-save sweep over the same storage key).
+   */
+  layoutStore: SharedState<unknown>;
+  /**
+   * Provider-owned auto-save flag for layouts. Kept in a shared store (not in
+   * `KlinechartsUIState`) so all `useLayoutManager` instances see and toggle
+   * one value while the sweep itself stays provider-owned.
+   */
+  layoutAutoSaveStore: SharedState<boolean>;
   /**
    * Listener set registered via `useAlerts.onAlertTriggered`; invoked by the
    * provider-owned crossing poller when an alert fires. A Set so multiple

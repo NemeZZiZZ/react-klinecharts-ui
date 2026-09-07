@@ -271,10 +271,17 @@ function ChartSyncBridge({ cellId }: { cellId: string }) {
 ```
 
 `useChartSync` mirrors crosshair / scroll / zoom between the registered charts
-using only the **public** klinecharts API (`executeAction`, `scrollToTimestamp`,
-`setBarSpace`) — no internal `_chartStore`. A re-entrancy guard prevents
-feedback loops. Per-channel sync can be disabled via the `sync` prop
-(`{ scroll: false }`).
+using only the **public** klinecharts API (`executeAction`,
+`convertFromPixel` / `convertToPixel`, `scrollToTimestamp`, `setBarSpace`) — no
+internal `_chartStore`. A re-entrancy guard prevents feedback loops.
+Per-channel sync can be disabled via the `sync` prop (`{ scroll: false }`).
+
+Both X-axis channels are mirrored through **time**, not through pixels: the
+source converts its pixel (or bar index) to a timestamp and every sibling maps
+that timestamp back onto its own scale. That is what keeps four charts on the
+same moment even when they differ in scroll position, zoom, timeframe or
+symbol — forwarding the raw crosshair `x` would mirror a screen offset and
+land each chart on a different bar.
 
 > **Scope of this foundation.** Each cell keeps its own alerts, replay, and
 > drawings (per-provider). Hoisting shared alerts/replay/drawings to the
@@ -1510,6 +1517,8 @@ The `line` / `mark` / `label` style types are shared with [`useOrderLines`](#use
 ### useCrosshair
 
 Tracks the OHLCV data of the bar currently under the crosshair. Returns `null` when the cursor is off-chart. Updates are throttled with `requestAnimationFrame`, making it suitable for driving a live data panel / legend that follows the cursor.
+
+> Crosshair events carry the raw `{ x, y, paneId }` — klinecharts does not put `kLineData` / `dataIndex` / `timestamp` on them — so the hook resolves the bar itself from the pixel. "Off-chart" is detected with a `mouseleave` listener on the chart container, because klinecharts emits no event when the cursor leaves.
 
 ```typescript
 import { useCrosshair } from "react-klinecharts-ui";

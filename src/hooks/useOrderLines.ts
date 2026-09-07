@@ -37,6 +37,46 @@ export interface UseOrderLinesReturn {
   removeAllOrderLines: () => void;
 }
 
+/**
+ * Create the orderLine overlay for `id` on `chart`. Shared by
+ * `createOrderLine` and the reconciliation effect below, so a line recreated
+ * after a chart remount is byte-identical to the original (same extendData,
+ * lock/mode and drag callback).
+ */
+function createOrderLineOverlay(
+  chart: NonNullable<ReturnType<typeof useKlinechartsUI>["state"]["chart"]>,
+  id: string,
+  options: OrderLineOptions,
+  callbacksRef: React.MutableRefObject<Map<string, (price: number) => void>>,
+): void {
+  const { price, draggable = false, onPriceChange, ...extendData } = options;
+
+  if (onPriceChange) {
+    callbacksRef.current.set(id, onPriceChange);
+  }
+
+  // Anchor the point using the latest bar's timestamp. This is stable across
+  // data pagination (left-scroll adds bars, shifting dataIndex).
+  const dataList = chart.getDataList();
+  const anchorTimestamp =
+    dataList.length > 0 ? dataList[dataList.length - 1].timestamp : Date.now();
+
+  chart.createOverlay({
+    name: "orderLine",
+    id,
+    points: [{ timestamp: anchorTimestamp, value: price }],
+    extendData,
+    lock: !draggable,
+    mode: "normal",
+    onPressedMoveEnd: (event: { overlay: { points: { value?: number }[] } }) => {
+      const newPrice = event.overlay.points[0]?.value;
+      if (newPrice != null) {
+        callbacksRef.current.get(id)?.(newPrice);
+      }
+    },
+  });
+}
+
 export function useOrderLines(): UseOrderLinesReturn {
   const { state } = useKlinechartsUI();
 
@@ -45,45 +85,21 @@ export function useOrderLines(): UseOrderLinesReturn {
   const callbacksRef = useRef<Map<string, (price: number) => void>>(new Map());
   // IDs created by THIS hook instance, so unmount cleanup removes only ours.
   const ownedIdsRef = useRef<Set<string>>(new Set());
+  // Last known options per line, so the lines can be recreated when a new
+  // chart instance appears (see the reconciliation effect below). Without it a
+  // chart remount left the consumer holding ids that no longer existed.
+  const linesRef = useRef<Map<string, OrderLineOptions>>(new Map());
 
   const createOrderLine = useCallback(
     (options: OrderLineOptions): string | null => {
       if (!state.chart) return null;
-      const {
-        id: optId,
-        price,
-        draggable = false,
-        onPriceChange,
-        ...extendData
-      } = options;
       const id =
-        optId ??
+        options.id ??
         `order_line_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
-      if (onPriceChange) {
-        callbacksRef.current.set(id, onPriceChange);
-      }
-
-      // Anchor the point using the latest bar's timestamp. This is stable
-      // across data pagination (left-scroll adds bars, shifting dataIndex).
-      const dataList = state.chart.getDataList();
-      const anchorTimestamp =
-        dataList.length > 0 ? dataList[dataList.length - 1].timestamp : Date.now();
-
-      state.chart.createOverlay({
-        name: "orderLine",
-        id,
-        points: [{ timestamp: anchorTimestamp, value: price }],
-        extendData,
-        lock: !draggable,
-        mode: "normal",
-        onPressedMoveEnd: (event) => {
-          const newPrice = event.overlay.points[0]?.value;
-          if (newPrice != null) {
-            callbacksRef.current.get(id)?.(newPrice);
-          }
-        },
-      });
+      const stored: OrderLineOptions = { ...options, id };
+      linesRef.current.set(id, stored);
+      createOrderLineOverlay(state.chart, id, stored, callbacksRef);
       ownedIdsRef.current.add(id);
       return id;
     },
@@ -124,6 +140,7 @@ export function useOrderLines(): UseOrderLinesReturn {
       state.chart?.removeOverlay({ id });
       callbacksRef.current.delete(id);
       ownedIdsRef.current.delete(id);
+      linesRef.current.delete(id);
     },
     [state.chart],
   );
@@ -142,6 +159,7 @@ export function useOrderLines(): UseOrderLinesReturn {
     });
     callbacksRef.current.clear();
     ownedIdsRef.current.clear();
+    linesRef.current.clear();
   }, [state.chart]);
 
   // Remove only the overlays created by THIS hook instance on unmount, so a
@@ -157,9 +175,21 @@ export function useOrderLines(): UseOrderLinesReturn {
           // overlay may already be gone
         }
       });
-      owned.clear();
-      callbacksRef.current.clear();
     };
+  }, [state.chart]);
+
+  // Reconcile the tracked lines onto a (re)appearing chart instance: the
+  // cleanup above removes them from the old chart, and a remounted chart
+  // starts empty, so without this the consumer keeps ids for lines that no
+  // longer exist on screen (updateOrderLine silently no-ops on them).
+  useEffect(() => {
+    const chart = state.chart;
+    if (!chart) return;
+    linesRef.current.forEach((options, id) => {
+      if (!ownedIdsRef.current.has(id)) return;
+      if (chart.getOverlays({ id }).length > 0) return;
+      createOrderLineOverlay(chart, id, options, callbacksRef);
+    });
   }, [state.chart]);
 
   return {

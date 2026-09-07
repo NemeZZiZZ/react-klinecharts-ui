@@ -31,6 +31,10 @@ export interface UseAlertsReturn {
   onAlertTriggered: (callback: (alert: Alert) => void) => () => void;
 }
 
+// Ids carry a per-page-load session tag: a bare module counter restarts at 1
+// on every reload and collided with the alerts hydrated from storage (same
+// React key, and two overlays sharing one id — removing one hit both).
+const ALERT_ID_SESSION = Math.random().toString(36).slice(2, 8);
 let alertCounter = 0;
 
 /**
@@ -55,7 +59,7 @@ export function useAlerts(): UseAlertsReturn {
       extendData?: AlertLineExtendData,
       target?: AlertTarget,
     ): string => {
-      const id = `alert_${++alertCounter}`;
+      const id = `alert_${ALERT_ID_SESSION}_${++alertCounter}`;
 
       // Default label: explicit text → message → formatted price (using the
       // symbol's precision when available).

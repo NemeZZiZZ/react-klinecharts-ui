@@ -85,18 +85,42 @@ function useChartSync() {
   useEffect(() => {
     if (!chart) return;
 
+    // Crosshair syncs by TIME, not by pixel. `onCrosshairChange` hands over
+    // the RAW crosshair (`{ x, y, paneId }`) — no dataIndex/timestamp — so the
+    // source pixel is converted to a timestamp and every sibling maps that
+    // timestamp back onto its own scale. Forwarding x (or a dataIndex) would
+    // mirror a screen offset and land on a different bar per chart.
     const crosshairHandler = (event: any) => {
       if (broadcasting.current) return;
 
-      const dataIndex = event?.dataIndex;
-      if (dataIndex == null || dataIndex < 0) return;
+      const x = event?.x;
+      if (typeof x !== "number" || !Number.isFinite(x)) return;
+
+      const paneId = event?.paneId ?? "candle_pane";
+      const point = (chart as any).convertFromPixel([{ x }], { paneId });
+      const timestamp = (Array.isArray(point) ? point[0] : point)?.timestamp;
+      if (typeof timestamp !== "number") return;
 
       broadcasting.current = true;
       try {
         for (const other of charts.current) {
           if (other === chart) continue;
           try {
-            (other as any).crosshairChange?.({ dataIndex });
+            const coordinate = (other as any).convertToPixel(
+              { timestamp },
+              { paneId: "candle_pane" },
+            );
+            const targetX = (
+              Array.isArray(coordinate) ? coordinate[0] : coordinate
+            )?.x;
+            if (typeof targetX !== "number" || !Number.isFinite(targetX))
+              continue;
+            // No y: a foreign instrument's price is meaningless here, and
+            // klinecharts only draws the horizontal line when y is present.
+            (other as any).executeAction("onCrosshairChange", {
+              x: targetX,
+              paneId: "candle_pane",
+            });
           } catch {
             // silently ignore
           }
@@ -112,38 +136,39 @@ function useChartSync() {
     };
   }, [chart, charts, broadcasting]);
 
-  // ---- Scroll sync via onScroll (delta-based) ----
+  // ---- Scroll sync: align the right edge by timestamp ----
   useEffect(() => {
     if (!chart) return;
 
-    const scrollHandler = (event: any) => {
+    const scrollHandler = () => {
       if (broadcasting.current) return;
 
-      const distance = event?.distance;
-      if (distance == null || distance === 0) return;
+      // `VisibleRange.realTo` is a BAR INDEX (exclusive), not a timestamp —
+      // handing it to scrollToTimestamp unmodified always lands on the first
+      // bar. Resolve the right-most visible bar's real timestamp instead.
+      const range = (chart as any).getVisibleRange?.();
+      const dataList: any[] = (chart as any).getDataList?.() ?? [];
+      if (!range || dataList.length === 0) return;
+
+      const index = Math.min(
+        Math.max(Math.round(range.realTo) - 1, 0),
+        dataList.length - 1,
+      );
+      const timestamp = dataList[index]?.timestamp;
+      if (typeof timestamp !== "number") return;
 
       broadcasting.current = true;
       try {
         for (const other of charts.current) {
           if (other === chart) continue;
           try {
-            // Apply the same pixel delta — startScroll + scroll mirrors the
-            // user gesture without needing absolute positioning.
-            const store = (other as any)._chartStore;
-            if (store) {
-              store.startScroll();
-              store.scroll(distance);
-            }
+            (other as any).scrollToTimestamp?.(timestamp, 0);
           } catch {
             // silently ignore
           }
         }
       } finally {
-        // Delay clearing the flag so that the onScroll events fired by
-        // store.scroll() on the receiving charts are still suppressed.
-        requestAnimationFrame(() => {
-          broadcasting.current = false;
-        });
+        broadcasting.current = false;
       }
     };
 

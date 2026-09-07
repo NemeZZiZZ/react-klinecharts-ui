@@ -4,6 +4,205 @@ All notable changes to **react-klinecharts-ui** are documented in this file.
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **Crosshair sync is time-based, not pixel-based.** `useChartSync` forwarded
+  the whole crosshair object to every sibling (`executeAction(
+  "onCrosshairChange", data)`). klinecharts v10's `ChartImp.executeAction`
+  calls `setCrosshair(data, { notExecuteAction: true })`, and `StoreImp.
+  setCrosshair` recomputes `dataIndex` / `kLineData` / `timestamp` from `x` via
+  `coordinateToDataIndex(x)` **on the receiving chart's own scale** — so the
+  mirrored value was a pixel offset, and any sibling with a different scroll
+  position, zoom, timeframe or symbol landed on a different bar (four charts,
+  four dates under one crosshair). The source now converts its pixel to a
+  timestamp with `convertFromPixel` and each target maps that timestamp back to
+  its own pixel with `convertToPixel`, sending only `{ x, paneId }`. `y` is
+  dropped on purpose: a foreign instrument's price means nothing on another
+  scale, and klinecharts draws the horizontal line only when `y` is present.
+  No echo loop — `executeAction` sets the crosshair with
+  `notExecuteAction: true`.
+- **Scroll sync sent a bar index where a timestamp was expected.**
+  `getVisibleRange().realTo` is an (exclusive) BAR INDEX, not a timestamp, but
+  it was passed straight to `scrollToTimestamp`. That method binary-searches
+  the data list for the nearest `timestamp`, so small integers always resolved
+  to the first bar and every sibling scrolled to the start of loaded history.
+  The right-most visible bar's real timestamp is now resolved from the data
+  list (clamped to the last bar when scrolled into the future) before
+  broadcasting.
+- The multi-chart example had the same two defects in its own sync hook
+  (crosshair driven by the never-populated `event.dataIndex`, scroll driven by
+  the private `_chartStore`); it now uses the same public, time-based path.
+
+**Trap worth recording:** `onCrosshairChange` subscribers receive the RAW
+crosshair — `{ x, y, paneId }` — because the store executes the action with the
+argument it was given, not with its enriched internal `_crosshair`.
+`Crosshair` declares `timestamp` / `dataIndex` / `kLineData`, so
+`crosshair.timestamp` type-checks silently and is always `undefined` on the
+mouse path.
+
+- **`useCrosshair` always returned `null`** — same root cause. It read
+  `event.kLineData` off the raw crosshair, which is never populated, so the
+  bar panel never showed anything. It now resolves the bar itself:
+  `convertFromPixel([{ x }], { paneId })` → `dataIndex` → `getDataList()[i]`
+  (unclamped indices outside the loaded history map to `null`). A supplied
+  `event.kLineData` still wins when present.
+- **`useCrosshair` never cleared when the cursor left the chart.** klinecharts
+  clears its crosshair on `mouseleave` via `setCrosshair()`, which leaves
+  `_crosshair.paneId` undefined, and `setCrosshair` only emits
+  `onCrosshairChange` when that pane id is a string — so no event arrives and
+  the panel kept displaying the last bar indefinitely. The hook now listens for
+  `mouseleave` on the chart root (when `getDom()` is available), which restores
+  the documented "null when the cursor is off-chart" contract.
+
+### Added
+
+- `src/workspace/useChartSync.test.tsx` (+11): crosshair mirroring goes
+  pixel → timestamp → pixel (and never forwards `y` or the source pixel),
+  no-op when the pixel maps to no bar, `candle_pane` fallback when the sibling
+  lacks the source pane, per-channel disable, scroll mirroring of the
+  right-edge timestamp (with a regression guard against the bar index),
+  future-scroll clamping, and zoom mirroring.
+- `src/hooks/useCrosshair.test.tsx` (+8): the bar is resolved from the pixel
+  (with correct `change` / `changePercent`), a supplied `event.kLineData` still
+  wins, `null` when the pixel maps to no bar or to an index outside the loaded
+  history, `null` when the crosshair has no `x`, the default `candle_pane`
+  fallback, and clear-on-`mouseleave` plus listener teardown.
+
+### Fixed
+
+- **`useUndoRedo` shared its history across instances.** The undo/redo stacks
+  were `useState` inside the hook, while the provider's recording slot and the
+  hotkeys are single-slot (owned by the first mounted instance). Every other
+  `useUndoRedo()` consumer therefore recorded nothing, permanently reported
+  `canUndo === false`, and popped an empty stack on `undo()`. The stacks now
+  live in a provider-owned store (`createUndoRedoStore`) that every instance
+  reads with `useSyncExternalStore`, so all of them see — and undo — the same
+  history. The Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z listener also moved to the
+  provider: one window listener per chart instead of one per instance (N-1 of
+  which bailed out immediately), still driving only the owning instance.
+- **`ChartCanvas` dropped the persisted indicator state on bootstrap.** It
+  re-created the saved main/sub indicators from `state.mainIndicators` /
+  `state.subIndicators` only, ignoring `state.indicatorAxes` and
+  `state.indicatorVisibility`. After a reload an indicator bound to a secondary
+  Y-axis silently fell back to the pane default, and a hidden one came back
+  visible while the provider (and every checkbox) still claimed it was hidden.
+  Both maps are now applied through `IndicatorCreate` (`yAxisId`, `visible`).
+- **`useLayoutManager.loadLayout` kept the SAVED pane id.** Sub-indicator panes
+  are minted per chart instance, so the restored `subIndicators` map pointed at
+  pane ids that no longer existed — breaking collapse, reorder, axis overrides
+  and removal for every restored sub indicator. The id is now read back from
+  `getIndicators({ id })` after creation (like `addSubIndicator`), and sub
+  indicators are created without a `paneId` so klinecharts cannot resurrect a
+  stale pane or merge two indicators into one.
+- **Layout auto-save missed drawing-only edits.** The 5s debounce re-armed only
+  when `mainIndicators` / `subIndicators` changed, so adding, moving or
+  clearing drawings — which have no provider state and no klinecharts change
+  event — never scheduled a save, while an untouched chart still got an
+  "Auto-save" entry 5s after enabling. Auto-save is now a 5s sweep that
+  serializes the chart and writes only when the persisted content actually
+  differs from the last write.
+- **`isSubIndicatorCollapsed` never re-rendered.** It read a `useRef` set, so a
+  UI rendering a collapse/expand button from it showed the pre-click state
+  forever, and the height saved before collapsing was lost whenever the hook
+  remounted (expand fell back to 100px). Collapsed panes now live in provider
+  state (`collapsedPanes: paneId → height before collapse`), cleared by
+  `SET_CHART` since pane ids are per-instance.
+- **`useKlinechartsUISettings` state was per-instance.** Two components calling
+  the hook got independent copies, each writing the whole slice to the same
+  storage key, so a change in one panel was invisible to (and eventually
+  overwritten by) the other. Settings now live in a provider-owned store.
+  Two related defects went with it: the "apply initial settings" effect was
+  guarded by a one-shot ref, so a REPLACED chart instance never got the axis
+  settings / `lastValueMark` re-applied — it is now keyed on the chart identity
+  and applies every style-backed setting (`buildStyles`) — and the
+  `onSettingsChange` callback was in the effect's dep array, so an inline
+  consumer callback fired on every render (it is now read through a ref and
+  fires on real changes only).
+- **`setDrawingVisible` / `setDrawingLocked` could hit a foreign overlay.**
+  Unlike `removeDrawing`, they called `overrideOverlay({ id, … })` without
+  `groupId: "drawing_tools"`, so an id collision with an order/alert line
+  toggled that one instead.
+- **Annotations and order lines vanished on chart remount.** An annotation
+  added before the chart was ready (or after a remount) existed only in state
+  with no overlay, and order lines kept ids pointing at overlays the new chart
+  instance did not have (so `updateOrderLine` silently no-oped). Both hooks now
+  reconcile their tracked entries onto every new chart instance, mirroring the
+  provider's alert-line reconciliation.
+- **Alert / annotation ids could collide with hydrated ones.** The module
+  counters (`alert_1`, `annotation_1`) restarted at 1 on every page load, so a
+  fresh entry could reuse the id of one restored from storage — duplicate React
+  keys and two overlays sharing an id. Ids now carry a per-load session tag.
+- **`useCompare` assigned duplicate colors.** The palette index came from
+  `symbols.length`, so after removing a symbol the next one reused a color
+  still in use. It now picks the first palette color nobody uses yet.
+- **Replay playback was O(n²) over a session.** Every step (timer tick,
+  `stepForward`, `stepBackward`, `seekTo`) called `chart.resetData()` with the
+  whole slice, so a 5 000-bar replay at 10 bars/s performed 5 000 reloads of an
+  ever-growing array. Steps are now grouped: the interval advances
+  `ceil(speed / 6)` bars per tick at a proportionally longer period, keeping the
+  same wall-clock pace with at most 6 reloads per second
+  (`MAX_RELOADS_PER_SECOND`, exported for tuning). Opt-in `useReplay({ maxBars })`
+  additionally caps the buffered window for pathological histories.
+- **The undo/redo stack survived a chart / symbol / period change.** Entries
+  reference overlay ids that no longer exist after a reload, so `undo()` either
+  did nothing or removed a same-id overlay of the new symbol. The provider now
+  clears the history when the chart instance, symbol or period changes.
+- **Redo of a drawing recreated it unlocked and visible.** Only `name` /
+  `points` / `styles` were stored, so `lock`, `visible` and `mode` were lost on
+  every undo → redo cycle. The payloads in `useDrawingTools` (draw end,
+  remove-all snapshot) and the redo re-snapshot in `useUndoRedo` now carry all
+  three.
+- **Two `useDrawingTools` timers leaked.** The initial `queueMicrotask`
+  snapshot still ran after unmount (setState on a dead hook), and the
+  auto-retrigger `requestAnimationFrame` scheduled after a completed drawing
+  was never cancelled — it survived unmount and a tool switch. Both are now
+  cancelled on cleanup.
+- **Alert crossings were missed inside a bar.** The poller sampled only the
+  last bar's `close` once per second, so a wick that pierced the level and came
+  back between two ticks never triggered. The baseline is now the previous
+  (final) bar's close instead of the previous 1s sample, and the forming bar's
+  `high`/`low` count as touching the level.
+- **The layout list was re-read from storage on every mutation.** Saving,
+  renaming, deleting or auto-saving re-read and `JSON.parse`d every stored
+  layout to refresh the list. The list is now updated incrementally
+  (`upsertLayout` / `removeLayoutFromList`) and only read in full on mount.
+
+### Changed
+
+- **Drawing-overlay polling moved to the provider.** Each `useDrawingTools`
+  instance used to run its own 1s `getOverlays()` interval for the lifetime of
+  the chart (klinecharts v10 has no overlay add/remove event, so polling cannot
+  be removed outright). There is now ONE ref-counted interval: it runs only
+  while at least one hook is subscribed and a chart exists, and the snapshot is
+  published through a shared store, so every consumer re-renders only when the
+  list actually changes (`drawingOverlaysEqual`).
+- **The layout list and auto-save moved to the provider.** `layouts`,
+  `autoSaveEnabled` and the 5s sweep were hook-local, so two `useLayoutManager`
+  instances each kept a private list (a save in one was invisible to the other)
+  and each ran its own sweep. Both live in provider stores now; the pure
+  storage helpers (`createLayoutBackend`, `serializeChartLayout`, …) moved to
+  `src/provider/layouts.ts`.
+
+### Added
+
+- `src/provider/alertPoller.test.tsx` (+4): a crossing_up fires when the wick
+  touched the level but the close came back below it (the regression), a
+  crossing_down fires on a downward wick, and nothing fires when the level was
+  never reached or the price merely stayed on the same side.
+- `src/hooks/useReplay.test.ts` (+4): `maxBars` caps the buffered window, an
+  uncapped session keeps every bar, and speed 10 advances two bars per 200ms
+  tick with exactly ONE `resetData` call (grouping) while speed 1 stays at one
+  bar per tick.
+- `src/hooks/useLayoutManager.test.ts` (+2) and `useDrawingTools.test.tsx` (+1):
+  two hook instances share one layouts list / overlays list, and
+  `autoSaveEnabled` is shared.
+- `useUndoRedo` tests (+2): the history is cleared on a symbol change, and a
+  redo re-creates the drawing with its `lock` / `visible` / `mode`.
+
+---
+
 ## 2.1.0 — 2026-09-03
 
 Integration-DX release prompted by third-party integration feedback: chart

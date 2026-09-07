@@ -1,17 +1,14 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import { useKlinechartsUI, useKlinechartsUIDispatch } from "../provider/ChartTerminalContext";
-import type { UndoRedoInstance, UndoRedoListener } from "../provider/types";
+import type {
+  UndoRedoAction,
+  UndoRedoInstance,
+  UndoRedoListener,
+} from "../provider/types";
 
-export type UndoRedoActionType =
-  | "overlay_added"
-  | "overlays_removed"
-  | "indicator_toggled";
-
-export interface UndoRedoAction {
-  type: UndoRedoActionType;
-  /** Snapshot data needed to undo/redo this action */
-  data: any;
-}
+// The action types live in provider/types.ts (the provider-owned undo/redo
+// store is typed in terms of them) and are re-exported here for the public API.
+export type { UndoRedoAction, UndoRedoActionType } from "../provider/types";
 
 export interface UseUndoRedoReturn {
   /** Whether there are actions to undo */
@@ -33,54 +30,57 @@ const DRAWING_GROUP_ID = "drawing_tools";
 /**
  * Headless hook for undo/redo of drawing overlays and indicator toggles.
  *
- * Supports keyboard shortcuts: Ctrl+Z (undo), Ctrl+Y / Ctrl+Shift+Z (redo).
+ * The history is owned by the provider (`undoRedoStoreRef`), so every instance
+ * mounted under one provider shares the same stacks — instance #2 used to keep
+ * its own empty copy forever, because only the owning instance receives
+ * recorded actions and the hotkeys.
+ *
+ * Keyboard shortcuts (Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z) are wired once by the
+ * provider and drive the owning instance.
  */
 export function useUndoRedo(): UseUndoRedoReturn {
   const { state, dispatch } = useKlinechartsUI();
-  const { undoRedoListenerRef, undoRedoInstancesRef } = useKlinechartsUIDispatch();
-  const [undoStack, setUndoStack] = useState<UndoRedoAction[]>([]);
-  const [redoStack, setRedoStack] = useState<UndoRedoAction[]>([]);
-  const isProcessingRef = useRef(false);
+  const { undoRedoListenerRef, undoRedoInstancesRef, undoRedoStoreRef } =
+    useKlinechartsUIDispatch();
+  const store = undoRedoStoreRef.current;
+  const undoStack = useSyncExternalStore(
+    store.subscribe,
+    store.getUndoStack,
+    store.getUndoStack,
+  );
+  const redoStack = useSyncExternalStore(
+    store.subscribe,
+    store.getRedoStack,
+    store.getRedoStack,
+  );
 
   const canUndo = undoStack.length > 0;
   const canRedo = redoStack.length > 0;
 
-  // Ref mirrors of the stacks so undo()/redo() read the CURRENT top element at
-  // call time. Without these, rapid key auto-repeat could invoke a stale
-  // closure twice in one frame and apply the SAME action's side effects twice.
-  const undoStackRef = useRef<UndoRedoAction[]>([]);
-  const redoStackRef = useRef<UndoRedoAction[]>([]);
-  useEffect(() => {
-    undoStackRef.current = undoStack;
-  }, [undoStack]);
-  useEffect(() => {
-    redoStackRef.current = redoStack;
-  }, [redoStack]);
+  const pushAction = useCallback(
+    (action: UndoRedoAction) => {
+      store.pushAction(action);
+    },
+    [store],
+  );
 
-  const pushAction = useCallback((action: UndoRedoAction) => {
-    if (isProcessingRef.current) return; // skip actions triggered by undo/redo itself
-    setUndoStack((prev) => [...prev, action]);
-    setRedoStack([]);
-  }, []);
-
-  // NOTE: provider-listener registration and hotkey ownership live further
-  // down, next to the keyboard effect — they need undo/redo to exist first.
+  // NOTE: provider-listener registration lives further down — it needs
+  // undo/redo to exist first.
 
   const clear = useCallback(() => {
-    setUndoStack([]);
-    setRedoStack([]);
-  }, []);
+    store.clear();
+  }, [store]);
 
   const undo = useCallback(() => {
-    // Read the CURRENT stack via the ref mirror and guard re-entry so rapid
-    // key auto-repeat within one frame cannot pop the same action twice.
-    const stack = undoStackRef.current;
-    if (stack.length === 0 || !state.chart || isProcessingRef.current)
+    if (!state.chart) return;
+    // Guard re-entry (shared with every instance) so rapid key auto-repeat
+    // within one frame cannot pop the same action twice.
+    if (!store.beginProcessing()) return;
+    const action = store.popUndo();
+    if (!action) {
+      store.endProcessing();
       return;
-    isProcessingRef.current = true;
-
-    const action = stack[stack.length - 1];
-    setUndoStack((prev) => prev.slice(0, -1));
+    }
 
     try {
       switch (action.type) {
@@ -88,13 +88,10 @@ export function useUndoRedo(): UseUndoRedoReturn {
           // Remove the overlay that was added
           const { id, overlayData } = action.data;
           state.chart.removeOverlay({ id });
-          setRedoStack((prev) => [
-            ...prev,
-            {
-              type: "overlay_added",
-              data: { id, overlayData },
-            },
-          ]);
+          store.appendRedo({
+            type: "overlay_added",
+            data: { id, overlayData },
+          });
           break;
         }
         case "overlays_removed": {
@@ -115,13 +112,10 @@ export function useUndoRedo(): UseUndoRedoReturn {
               restored.push({ ...overlay, id: newId });
             }
           }
-          setRedoStack((prev) => [
-            ...prev,
-            {
-              type: "overlays_removed",
-              data: { overlays: restored },
-            },
-          ]);
+          store.appendRedo({
+            type: "overlays_removed",
+            data: { overlays: restored },
+          });
           break;
         }
         case "indicator_toggled": {
@@ -217,39 +211,39 @@ export function useUndoRedo(): UseUndoRedoReturn {
               });
             }
           }
-          setRedoStack((prev) => [
-            ...prev,
-            {
-              type: "indicator_toggled",
-              data: {
-                name,
-                wasActive: !wasActive,
-                isMain,
-                paneId,
-                yAxisId,
-                calcParams,
-                visible,
-                styles,
-              },
+          store.appendRedo({
+            type: "indicator_toggled",
+            data: {
+              name,
+              wasActive: !wasActive,
+              isMain,
+              paneId,
+              yAxisId,
+              calcParams,
+              visible,
+              styles,
             },
-          ]);
+          });
           break;
         }
       }
     } finally {
-      isProcessingRef.current = false;
+      // One notification for the whole batch (pop + push), so subscribers
+      // never render an intermediate state.
+      store.endProcessing();
+      store.notify();
     }
-  }, [state.chart, state.mainIndicators, state.subIndicators, state.indicatorAxes, state.indicatorVisibility, dispatch]);
+  }, [state.chart, state.mainIndicators, state.subIndicators, state.indicatorAxes, state.indicatorVisibility, dispatch, store]);
 
   const redo = useCallback(() => {
-    // Read the CURRENT stack via the ref mirror (see undo for rationale).
-    const stack = redoStackRef.current;
-    if (stack.length === 0 || !state.chart || isProcessingRef.current)
+    if (!state.chart) return;
+    // Guard re-entry (see undo for rationale).
+    if (!store.beginProcessing()) return;
+    const action = store.popRedo();
+    if (!action) {
+      store.endProcessing();
       return;
-    isProcessingRef.current = true;
-
-    const action = stack[stack.length - 1];
-    setRedoStack((prev) => prev.slice(0, -1));
+    }
 
     try {
       switch (action.type) {
@@ -260,16 +254,13 @@ export function useUndoRedo(): UseUndoRedoReturn {
             ...overlayData,
             groupId: DRAWING_GROUP_ID,
           });
-          setUndoStack((prev) => [
-            ...prev,
-            {
-              type: "overlay_added",
-              data: {
-                id: typeof newId === "string" ? newId : action.data.id,
-                overlayData,
-              },
+          store.appendUndo({
+            type: "overlay_added",
+            data: {
+              id: typeof newId === "string" ? newId : action.data.id,
+              overlayData,
             },
-          ]);
+          });
           break;
         }
         case "overlays_removed": {
@@ -284,6 +275,11 @@ export function useUndoRedo(): UseUndoRedoReturn {
                   points: actual.points,
                   styles: actual.styles,
                   extendData: actual.extendData,
+                  // Re-snapshot the flags too, so a second undo/redo cycle does
+                  // not silently unlock/unhide the restored drawings.
+                  lock: actual.lock,
+                  visible: actual.visible,
+                  mode: actual.mode,
                 }
               : o;
           });
@@ -293,13 +289,10 @@ export function useUndoRedo(): UseUndoRedoReturn {
             if (typeof (overlay as { id?: unknown }).id !== "string") continue;
             state.chart.removeOverlay({ id: overlay.id });
           }
-          setUndoStack((prev) => [
-            ...prev,
-            {
-              type: "overlays_removed",
-              data: { overlays: snapshotOverlays },
-            },
-          ]);
+          store.appendUndo({
+            type: "overlays_removed",
+            data: { overlays: snapshotOverlays },
+          });
           break;
         }
         case "indicator_toggled": {
@@ -393,29 +386,28 @@ export function useUndoRedo(): UseUndoRedoReturn {
               });
             }
           }
-          setUndoStack((prev) => [
-            ...prev,
-            {
-              type: "indicator_toggled",
-              data: {
-                name,
-                wasActive: !wasActive,
-                isMain,
-                paneId,
-                yAxisId,
-                calcParams,
-                visible,
-                styles,
-              },
+          store.appendUndo({
+            type: "indicator_toggled",
+            data: {
+              name,
+              wasActive: !wasActive,
+              isMain,
+              paneId,
+              yAxisId,
+              calcParams,
+              visible,
+              styles,
             },
-          ]);
+          });
           break;
         }
       }
     } finally {
-      isProcessingRef.current = false;
+      // One notification for the whole batch (see undo).
+      store.endProcessing();
+      store.notify();
     }
-  }, [state.chart, state.mainIndicators, state.subIndicators, state.indicatorAxes, state.indicatorVisibility, dispatch]);
+  }, [state.chart, state.mainIndicators, state.subIndicators, state.indicatorAxes, state.indicatorVisibility, dispatch, store]);
 
   // Stable per-instance handle in the provider's registry. Fields are kept
   // current on every render so the registry always calls fresh closures.
@@ -433,15 +425,19 @@ export function useUndoRedo(): UseUndoRedoReturn {
     instanceHandleRef.current!.redo = redo;
   });
 
-  // Multi-instance ownership: only the FIRST mounted instance claims the
-  // single-slot provider listener and answers the global hotkeys. The old
-  // registration was last-writer-wins — with two instances mounted, one stack
-  // recorded actions while BOTH instances hijacked Ctrl+Z (each driving its
-  // own stack: one keystroke, two undos), and any instance unmounting nulled
-  // the shared ref, silently stopping recording for the survivor. When the
-  // owner unmounts, the next instance in the registry is promoted
-  // automatically. The registry is per-provider, so independent charts each
-  // get their own owner.
+  // Multi-instance ownership: the FIRST mounted instance claims the single-slot
+  // provider listener (`undoRedoListenerRef`) and is the one the provider's
+  // global hotkeys drive. The old registration was last-writer-wins — with two
+  // instances mounted, one stack recorded actions while BOTH instances hijacked
+  // Ctrl+Z (each driving its own stack: one keystroke, two undos), and any
+  // instance unmounting nulled the shared ref, silently stopping recording for
+  // the survivor. When the owner unmounts, the next instance in the registry is
+  // promoted automatically. The registry is per-provider, so independent charts
+  // each get their own owner.
+  //
+  // Ownership now only decides WHO answers; the history they all read and write
+  // is the provider's shared store, so a non-owner instance still reports the
+  // real canUndo/canRedo and undoes the real last action.
   useEffect(() => {
     const handle = instanceHandleRef.current!;
     const registry = undoRedoInstancesRef.current;
@@ -457,44 +453,9 @@ export function useUndoRedo(): UseUndoRedoReturn {
     };
   }, [undoRedoListenerRef, undoRedoInstancesRef]);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Only the owning instance answers — with several instances mounted a
-      // single Ctrl+Z would otherwise drive every stack at once.
-      if (undoRedoInstancesRef.current[0] !== instanceHandleRef.current) return;
-
-      const isCtrlOrMeta = e.ctrlKey || e.metaKey;
-      if (!isCtrlOrMeta) return;
-
-      // Don't hijack native text undo/redo: typing in a symbol search, layout
-      // rename, indicator params or the script editor must keep the browser's
-      // own Ctrl+Z/Ctrl+Y instead of removing drawings from the chart.
-      const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable)
-      ) {
-        return;
-      }
-
-      if (e.key === "z" && !e.shiftKey) {
-        e.preventDefault();
-        undo();
-      } else if (
-        e.key === "y" ||
-        (e.key === "z" && e.shiftKey)
-      ) {
-        e.preventDefault();
-        redo();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [undo, redo, undoRedoInstancesRef]);
+  // NOTE: the Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z shortcuts are wired once by the
+  // provider (one window listener per chart, driving registry[0]). Per-instance
+  // listeners used to mean N handlers of which N-1 immediately bailed out.
 
   return {
     canUndo,

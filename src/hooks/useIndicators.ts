@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo } from "react";
 import type { YAxisOverride } from "klinecharts";
 import { useKlinechartsUI, useKlinechartsUIDispatch } from "../provider/ChartTerminalContext";
 import {
@@ -109,9 +109,10 @@ export function useIndicators(): UseIndicatorsReturn {
   const { state, dispatch } = useKlinechartsUI();
   const { undoRedoListenerRef } = useKlinechartsUIDispatch();
 
-  // Track original pane heights for collapse/expand
-  const paneHeightsRef = useRef<Record<string, number>>({});
-  const collapsedPanesRef = useRef<Set<string>>(new Set());
+  // Collapsed panes (pane id -> height before collapsing) live in provider
+  // state: a ref cannot drive a re-render, so `isSubIndicatorCollapsed` used
+  // to report a stale value to any UI rendering from it, and the saved height
+  // was lost whenever this hook remounted (expand fell back to 100px).
 
   const mainIndicators = useMemo(() => {
     const activeNames = state.mainIndicators;
@@ -503,13 +504,20 @@ export function useIndicators(): UseIndicatorsReturn {
       const paneId = state.subIndicators[name];
       if (!state.chart || !paneId) return;
 
-      const currentSize = (state.chart as any).getSize?.(paneId);
-      if (currentSize?.height && currentSize.height > COLLAPSED_HEIGHT) {
-        paneHeightsRef.current[paneId] = currentSize.height;
+      const currentSize = state.chart.getSize(paneId);
+      const previousHeight = state.collapsedPanes[paneId];
+      const nextHeight =
+        currentSize && currentSize.height > COLLAPSED_HEIGHT
+          ? currentSize.height
+          : previousHeight;
+      if (nextHeight !== previousHeight) {
+        dispatch({
+          type: "SET_COLLAPSED_PANES",
+          panes: { ...state.collapsedPanes, [paneId]: nextHeight ?? 0 },
+        });
       }
-      collapsedPanesRef.current.add(paneId);
 
-      (state.chart as any).setPaneOptions?.({
+      state.chart.setPaneOptions({
         id: paneId,
         height: COLLAPSED_HEIGHT,
       });
@@ -520,7 +528,13 @@ export function useIndicators(): UseIndicatorsReturn {
         visibility: { ...state.indicatorVisibility, [id]: false },
       });
     },
-    [state.chart, state.subIndicators, state.indicatorVisibility, dispatch],
+    [
+      state.chart,
+      state.subIndicators,
+      state.indicatorVisibility,
+      state.collapsedPanes,
+      dispatch,
+    ],
   );
 
   const expandSubIndicator = useCallback(
@@ -528,12 +542,16 @@ export function useIndicators(): UseIndicatorsReturn {
       const paneId = state.subIndicators[name];
       if (!state.chart || !paneId) return;
 
-      const savedHeight = paneHeightsRef.current[paneId] ?? 100;
-      collapsedPanesRef.current.delete(paneId);
+      // Height before collapsing, recorded by collapseSubIndicator (or by a
+      // previous instance of this hook — it now lives in provider state).
+      const savedHeight = state.collapsedPanes[paneId] ?? 100;
+      const nextPanes = { ...state.collapsedPanes };
+      delete nextPanes[paneId];
+      dispatch({ type: "SET_COLLAPSED_PANES", panes: nextPanes });
 
-      (state.chart as any).setPaneOptions?.({
+      state.chart.setPaneOptions({
         id: paneId,
-        height: savedHeight,
+        height: savedHeight > COLLAPSED_HEIGHT ? savedHeight : 100,
       });
       const id = `sub_${name}`;
       state.chart.overrideIndicator({ name, id, visible: true });
@@ -541,15 +559,21 @@ export function useIndicators(): UseIndicatorsReturn {
       delete nextVisibility[id];
       dispatch({ type: "SET_INDICATOR_VISIBILITY", visibility: nextVisibility });
     },
-    [state.chart, state.subIndicators, state.indicatorVisibility, dispatch],
+    [
+      state.chart,
+      state.subIndicators,
+      state.indicatorVisibility,
+      state.collapsedPanes,
+      dispatch,
+    ],
   );
 
   const isSubIndicatorCollapsed = useCallback(
     (name: string) => {
       const paneId = state.subIndicators[name];
-      return paneId ? collapsedPanesRef.current.has(paneId) : false;
+      return paneId ? paneId in state.collapsedPanes : false;
     },
-    [state.subIndicators],
+    [state.subIndicators, state.collapsedPanes],
   );
 
   const reorderSubIndicator = useCallback(

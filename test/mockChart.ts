@@ -41,6 +41,10 @@ export interface MockChart {
   scrollToTimestamp: ReturnType<typeof vi.fn>;
   scrollToRealTime: ReturnType<typeof vi.fn>;
   setSymbol: ReturnType<typeof vi.fn>;
+  executeAction: ReturnType<typeof vi.fn>;
+  setBarSpace: ReturnType<typeof vi.fn>;
+  convertFromPixel: ReturnType<typeof vi.fn>;
+  convertToPixel: ReturnType<typeof vi.fn>;
   __data: KLineData[];
   /** Replace the mock's underlying data list (e.g. to simulate a reload). */
   __setData: (next: KLineData[]) => void;
@@ -184,6 +188,13 @@ export function createMockChart(initialData: KLineData[] = []): MockChart {
     scrollToTimestamp: vi.fn(() => {}),
     scrollToRealTime: vi.fn(() => {}),
     setSymbol: vi.fn(() => {}),
+    // Crosshair mirroring: executeAction('onCrosshairChange', crosshair).
+    executeAction: vi.fn(() => {}),
+    setBarSpace: vi.fn(() => {}),
+    // Pixel/time conversions default to "no bar under the cursor"; tests that
+    // exercise sync override them.
+    convertFromPixel: vi.fn(() => []),
+    convertToPixel: vi.fn(() => ({})),
   } as MockChart;
 
   // `__data` is a live view of the `data` closure variable so it never diverges

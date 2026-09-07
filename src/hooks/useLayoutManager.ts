@@ -1,49 +1,37 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useEffect,
+  useSyncExternalStore,
+} from "react";
 import { useKlinechartsUI, useKlinechartsUIDispatch } from "../provider/ChartTerminalContext";
+// Storage backend, serialization and the layout types live in the provider
+// layer: the saved-layout list and the auto-save sweep are provider-owned
+// (one storage key per chart — not one per hook instance), so the hook is a
+// facade over that shared state.
+import {
+  STORAGE_KEY_PREFIX,
+  INDEX_KEY,
+  STATE_VERSION,
+  createLayoutBackend,
+  readLayoutEntry,
+  readAllLayoutEntries,
+  writeLayoutEntry,
+  readLayoutIds,
+  writeLayoutIndex,
+  deleteLayoutEntry,
+  serializeChartLayout,
+  generateLayoutId,
+  type ChartLayoutState,
+  type LayoutEntry,
+} from "../provider/layouts";
+import { DRAWING_GROUP_ID } from "../provider/drawingOverlays";
+import type { SharedState } from "../provider/types";
 
-const STORAGE_KEY_PREFIX = "klinecharts_layout:";
-const INDEX_KEY = "klinecharts_layout_index";
-const STATE_VERSION = "1.0";
-// Same group id as useDrawingTools/useUndoRedo (already duplicated there).
-// Layouts persist ONLY user drawings — alert lines ("price_alerts"), order
-// lines, annotations and the measure overlay are owned by their own
-// subsystems and must neither be serialized nor wiped by a layout load.
-const DRAWING_GROUP_ID = "drawing_tools";
-
-export interface ChartLayoutState {
-  version: string;
-  meta: {
-    symbol: string;
-    period: string;
-    timestamp: number;
-    lastModified: number;
-  };
-  indicators: Array<{
-    paneId: string;
-    name: string;
-    calcParams: any[];
-    visible: boolean;
-    styles?: any;
-    /** Custom Y-axis the indicator is bound to (klinecharts v10 multiple y-axes). */
-    yAxisId?: string;
-  }>;
-  drawings: Array<{
-    name: string;
-    points: any[];
-    styles?: any;
-    extendData?: any;
-  }>;
-}
-
-export interface LayoutEntry {
-  id: string;
-  name: string;
-  symbol: string;
-  period: string;
-  timestamp: number;
-  lastModified: number;
-  state: ChartLayoutState;
-}
+// Re-exported: the types moved to the provider layer, the public API of the
+// hook (and of the package) keeps exposing them from here.
+export type { ChartLayoutState, LayoutEntry };
 
 export interface UseLayoutManagerReturn {
   /** List of saved layout entries */
@@ -64,16 +52,6 @@ export interface UseLayoutManagerReturn {
   setAutoSaveEnabled: (enabled: boolean) => void;
 }
 
-function generateId(): string {
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
-    /[xy]/g,
-    (c) => {
-      const r = (Math.random() * 16) | 0;
-      return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
-    },
-  );
-}
-
 /**
  * Headless hook for saving, loading, and managing named chart layouts.
  * Supports auto-save with 5-second debounce.
@@ -87,132 +65,80 @@ function generateId(): string {
  */
 export function useLayoutManager(): UseLayoutManagerReturn {
   const { state, dispatch } = useKlinechartsUI();
-  const { storage } = useKlinechartsUIDispatch();
+  const { storage, layoutStore, layoutAutoSaveStore } =
+    useKlinechartsUIDispatch();
 
   // --- Storage backend ------------------------------------------------------
   // Adapter-backed when storage is configured; legacy raw localStorage
   // otherwise. `null` when the consumer explicitly excluded "layouts" from
-  // `storage.namespaces` — persistence disabled, mirroring the opt-out
-  // semantics of the other slices. Every write is guarded: a failing backend
-  // (quota exceeded, private mode, remote hiccup) must never crash the chart,
-  // same contract as the provider's writeNs. Reads are guarded and SSR-safe.
-  const backend = useMemo(() => {
-    if (storage) {
-      if (!storage.persists("layouts")) return null;
-      return {
-        isAdapter: true,
-        indexKey: `${storage.keyPrefix}layout_index`,
-        entryPrefix: `${storage.keyPrefix}layout:`,
-        getItem: (key: string) => {
-          try {
-            return storage.adapter.getItem(key);
-          } catch {
-            return null;
-          }
-        },
-        setItem: (key: string, value: string) => {
-          try {
-            storage.adapter.setItem(key, value);
-          } catch {
-            // non-fatal: adapter failure must not break save/rename/delete
-          }
-        },
-        removeItem: (key: string) => {
-          try {
-            storage.adapter.removeItem(key);
-          } catch {
-            // non-fatal
-          }
-        },
-      };
-    }
-    return {
-      isAdapter: false,
-      indexKey: INDEX_KEY,
-      entryPrefix: STORAGE_KEY_PREFIX,
-      getItem: (key: string) => {
-        if (typeof localStorage === "undefined") return null;
-        try {
-          return localStorage.getItem(key);
-        } catch {
-          return null;
-        }
-      },
-      setItem: (key: string, value: string) => {
-        if (typeof localStorage === "undefined") return;
-        try {
-          localStorage.setItem(key, value);
-        } catch {
-          // non-fatal: quota/private-mode
-        }
-      },
-      removeItem: (key: string) => {
-        if (typeof localStorage === "undefined") return;
-        try {
-          localStorage.removeItem(key);
-        } catch {
-          // non-fatal
-        }
-      },
-    };
-  }, [storage]);
+  // `storage.namespaces` — persistence disabled. Stateless (just guarded
+  // reads/writes), so building it per hook instance is fine; the SHARED parts
+  // (the list, the auto-save slot and its timer) live in the provider.
+  const backend = useMemo(() => createLayoutBackend(storage), [storage]);
 
-  const readLayoutIds = useCallback((): string[] => {
-    if (!backend) return [];
-    try {
-      const raw = backend.getItem(backend.indexKey);
-      const parsed = raw ? JSON.parse(raw) : [];
-      // Shape check: a corrupted index must degrade to "no layouts", not
-      // crash every later .map/.filter on a non-array.
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }, [backend]);
+  const readIds = useCallback(() => readLayoutIds(backend), [backend]);
+  const readEntry = useCallback(
+    (id: string) => readLayoutEntry(backend, id),
+    [backend],
+  );
 
-  const readLayoutEntry = useCallback((id: string): LayoutEntry | null => {
-    if (!backend) return null;
-    try {
-      const raw = backend.getItem(backend.entryPrefix + id);
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
-  }, [backend]);
+  // The saved-layout list is provider-owned (`layoutStore`): two components
+  // calling this hook must show ONE list, not two copies that each hydrate
+  // from storage and each run an auto-save sweep against the same key.
+  const entriesStore = layoutStore as unknown as SharedState<LayoutEntry[]>;
+  const layouts = useSyncExternalStore(
+    entriesStore.subscribe,
+    entriesStore.get,
+    entriesStore.get,
+  );
 
-  const writeLayoutEntry = useCallback((id: string, entry: LayoutEntry) => {
-    backend?.setItem(backend.entryPrefix + id, JSON.stringify(entry));
-  }, [backend]);
-
-  const writeLayoutIndex = useCallback((ids: string[]) => {
-    backend?.setItem(backend.indexKey, JSON.stringify(ids));
-  }, [backend]);
-
-  const deleteLayoutEntry = useCallback((id: string) => {
-    backend?.removeItem(backend.entryPrefix + id);
-  }, [backend]);
-
-  // Layouts load in a mount effect, not in a lazy useState initializer:
-  // reading storage during the first render produced a server/client
-  // hydration mismatch (server renders [], client renders saved entries).
-  const [layouts, setLayouts] = useState<LayoutEntry[]>([]);
-  const [autoSaveEnabled, setAutoSaveEnabled] = useState(false);
-  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const autoSaveIdRef = useRef<string | null>(null);
+  // Auto-save flag, same reasoning: shared store, not hook-local useState.
+  // The 5s sweep itself runs in the provider (one timer per chart).
+  const autoSaveEnabled = useSyncExternalStore(
+    layoutAutoSaveStore.subscribe,
+    layoutAutoSaveStore.get,
+    layoutAutoSaveStore.get,
+  );
+  const setAutoSaveEnabled = useCallback(
+    (enabled: boolean) => {
+      layoutAutoSaveStore.set(enabled);
+    },
+    [layoutAutoSaveStore],
+  );
 
   const refreshLayouts = useCallback(() => {
-    setLayouts(
-      readLayoutIds()
-        .map((id) => readLayoutEntry(id))
-        .filter((e): e is LayoutEntry => e !== null),
-    );
-  }, [readLayoutIds, readLayoutEntry]);
+    entriesStore.set(readAllLayoutEntries(backend));
+  }, [entriesStore, backend]);
 
-  // Intentional setState-in-effect: persisted layouts are hydrated only after
-  // mount so the server and the client's first render agree on `[]` (reading
-  // localStorage during render would cause an SSR hydration mismatch).
+  // Incremental list update used after a write. `refreshLayouts()` re-reads the
+  // index and JSON.parses EVERY stored layout, so a save/rename/delete (and
+  // every 5s auto-save sweep) used to cost O(n) storage reads + parses that
+  // grew with the number of saved layouts. Writers already hold the entry they
+  // just persisted, so the list is patched in place instead.
+  const upsertLayout = useCallback(
+    (entry: LayoutEntry) => {
+      entriesStore.set((prev) => {
+        const index = prev.findIndex((e) => e.id === entry.id);
+        if (index === -1) return [...prev, entry];
+        const next = prev.slice();
+        next[index] = entry;
+        return next;
+      });
+    },
+    [entriesStore],
+  );
+
+  const removeLayoutFromList = useCallback(
+    (id: string) => {
+      entriesStore.set((prev) => prev.filter((e) => e.id !== id));
+    },
+    [entriesStore],
+  );
+
+  // Layouts are hydrated after mount, not during the first render, so the
+  // server and the client's first render agree on `[]` (reading localStorage
+  // during render would cause an SSR hydration mismatch).
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshLayouts();
   }, [refreshLayouts]);
 
@@ -233,7 +159,7 @@ export function useLayoutManager(): UseLayoutManagerReturn {
       if (!legacyIndexRaw) return;
       const legacyIds: unknown = JSON.parse(legacyIndexRaw);
       if (!Array.isArray(legacyIds) || legacyIds.length === 0) return;
-      const merged = [...readLayoutIds()];
+      const merged = [...readIds()];
       for (const id of legacyIds) {
         if (typeof id !== "string" || merged.includes(id)) continue;
         try {
@@ -261,68 +187,24 @@ export function useLayoutManager(): UseLayoutManagerReturn {
           // non-fatal
         }
       }
-      // One-off post-mount state sync after the migration (same documented
-      // pattern as the hydration effect above).
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+      // One-off post-mount sync after the migration (same documented pattern
+      // as the hydration effect above).
       refreshLayouts();
     } catch {
       // Corrupted legacy index — leave the legacy keys untouched.
     }
-  }, [backend, readLayoutIds, refreshLayouts]);
+  }, [backend, readIds, refreshLayouts]);
 
-  const serializeState = useCallback((): ChartLayoutState | null => {
-    const chart = state.chart;
-    if (!chart) return null;
-
-    const indicators: ChartLayoutState["indicators"] = [];
-    // Use the public `getIndicators()` API (returns a flat Indicator[]). The
-    // previous code called `getIndicatorByPaneId()`, which is not part of the
-    // klinecharts public API, so its body never ran and indicators were never
-    // serialized.
-    const allIndicators = chart.getIndicators();
-    for (const indicator of allIndicators) {
-      // Persist a custom axis binding only when it was explicitly tracked
-      // (avoids serializing the pane's default axis id).
-      const yAxisId = state.indicatorAxes[indicator.id];
-      indicators.push({
-        paneId: indicator.paneId,
-        name: indicator.name,
-        calcParams: indicator.calcParams,
-        visible: indicator.visible,
-        ...(indicator.styles ? { styles: indicator.styles } : {}),
-        ...(yAxisId ? { yAxisId } : {}),
-      });
-    }
-
-    const drawings: ChartLayoutState["drawings"] = [];
-    // Only drawing-tools overlays. Serializing everything here previously
-    // captured alert/order lines too, and loadLayout then recreated them
-    // without id/groupId/lock — breaking the alert line↔state pairing and
-    // duplicating them as plain drawings on every save.
-    const allOverlays = chart.getOverlays({ groupId: DRAWING_GROUP_ID });
-    if (allOverlays) {
-      for (const overlay of allOverlays) {
-        drawings.push({
-          name: overlay.name,
-          points: overlay.points,
-          styles: overlay.styles,
-          extendData: overlay.extendData,
-        });
-      }
-    }
-
-    return {
-      version: STATE_VERSION,
-      meta: {
+  const serializeState = useCallback(
+    (): ChartLayoutState | null =>
+      serializeChartLayout({
+        chart: state.chart,
         symbol: state.symbol?.ticker ?? "",
         period: state.period?.label ?? "",
-        timestamp: Date.now(),
-        lastModified: Date.now(),
-      },
-      indicators,
-      drawings,
-    };
-  }, [state.chart, state.symbol, state.period, state.indicatorAxes]);
+        indicatorAxes: state.indicatorAxes,
+      }),
+    [state.chart, state.symbol, state.period, state.indicatorAxes],
+  );
 
   const saveLayout = useCallback(
     (name: string): string | null => {
@@ -333,7 +215,7 @@ export function useLayoutManager(): UseLayoutManagerReturn {
       const chartState = serializeState();
       if (!chartState) return null;
 
-      const id = generateId();
+      const id = generateLayoutId();
       const now = Date.now();
       const entry: LayoutEntry = {
         id,
@@ -345,22 +227,22 @@ export function useLayoutManager(): UseLayoutManagerReturn {
         state: chartState,
       };
 
-      writeLayoutEntry(id, entry);
-      const ids = readLayoutIds();
+      writeLayoutEntry(backend, id, entry);
+      const ids = readIds();
       if (!ids.includes(id)) {
         ids.push(id);
-        writeLayoutIndex(ids);
+        writeLayoutIndex(backend, ids);
       }
 
-      refreshLayouts();
+      upsertLayout(entry);
       return id;
     },
-    [backend, serializeState, refreshLayouts, writeLayoutEntry, readLayoutIds, writeLayoutIndex],
+    [backend, serializeState, upsertLayout, readIds],
   );
 
   const loadLayout = useCallback(
     (id: string): boolean => {
-      const entry = readLayoutEntry(id);
+      const entry = readEntry(id);
       if (!entry || !state.chart) return false;
 
       const chartState = entry.state;
@@ -400,8 +282,13 @@ export function useLayoutManager(): UseLayoutManagerReturn {
               calcParams: ind.calcParams,
               visible: ind.visible,
               // klinecharts v10: paneId/yAxisId live on the IndicatorCreate
-              // value. Main indicators stack over the candle series.
-              paneId: ind.paneId,
+              // value. Main indicators stack over the candle series; sub
+              // indicators are created WITHOUT a paneId so klinecharts mints a
+              // fresh pane (passing the SAVED id would either resurrect a pane
+              // from the previous chart instance or, worse, merge this
+              // indicator into an existing pane that happens to share the id).
+              // The real pane id is read back below.
+              ...(isMain ? { paneId: "candle_pane" } : {}),
               ...(ind.yAxisId ? { yAxisId: ind.yAxisId } : {}),
             },
             isMain,
@@ -428,7 +315,12 @@ export function useLayoutManager(): UseLayoutManagerReturn {
           if (isMain) {
             newMainIndicators.push(ind.name);
           } else {
-            newSubIndicators[ind.name] = ind.paneId;
+            // Read the pane back from the chart instead of trusting the saved
+            // id: every paneId-keyed operation (collapse, reorder, remove,
+            // axis overrides) goes through state.subIndicators, so a stale id
+            // from the previous session's chart silently breaks them.
+            const created = chart.getIndicators({ id })[0];
+            newSubIndicators[ind.name] = created?.paneId ?? ind.paneId;
           }
         }
       }
@@ -481,102 +373,33 @@ export function useLayoutManager(): UseLayoutManagerReturn {
 
       return true;
     },
-    [state.chart, dispatch, readLayoutEntry],
+    [state.chart, dispatch, readEntry],
   );
 
   const deleteLayout = useCallback(
     (id: string) => {
-      deleteLayoutEntry(id);
-      writeLayoutIndex(readLayoutIds().filter((i) => i !== id));
-      refreshLayouts();
+      deleteLayoutEntry(backend, id);
+      writeLayoutIndex(backend, readIds().filter((i) => i !== id));
+      removeLayoutFromList(id);
     },
-    [deleteLayoutEntry, writeLayoutIndex, readLayoutIds, refreshLayouts],
+    [backend, readIds, removeLayoutFromList],
   );
 
   const renameLayout = useCallback(
     (id: string, name: string): boolean => {
-      const entry = readLayoutEntry(id);
+      const entry = readEntry(id);
       if (!entry) return false;
-      const updated = {
+      const updated: LayoutEntry = {
         ...entry,
         name: name.trim(),
         lastModified: Date.now(),
       };
-      writeLayoutEntry(id, updated);
-      refreshLayouts();
+      writeLayoutEntry(backend, id, updated);
+      upsertLayout(updated);
       return true;
     },
-    [readLayoutEntry, writeLayoutEntry, refreshLayouts],
+    [backend, readEntry, upsertLayout],
   );
-
-  // Auto-save with 5-second debounce
-  useEffect(() => {
-    // Persistence disabled (storage configured without the "layouts"
-    // namespace): running the timer would only churn state through no-op
-    // writes and refreshLayouts([]) re-renders.
-    if (!backend) return;
-    if (!autoSaveEnabled || !state.chart) return;
-
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current);
-    }
-
-    autoSaveTimerRef.current = setTimeout(() => {
-      const chartState = serializeState();
-      if (!chartState) return;
-
-      if (autoSaveIdRef.current) {
-        // Update existing auto-save slot
-        const entry = readLayoutEntry(autoSaveIdRef.current);
-        if (entry) {
-          const updated = {
-            ...entry,
-            lastModified: Date.now(),
-            state: chartState,
-          };
-          writeLayoutEntry(autoSaveIdRef.current, updated);
-          refreshLayouts();
-        }
-      } else {
-        // Create initial auto-save slot
-        const id = generateId();
-        const now = Date.now();
-        const entry: LayoutEntry = {
-          id,
-          name: "Auto-save",
-          symbol: chartState.meta.symbol,
-          period: chartState.meta.period,
-          timestamp: now,
-          lastModified: now,
-          state: chartState,
-        };
-        writeLayoutEntry(id, entry);
-        const ids = readLayoutIds();
-        ids.push(id);
-        writeLayoutIndex(ids);
-        autoSaveIdRef.current = id;
-        refreshLayouts();
-      }
-    }, 5000);
-
-    return () => {
-      if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current);
-      }
-    };
-  }, [
-    autoSaveEnabled,
-    state.chart,
-    state.mainIndicators,
-    state.subIndicators,
-    backend,
-    serializeState,
-    refreshLayouts,
-    readLayoutEntry,
-    writeLayoutEntry,
-    readLayoutIds,
-    writeLayoutIndex,
-  ]);
 
   return {
     layouts,

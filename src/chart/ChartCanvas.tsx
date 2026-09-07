@@ -118,10 +118,38 @@ export const ChartCanvas = forwardRef<Chart, ChartCanvasProps>(
     // chart finishes initializing.
     const mainIndicatorsRef = useRef(state.mainIndicators);
     const subIndicatorsRef = useRef(state.subIndicators);
+    // Persisted per-indicator Y-axis bindings and visibility (restored from
+    // storage into provider state). They must reach the fresh chart too: an
+    // indicator re-created without its `yAxisId` rebinds to the pane's default
+    // axis, and one re-created without `visible: false` reappears on screen
+    // while the provider (and every UI checkbox) still claims it is hidden.
+    const indicatorAxesRef = useRef(state.indicatorAxes);
+    const indicatorVisibilityRef = useRef(state.indicatorVisibility);
     useEffect(() => {
       mainIndicatorsRef.current = state.mainIndicators;
       subIndicatorsRef.current = state.subIndicators;
-    }, [state.mainIndicators, state.subIndicators]);
+      indicatorAxesRef.current = state.indicatorAxes;
+      indicatorVisibilityRef.current = state.indicatorVisibility;
+    }, [
+      state.mainIndicators,
+      state.subIndicators,
+      state.indicatorAxes,
+      state.indicatorVisibility,
+    ]);
+
+    // Persisted per-indicator settings to re-apply on the fresh chart, keyed by
+    // the same `main_<name>` / `sub_<name>` ids every hook uses.
+    const axisOverride = useCallback(
+      (id: string) => {
+        const yAxisId = indicatorAxesRef.current[id];
+        const visible = indicatorVisibilityRef.current[id];
+        return {
+          ...(yAxisId ? { yAxisId } : {}),
+          ...(visible === false ? { visible: false } : {}),
+        };
+      },
+      [],
+    );
 
     const handleReady = useCallback(
       (chart: Chart) => {
@@ -131,11 +159,17 @@ export const ChartCanvas = forwardRef<Chart, ChartCanvasProps>(
         // Bootstrap the provider's default indicators onto the fresh chart,
         // mirroring the canonical pattern in examples/ChartView.tsx.
         mainIndicatorsRef.current.forEach((name) => {
+          const id = `main_${name}`;
           // klinecharts v10: createIndicator(value, isStack). The pane is set by
           // passing paneId on the IndicatorCreate value (the old 2nd-arg options
           // object was removed in the 10.0.0 stable release).
           chart.createIndicator(
-            { name, id: `main_${name}`, paneId: "candle_pane" },
+            {
+              name,
+              id,
+              paneId: "candle_pane",
+              ...axisOverride(id),
+            },
             true,
           );
         });
@@ -143,7 +177,7 @@ export const ChartCanvas = forwardRef<Chart, ChartCanvasProps>(
         const subUpdates: Record<string, string> = {};
         Object.keys(subIndicatorsRef.current).forEach((name) => {
           const id = `sub_${name}`;
-          chart.createIndicator({ name, id });
+          chart.createIndicator({ name, id, ...axisOverride(id) });
           const ind = chart.getIndicators({ id })[0];
           if (ind?.paneId) subUpdates[name] = ind.paneId;
         });
@@ -181,7 +215,7 @@ export const ChartCanvas = forwardRef<Chart, ChartCanvasProps>(
           }, 1500);
         }
       },
-      [dispatch, clearHeightWarnTimer],
+      [dispatch, clearHeightWarnTimer, axisOverride],
     );
 
     // Clear the registered chart on unmount: react-klinecharts disposes the

@@ -25,7 +25,23 @@ export interface UseAnnotationsReturn {
   clearAnnotations: () => void;
 }
 
+// See useAlerts: a bare module counter restarts on every page load and could
+// mint an id that a hydrated entry already uses.
+const ANNOTATION_ID_SESSION = Math.random().toString(36).slice(2, 8);
 let annotationCounter = 0;
+
+/** Overlay descriptor for an annotation — shared by add and reconciliation. */
+function annotationOverlay(annotation: Annotation) {
+  return {
+    name: "simpleAnnotation",
+    id: annotation.id,
+    groupId: "annotations",
+    points: [{ timestamp: annotation.timestamp, value: annotation.price }],
+    extendData: annotation.text,
+    styles: annotation.color ? { text: { color: annotation.color } } : undefined,
+    lock: true,
+  };
+}
 
 export function useAnnotations(): UseAnnotationsReturn {
   const { state } = useKlinechartsUI();
@@ -38,7 +54,7 @@ export function useAnnotations(): UseAnnotationsReturn {
 
   const addAnnotation = useCallback(
     (text: string, price: number, timestamp: number, color?: string): string => {
-      const id = `annotation_${++annotationCounter}`;
+      const id = `annotation_${ANNOTATION_ID_SESSION}_${++annotationCounter}`;
       ownedIdsRef.current.add(id);
 
       const annotation: Annotation = {
@@ -51,22 +67,13 @@ export function useAnnotations(): UseAnnotationsReturn {
 
       setAnnotations((prev) => [...prev, annotation]);
 
+      // NOTE: when the chart is not ready yet the annotation still lands in
+      // state — the reconciliation effect below creates its overlay as soon as
+      // a chart instance appears.
       if (state.chart) {
-        state.chart.createOverlay({
-          name: "simpleAnnotation",
-          id,
-          groupId: "annotations",
-          points: [{ timestamp, value: price }],
-          extendData: text,
-          styles: color
-            ? {
-                text: {
-                  color,
-                },
-              }
-            : undefined,
-          lock: true,
-        });
+        state.chart.createOverlay(
+          annotationOverlay({ id, text, price, timestamp, color }),
+        );
       }
 
       return id;
@@ -134,9 +141,22 @@ export function useAnnotations(): UseAnnotationsReturn {
           // overlay may already be gone
         }
       });
-      owned.clear();
     };
   }, [state.chart]);
+
+  // Reconcile: annotations added before the chart existed, or whose chart was
+  // remounted, live in state but have no overlay. Recreate the missing ones
+  // whenever the chart instance changes (mirrors the provider's alert-line
+  // reconciliation).
+  useEffect(() => {
+    const chart = state.chart;
+    if (!chart) return;
+    for (const annotation of annotations) {
+      if (chart.getOverlays({ id: annotation.id }).length > 0) continue;
+      chart.createOverlay(annotationOverlay(annotation));
+      ownedIdsRef.current.add(annotation.id);
+    }
+  }, [state.chart, annotations]);
 
   return {
     annotations,

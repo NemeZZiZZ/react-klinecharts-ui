@@ -15,7 +15,9 @@ describe("useAlerts", () => {
     act(() => {
       id = result.current.addAlert(65000, "crossing_up", "BTC 65k");
     });
-    expect(id).toMatch(/^alert_\d+$/);
+    // id carries a per-page-load session tag so it cannot collide with an
+    // alert hydrated from storage.
+    expect(id).toMatch(/^alert_[a-z0-9]+_\d+$/);
     expect(result.current.alerts).toHaveLength(1);
     expect(result.current.alerts[0]).toMatchObject({
       id,

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act } from "@testing-library/react";
 import { renderHookWithProvider } from "../../test/renderHook";
 import { useReplay } from "./useReplay";
@@ -79,5 +79,61 @@ describe("useReplay", () => {
     act(() => result.current.seekTo(5));
     expect(result.current.isPaused).toBe(true);
     expect(result.current.barIndex).toBe(5);
+  });
+});
+
+describe("useReplay — grouped playback + maxBars", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("maxBars ограничивает буфер последними N барами", () => {
+    const { result } = renderHookWithProvider(() => useReplay({ maxBars: 4 }), {
+      initialData: data,
+    });
+    act(() => result.current.startReplay());
+    expect(result.current.totalBars).toBe(4);
+    act(() => result.current.stopReplay());
+    expect(result.current.totalBars).toBe(0);
+  });
+
+  it("без maxBars буфер остаётся полным", () => {
+    const { result } = renderHookWithProvider(() => useReplay(), {
+      initialData: data,
+    });
+    act(() => result.current.startReplay());
+    expect(result.current.totalBars).toBe(10);
+    act(() => result.current.stopReplay());
+  });
+
+  it("скорость 10: один тик продвигает 2 бара (одна перезагрузка на группу)", () => {
+    const { result, chart } = renderHookWithProvider(() => useReplay(), {
+      initialData: data,
+    });
+    act(() => result.current.startReplay());
+    act(() => result.current.setSpeed(10));
+    const before = chart.resetData.mock.calls.length;
+    // barsPerTick = ceil(10 / MAX_RELOADS_PER_SECOND = 6) = 2 → тик раз в 200мс
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(result.current.barIndex).toBe(2);
+    expect(chart.resetData.mock.calls.length).toBe(before + 1);
+    act(() => result.current.stopReplay());
+  });
+
+  it("скорость 1: по-прежнему один бар на тик", () => {
+    const { result } = renderHookWithProvider(() => useReplay(), {
+      initialData: data,
+    });
+    act(() => result.current.startReplay());
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(result.current.barIndex).toBe(1);
+    act(() => result.current.stopReplay());
   });
 });

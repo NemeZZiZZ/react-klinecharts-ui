@@ -1,5 +1,12 @@
-import { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import {
+  useCallback,
+  useMemo,
+  useEffect,
+  useRef,
+  useSyncExternalStore,
+} from "react";
 import { useKlinechartsUI, useKlinechartsUIDispatch } from "../provider/ChartTerminalContext";
+import type { SharedState } from "../provider/types";
 import {
   CANDLE_TYPES,
   PRICE_AXIS_TYPES,
@@ -94,41 +101,127 @@ const defaultSettings: KlinechartsUISettingsState = {
   tooltipShowRule: "always",
 };
 
+/**
+ * Every setting that maps onto a klinecharts style, as one nested object.
+ * Used when a fresh chart instance appears: the per-setting setters only ever
+ * touch the chart they were called on, so without this a recreated chart would
+ * silently keep the library defaults (colors, grid, tooltips, price marks…).
+ */
+function buildStyles(settings: KlinechartsUISettingsState): Record<string, unknown> {
+  return {
+    candle: {
+      type: settings.candleType,
+      bar: {
+        upColor: settings.candleUpColor,
+        upBorderColor: settings.candleUpColor,
+        upWickColor: settings.candleUpColor,
+        downColor: settings.candleDownColor,
+        downBorderColor: settings.candleDownColor,
+        downWickColor: settings.candleDownColor,
+        compareRule: settings.compareRule,
+      },
+      priceMark: {
+        last: {
+          show: settings.showLastPrice,
+          line: { show: settings.showLastPriceLine },
+        },
+        high: { show: settings.showHighPrice },
+        low: { show: settings.showLowPrice },
+      },
+      tooltip: {
+        show: settings.showCandleTooltip,
+        showRule: settings.tooltipShowRule,
+      },
+    },
+    indicator: {
+      // klinecharts defaults lastValueMark.show to false, while our default
+      // settings keep it on — the explicit write keeps chart and UI in sync.
+      lastValueMark: { show: settings.showIndicatorLastValue },
+      tooltip: {
+        show: settings.showIndicatorTooltip,
+        showRule: settings.tooltipShowRule,
+      },
+    },
+    grid: { show: settings.showGrid },
+    xAxis: { show: settings.showTimeAxis },
+    crosshair: { show: settings.showCrosshair },
+  };
+}
+
 export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
   const { state, onSettingsChange } = useKlinechartsUI();
-  const { storage } = useKlinechartsUIDispatch();
+  const { storage, settingsStore } = useKlinechartsUIDispatch();
 
-  // Hydrate from the storage adapter (if configured for the "settings" namespace)
-  // on the first render only. Falls back to built-in defaults when storage is
-  // absent, the namespace is disabled, or the stored value is missing/corrupt.
-  const [settings, setSettings] = useState<KlinechartsUISettingsState>(() => {
+  // Settings live in a provider-owned store, NOT in this hook's useState: two
+  // components calling the hook used to get two independent copies, each
+  // writing the whole slice to the same storage key, so a change made in one
+  // panel was invisible to (and eventually overwritten by) the other.
+  const store = settingsStore as unknown as SharedState<
+    KlinechartsUISettingsState | null
+  >;
+  const stored = useSyncExternalStore(store.subscribe, store.get, store.get);
+  const settings = stored ?? defaultSettings;
+
+  const setSettings = useCallback(
+    (updater: (prev: KlinechartsUISettingsState) => KlinechartsUISettingsState) => {
+      store.set((prev) => updater(prev ?? defaultSettings));
+    },
+    [store],
+  );
+
+  // Hydrate the shared store once per provider (first instance wins) from the
+  // storage adapter, if the "settings" namespace is configured. Falls back to
+  // built-in defaults when storage is absent, the namespace is disabled, or the
+  // stored value is missing/corrupt.
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    hydratedRef.current = true;
+    if (store.get() !== null) return;
+    let initial = defaultSettings;
     if (storage && storage.persists("settings")) {
       try {
         const raw = storage.adapter.getItem(storage.key("settings"));
-        if (raw) return { ...defaultSettings, ...JSON.parse(raw) };
+        if (raw) initial = { ...defaultSettings, ...JSON.parse(raw) };
       } catch {
         // corrupt entry — fall through to defaults
       }
     }
-    return defaultSettings;
-  });
-  const isInitialMount = useRef(true);
+    store.set(initial);
+  }, [store, storage]);
 
+  // Consumer notification. The callback is read through a ref so an inline
+  // (unstable) `onSettingsChange` prop does not re-fire on every render — the
+  // old version had the callback in its dep array and spammed the consumer.
+  const onSettingsChangeRef = useRef(onSettingsChange);
   useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
+    onSettingsChangeRef.current = onSettingsChange;
+  });
+  const lastNotifiedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const json = JSON.stringify(settings);
+    if (lastNotifiedRef.current === null) {
+      // First observed snapshot (defaults or the hydration result) is not a
+      // user change.
+      lastNotifiedRef.current = json;
       return;
     }
-    onSettingsChange?.({ ...settings });
-  }, [settings, onSettingsChange]);
+    if (lastNotifiedRef.current === json) return;
+    lastNotifiedRef.current = json;
+    onSettingsChangeRef.current?.({ ...settings });
+  }, [settings]);
 
   // Write the settings slice back through the storage adapter whenever it
-  // changes (after the initial mount). Guarded by the resolved storage config.
+  // changes. Content-compared, so hydrating from storage does not immediately
+  // write the same value back. Guarded by the resolved storage config.
+  const lastPersistedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!storage || !storage.persists("settings")) return;
-    if (isInitialMount.current) return; // skip the very first run
+    const json = JSON.stringify(settings);
+    if (lastPersistedRef.current === json) return;
+    lastPersistedRef.current = json;
     try {
-      storage.adapter.setItem(storage.key("settings"), JSON.stringify(settings));
+      storage.adapter.setItem(storage.key("settings"), json);
     } catch {
       // adapter failure is non-fatal
     }
@@ -176,14 +269,22 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
         }
       )?.overrideYAxis?.({ paneId: "candle_pane", ...axis });
     },
-    [state.chart]
+    [state.chart, setSettings]
   );
 
-  // Apply initial settings when chart becomes available
-  const hasAppliedInitial = useRef(false);
+  // Apply the current settings whenever a NEW chart instance appears — keyed on
+  // the chart identity, not on a one-shot "already applied" flag: a chart
+  // recreated at runtime (remount, renderer swap) used to come back with
+  // klinecharts' own defaults while this hook still reported the user's
+  // settings, leaving UI and chart permanently out of sync.
+  const appliedChartRef = useRef<unknown>(null);
   useEffect(() => {
-    if (!state.chart || hasAppliedInitial.current) return;
-    hasAppliedInitial.current = true;
+    const chart = state.chart;
+    if (!chart || appliedChartRef.current === chart) return;
+    appliedChartRef.current = chart;
+
+    // Everything expressible as styles, in one call.
+    chart.setStyles(buildStyles(settings));
 
     // Sync axis settings via overrideYAxis (klinecharts v10: setPaneOptions no
     // longer handles axis configuration).
@@ -200,14 +301,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
         ...(settings.yAxisInside && { inside: true }),
       });
     }
-
-    // Sync indicator last value mark (klinecharts defaults to show: false)
-    if (settings.showIndicatorLastValue) {
-      state.chart.setStyles({
-        indicator: { lastValueMark: { show: true } },
-      });
-    }
-  }, [state.chart]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state.chart, settings, applyPaneAxis]);
 
   const applyStyle = useCallback(
     (path: string, value: unknown) => {
@@ -221,7 +315,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
       current[parts[parts.length - 1]] = value;
       state.chart?.setStyles(styleObj);
     },
-    [state.chart]
+    [state.chart, setSettings]
   );
 
 
@@ -230,7 +324,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
       applyStyle("candle.type", type);
       setSettings((s) => ({ ...s, candleType: type }));
     },
-    [applyStyle]
+    [applyStyle, setSettings]
   );
 
   const setCandleUpColor = useCallback(
@@ -242,7 +336,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
       });
       setSettings((s) => ({ ...s, candleUpColor: color }));
     },
-    [state.chart]
+    [state.chart, setSettings]
   );
 
   const setCandleDownColor = useCallback(
@@ -254,7 +348,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
       });
       setSettings((s) => ({ ...s, candleDownColor: color }));
     },
-    [state.chart]
+    [state.chart, setSettings]
   );
 
   const setCompareRule = useCallback(
@@ -262,7 +356,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
       applyStyle("candle.bar.compareRule", rule);
       setSettings((s) => ({ ...s, compareRule: rule }));
     },
-    [applyStyle]
+    [applyStyle, setSettings]
   );
 
   const setShowLastPrice = useCallback(
@@ -270,7 +364,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
       applyStyle("candle.priceMark.last.show", show);
       setSettings((s) => ({ ...s, showLastPrice: show }));
     },
-    [applyStyle]
+    [applyStyle, setSettings]
   );
 
   const setShowLastPriceLine = useCallback(
@@ -278,7 +372,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
       applyStyle("candle.priceMark.last.line.show", show);
       setSettings((s) => ({ ...s, showLastPriceLine: show }));
     },
-    [applyStyle]
+    [applyStyle, setSettings]
   );
 
   const setShowHighPrice = useCallback(
@@ -286,7 +380,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
       applyStyle("candle.priceMark.high.show", show);
       setSettings((s) => ({ ...s, showHighPrice: show }));
     },
-    [applyStyle]
+    [applyStyle, setSettings]
   );
 
   const setShowLowPrice = useCallback(
@@ -294,7 +388,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
       applyStyle("candle.priceMark.low.show", show);
       setSettings((s) => ({ ...s, showLowPrice: show }));
     },
-    [applyStyle]
+    [applyStyle, setSettings]
   );
 
   const setShowIndicatorLastValue = useCallback(
@@ -302,7 +396,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
       applyStyle("indicator.lastValueMark.show", show);
       setSettings((s) => ({ ...s, showIndicatorLastValue: show }));
     },
-    [applyStyle]
+    [applyStyle, setSettings]
   );
 
   const setPriceAxisType = useCallback(
@@ -310,7 +404,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
       applyPaneAxis({ name: type });
       setSettings((s) => ({ ...s, priceAxisType: type }));
     },
-    [applyPaneAxis]
+    [applyPaneAxis, setSettings]
   );
 
   const setYAxisPosition = useCallback(
@@ -318,7 +412,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
       applyPaneAxis({ position });
       setSettings((s) => ({ ...s, yAxisPosition: position }));
     },
-    [applyPaneAxis]
+    [applyPaneAxis, setSettings]
   );
 
   const setYAxisInside = useCallback(
@@ -326,7 +420,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
       applyPaneAxis({ inside });
       setSettings((s) => ({ ...s, yAxisInside: inside }));
     },
-    [applyPaneAxis]
+    [applyPaneAxis, setSettings]
   );
 
   const setReverseCoordinate = useCallback(
@@ -334,7 +428,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
       applyPaneAxis({ reverse });
       setSettings((s) => ({ ...s, reverseCoordinate: reverse }));
     },
-    [applyPaneAxis]
+    [applyPaneAxis, setSettings]
   );
 
   const setShowGrid = useCallback(
@@ -342,7 +436,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
       applyStyle("grid.show", show);
       setSettings((s) => ({ ...s, showGrid: show }));
     },
-    [applyStyle]
+    [applyStyle, setSettings]
   );
 
   const setShowTimeAxis = useCallback(
@@ -350,7 +444,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
       applyStyle("xAxis.show", show);
       setSettings((s) => ({ ...s, showTimeAxis: show }));
     },
-    [applyStyle]
+    [applyStyle, setSettings]
   );
 
   const setShowCrosshair = useCallback(
@@ -358,7 +452,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
       applyStyle("crosshair.show", show);
       setSettings((s) => ({ ...s, showCrosshair: show }));
     },
-    [applyStyle]
+    [applyStyle, setSettings]
   );
 
   const setShowCandleTooltip = useCallback(
@@ -366,7 +460,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
       applyStyle("candle.tooltip.show", show);
       setSettings((s) => ({ ...s, showCandleTooltip: show }));
     },
-    [applyStyle]
+    [applyStyle, setSettings]
   );
 
   const setShowIndicatorTooltip = useCallback(
@@ -374,7 +468,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
       applyStyle("indicator.tooltip.show", show);
       setSettings((s) => ({ ...s, showIndicatorTooltip: show }));
     },
-    [applyStyle]
+    [applyStyle, setSettings]
   );
 
   const setTooltipShowRule = useCallback(
@@ -385,11 +479,11 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
       });
       setSettings((s) => ({ ...s, tooltipShowRule: rule }));
     },
-    [state.chart]
+    [state.chart, setSettings]
   );
 
   const resetToDefaults = useCallback(() => {
-    setSettings(defaultSettings);
+    setSettings(() => defaultSettings);
     state.chart?.setStyles(state.theme);
     // setStyles(theme) restores klinecharts' built-in lastValueMark.show:
     // false, while defaultSettings.showIndicatorLastValue is true (the
@@ -402,7 +496,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
     }
     // Reset axis options to defaults
     applyPaneAxis({ name: "normal", reverse: false, position: "right", inside: false });
-  }, [state.chart, state.theme, applyPaneAxis]);
+  }, [state.chart, state.theme, applyPaneAxis, setSettings]);
 
   return {
     ...settings,

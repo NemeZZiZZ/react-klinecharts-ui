@@ -187,3 +187,43 @@ describe("useLayoutManager persistence routing", () => {
     expect(result.current.layouts[0]?.name).toBe("Seeded");
   });
 });
+
+describe("useLayoutManager — общее состояние провайдера", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("два экземпляра хука видят ОДИН список layouts", async () => {
+    // Регрессия: список жил в useState хука, поэтому два компонента
+    // (панель layouts + тулбар) показывали разные копии и каждый держал
+    // свой таймер автосохранения на один и тот же ключ хранилища.
+    const { result } = renderHookWithProvider(() => ({
+      a: useLayoutManager(),
+      b: useLayoutManager(),
+    }));
+
+    act(() => {
+      result.current.a.saveLayout("Shared");
+    });
+
+    await waitFor(() => expect(result.current.b.layouts).toHaveLength(1));
+    expect(result.current.b.layouts[0]?.name).toBe("Shared");
+
+    act(() => {
+      result.current.b.deleteLayout(result.current.b.layouts[0]!.id);
+    });
+    expect(result.current.a.layouts).toHaveLength(0);
+  });
+
+  it("флаг автосохранения общий для всех экземпляров", () => {
+    const { result } = renderHookWithProvider(() => ({
+      a: useLayoutManager(),
+      b: useLayoutManager(),
+    }));
+    expect(result.current.b.autoSaveEnabled).toBe(false);
+    act(() => {
+      result.current.a.setAutoSaveEnabled(true);
+    });
+    expect(result.current.b.autoSaveEnabled).toBe(true);
+  });
+});

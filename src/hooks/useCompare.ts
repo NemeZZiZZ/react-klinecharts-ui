@@ -89,11 +89,15 @@ export function useCompare(): UseCompareReturn {
       if (indicatorsRef.current.has(ticker) || pendingRef.current.has(ticker))
         return;
 
-      // Derive the color from the current number of comparisons instead of a
-      // monotonically-growing module counter, so it stays stable across
-      // add/remove/clear cycles and re-mounts.
+      // Prefer the first palette color nobody is using yet: deriving the color
+      // from `symbols.length` alone collides after a remove — [A=0, B=1] minus
+      // A leaves length 1, so the next symbol is painted with B's color too.
+      // Falls back to the length-based pick once every color is taken, which
+      // keeps it stable across add/remove/clear cycles and re-mounts.
+      const usedColors = new Set(symbols.map((s) => s.color));
       const assignedColor =
         color ??
+        DEFAULT_COLORS.find((c) => !usedColors.has(c)) ??
         DEFAULT_COLORS[symbols.length % DEFAULT_COLORS.length];
 
       const mainDataList = state.chart.getDataList();
@@ -267,7 +271,7 @@ export function useCompare(): UseCompareReturn {
         ];
       });
     },
-    [state.chart, state.symbol, state.period, datafeed, symbols.length, instanceSalt],
+    [state.chart, state.symbol, state.period, datafeed, symbols, instanceSalt],
   );
 
   const removeSymbol = useCallback(

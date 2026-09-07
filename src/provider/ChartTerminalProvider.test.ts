@@ -19,6 +19,7 @@ function makeState(overrides: Partial<KlinechartsUIState> = {}): KlinechartsUISt
     subIndicators: {},
     indicatorAxes: {},
     indicatorVisibility: {},
+    collapsedPanes: {},
     alerts: [],
     measure: { isActive: false, fromPoint: null, result: null },
     replay: { isReplaying: false, isPaused: false, speed: 1, barIndex: 0, totalBars: 0 },

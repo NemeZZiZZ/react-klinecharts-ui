@@ -1,8 +1,24 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import {
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+  useEffect,
+  useSyncExternalStore,
+} from "react";
 import { useKlinechartsUI, useKlinechartsUIDispatch } from "../provider/ChartTerminalContext";
 import { DRAWING_CATEGORIES, type MagnetMode } from "../data/drawings";
+import {
+  DRAWING_GROUP_ID,
+  type DrawingOverlayInfo,
+} from "../provider/drawingOverlays";
+import type { SharedState } from "../provider/types";
 
-const DRAWING_GROUP_ID = "drawing_tools";
+// `DrawingOverlayInfo` moved to the provider (the overlay snapshot is shared by
+// every hook instance, so its type lives next to the store that owns it).
+// Re-exported so existing `import { type DrawingOverlayInfo } from
+// "react-klinecharts-ui"` keeps working.
+export type { DrawingOverlayInfo };
 
 export interface DrawingToolItem {
   name: string;
@@ -12,23 +28,6 @@ export interface DrawingToolItem {
 export interface DrawingCategoryItem {
   key: string;
   tools: DrawingToolItem[];
-}
-
-/**
- * Реактивный snapshot одного рисунка из группы `drawing_tools`.
- * Поля соответствуют публичным свойствам `Overlay` в klinecharts v10.
- */
-export interface DrawingOverlayInfo {
-  /** Stable id из klinecharts (chart.getOverlays()[].id). */
-  id: string;
-  /** Имя overlay'я, напр. "segment", "fibonacciLine", "arrow". */
-  name: string;
-  /** Pane id, где нарисован. */
-  paneId: string;
-  /** Текущее состояние блокировки. */
-  locked: boolean;
-  /** Текущая видимость. */
-  visible: boolean;
 }
 
 export interface UseDrawingToolsReturn {
@@ -81,35 +80,14 @@ export function drawingLabel(name: string): string {
   return DRAWING_NAME_TO_LOCALE_KEY.get(name) ?? name;
 }
 
-/**
- * Сравнить два snapshot'а `overlays` по полям, которые видит потребитель.
- * Если множество не изменилось — `refreshOverlays` не вызывает `setOverlays`,
- * чтобы избежать лишних ререндеров (включая ререндеры от polling-тикта).
- */
-function overlaysEqual(
-  a: DrawingOverlayInfo[],
-  b: DrawingOverlayInfo[],
-): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    const x = a[i];
-    const y = b[i];
-    if (
-      x.id !== y.id ||
-      x.name !== y.name ||
-      x.paneId !== y.paneId ||
-      x.locked !== y.locked ||
-      x.visible !== y.visible
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
 export function useDrawingTools(): UseDrawingToolsReturn {
   const { state } = useKlinechartsUI();
-  const { undoRedoListenerRef } = useKlinechartsUIDispatch();
+  const {
+    undoRedoListenerRef,
+    drawingOverlaysStore,
+    subscribeDrawingOverlays,
+    refreshDrawingOverlays,
+  } = useKlinechartsUIDispatch();
   const [activeTool, setActiveTool] = useState<string | null>(null);
   const [magnetMode, setMagnetModeState] = useState<MagnetMode>("normal");
   const [isLocked, setIsLocked] = useState(false);
@@ -136,48 +114,35 @@ export function useDrawingTools(): UseDrawingToolsReturn {
   // ─── Per-drawing API: реактивный snapshot overlays ───────────────────────
   //
   // В klinecharts v10 нет overlay-событий в ActionType, поэтому список
-  // рисунков выкачивается из `chart.getOverlays({ groupId })` и хранится в
-  // локальном state. Обновления триггерятся:
-  //   1. Точечно — после каждой известной операции (onDrawEnd, 3 новых
-  //      per-drawing операции, существующие batch-операции) через
-  //      `refreshOverlaysRef.current()`.
-  //   2. Polling-fallback раз в 1с — ловит внешние изменения (клавиша Delete,
-  //      undo/redo, и т.п.), сделанные вне этого хука.
-  const [overlays, setOverlays] = useState<DrawingOverlayInfo[]>([]);
-
-  const refreshOverlays = useCallback(() => {
-    if (!state.chart) {
-      setOverlays((prev) => (prev.length === 0 ? prev : []));
-      return;
-    }
-    const list = state.chart.getOverlays({ groupId: DRAWING_GROUP_ID }) as any[];
-    const next: DrawingOverlayInfo[] = list.map((o) => ({
-      id: o.id,
-      name: o.name,
-      paneId: o.paneId,
-      locked: !!o.lock,
-      visible: o.visible !== false, // klinecharts default = true
-    }));
-    setOverlays((prev) => (overlaysEqual(prev, next) ? prev : next));
-  }, [state.chart]);
+  // рисунков выкачивается из `chart.getOverlays({ groupId })`. Сам список
+  // живёт в ПРОВАЙДЕРЕ (`drawingOverlaysStore`) и опрашивается ОДНИМ
+  // интервалом на чарт, который работает пока смонтирован хотя бы один
+  // потребитель — раньше каждый экземпляр хука держал свой setInterval и
+  // N тулбаров означали N getOverlays() в секунду.
+  //
+  // Точечные обновления (после create/remove/override в любом хуке) делаются
+  // через `refreshDrawingOverlays()` — тот же путь, что и polling.
+  const overlaysStore = drawingOverlaysStore as unknown as SharedState<
+    DrawingOverlayInfo[]
+  >;
+  const overlays = useSyncExternalStore(
+    overlaysStore.subscribe,
+    overlaysStore.get,
+    overlaysStore.get,
+  );
 
   // Indirection ref (тот же паттерн, что `createOverlayForToolRef`): позволяет
-  // долгоживущим замыканиям (onDrawEnd) и существующим batch-операциям дернуть
-  // актуальный refresh без добавления `refreshOverlays` в их dep-массивы.
+  // долгоживущим замыканиям (onDrawEnd) и batch-операциям дернуть актуальный
+  // refresh без добавления его в их dep-массивы.
   const refreshOverlaysRef = useRef<() => void>(() => {});
   useEffect(() => {
-    refreshOverlaysRef.current = refreshOverlays;
-  });
+    refreshOverlaysRef.current = refreshDrawingOverlays;
+  }, [refreshDrawingOverlays]);
 
-  // Начальный snapshot при появлении chart + polling-fallback.
-  useEffect(() => {
-    if (!state.chart) return;
-    // Откладываем начальный snapshot на микрозадачу, чтобы не вызывать
-    // setState синхронно внутри effect (lint rule react-hooks/no-cascade).
-    queueMicrotask(() => refreshOverlaysRef.current());
-    const interval = setInterval(() => refreshOverlaysRef.current(), 1000);
-    return () => clearInterval(interval);
-  }, [state.chart, refreshOverlays]);
+  // Держим провайдерский polling включённым, пока смонтирован этот хук
+  // (refcount в провайдере: первый подписчик запускает интервал, последний
+  // unsubscribe — останавливает).
+  useEffect(() => subscribeDrawingOverlays(), [subscribeDrawingOverlays]);
   // ─────────────────────────────────────────────────────────────────────────
 
   const categories = useMemo(
@@ -196,6 +161,18 @@ export function useDrawingTools(): UseDrawingToolsReturn {
   // its own `onDrawEnd` closure (auto-retrigger) without referring to the
   // `const` before its declaration.
   const createOverlayForToolRef = useRef<(name: string) => void>(() => {});
+
+  // Pending auto-retrigger frame. Tracked so it can be cancelled on unmount /
+  // tool switch — an orphaned frame used to create an overlay after the hook
+  // (or the chart) was already gone.
+  const autoRetriggerRafRef = useRef<number | null>(null);
+  const cancelAutoRetrigger = useCallback(() => {
+    if (autoRetriggerRafRef.current !== null) {
+      cancelAnimationFrame(autoRetriggerRafRef.current);
+      autoRetriggerRafRef.current = null;
+    }
+  }, []);
+  useEffect(() => cancelAutoRetrigger, [cancelAutoRetrigger]);
 
   const createOverlayForTool = useCallback(
     (name: string) => {
@@ -222,6 +199,12 @@ export function useDrawingTools(): UseDrawingToolsReturn {
                 points: o.points,
                 styles: o.styles,
                 extendData: o.extendData,
+                // lock/visible/mode ride along so undo/redo re-creates the
+                // overlay with the flags it had at draw time (a shape drawn
+                // while the tool was locked came back unlocked otherwise).
+                lock: o.lock,
+                visible: o.visible,
+                mode: o.mode,
               },
             },
           });
@@ -230,14 +213,16 @@ export function useDrawingTools(): UseDrawingToolsReturn {
           refreshOverlaysRef.current();
           // Auto-retrigger: immediately start another overlay of the same type
           if (autoRetriggerRef.current && activeToolRef.current === name) {
-            requestAnimationFrame(() => {
+            cancelAutoRetrigger();
+            autoRetriggerRafRef.current = requestAnimationFrame(() => {
+              autoRetriggerRafRef.current = null;
               createOverlayForToolRef.current(name);
             });
           }
         },
       });
     },
-    [state.chart, undoRedoListenerRef],
+    [state.chart, undoRedoListenerRef, cancelAutoRetrigger],
   );
 
   // Keep the indirection ref in sync in the commit phase (not during render).
@@ -255,7 +240,10 @@ export function useDrawingTools(): UseDrawingToolsReturn {
 
   const clearActiveTool = useCallback(() => {
     setActiveTool(null);
-  }, []);
+    // Drop a queued auto-retrigger: it would start a new overlay for a tool
+    // the user just deselected.
+    cancelAutoRetrigger();
+  }, [cancelAutoRetrigger]);
 
   const setMagnetMode = useCallback(
     (mode: MagnetMode) => {
@@ -319,6 +307,11 @@ export function useDrawingTools(): UseDrawingToolsReturn {
         points: o.points,
         styles: o.styles,
         extendData: o.extendData,
+        // Same trio as in onDrawEnd — undo restores the drawings with their
+        // lock/visible/mode instead of silently resetting them.
+        lock: o.lock,
+        visible: o.visible,
+        mode: o.mode,
       }));
       undoRedoListenerRef.current?.({
         type: "overlays_removed",
@@ -348,7 +341,10 @@ export function useDrawingTools(): UseDrawingToolsReturn {
 
   const setDrawingVisible = useCallback(
     (id: string, visible: boolean) => {
-      state.chart?.overrideOverlay({ id, visible });
+      // groupId в filter — как в removeDrawing: при коллизии id с чужим
+      // overlay (orderLine, alertLine) overrideOverlay без группы переключил
+      // бы НЕ тот объект.
+      state.chart?.overrideOverlay({ id, groupId: DRAWING_GROUP_ID, visible });
       refreshOverlaysRef.current();
     },
     [state.chart],
@@ -356,7 +352,7 @@ export function useDrawingTools(): UseDrawingToolsReturn {
 
   const setDrawingLocked = useCallback(
     (id: string, locked: boolean) => {
-      state.chart?.overrideOverlay({ id, lock: locked });
+      state.chart?.overrideOverlay({ id, groupId: DRAWING_GROUP_ID, lock: locked });
       refreshOverlaysRef.current();
     },
     [state.chart],

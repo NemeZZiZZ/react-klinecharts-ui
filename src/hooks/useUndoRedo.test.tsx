@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { act, render } from "@testing-library/react";
 import { useEffect, type MutableRefObject, type ReactNode } from "react";
 import { renderHookWithProvider } from "../../test/renderHook";
@@ -45,7 +45,7 @@ function ListenerProbe({ listenerRef }: { listenerRef: MutableRefObject<UndoRedo
 }
 
 describe("useUndoRedo — multi-instance", () => {
-  it("only the first mounted instance answers Ctrl+Z (no double undo)", () => {
+  it("shares ONE history: a non-owner instance sees the owner's actions", () => {
     const aRef: MutableRefObject<ReturnType<typeof useUndoRedo> | null> = { current: null };
     const bRef: MutableRefObject<ReturnType<typeof useUndoRedo> | null> = { current: null };
     const feed = idleDatafeed;
@@ -58,19 +58,50 @@ describe("useUndoRedo — multi-instance", () => {
     );
 
     const action = { type: "overlay_added" as const, data: { id: "x" } };
-    act(() => aRef.current!.pushAction(action));
     act(() => bRef.current!.pushAction(action));
+    // Regression: every instance used to own a private stack, so only the
+    // instance that recorded the action could see it — B reported
+    // canUndo === false and its undo() popped nothing.
     expect(aRef.current!.canUndo).toBe(true);
     expect(bRef.current!.canUndo).toBe(true);
+    act(() => aRef.current!.clear());
+    expect(bRef.current!.canUndo).toBe(false);
+  });
 
-    // One Ctrl+Z must drive exactly ONE stack.
+  it("one Ctrl+Z pops exactly ONE action from the shared history", () => {
+    const aRef: MutableRefObject<ReturnType<typeof useUndoRedo> | null> = { current: null };
+    const bRef: MutableRefObject<ReturnType<typeof useUndoRedo> | null> = { current: null };
+    const feed = idleDatafeed;
+    render(
+      <KlinechartsUIProvider datafeed={feed}>
+        <ChartSlot />
+        <UndoRedoSlot resultRef={aRef} />
+        <UndoRedoSlot resultRef={bRef} />
+      </KlinechartsUIProvider>,
+    );
+
+    act(() => {
+      aRef.current!.pushAction({ type: "overlay_added", data: { id: "1" } });
+      aRef.current!.pushAction({ type: "overlay_added", data: { id: "2" } });
+    });
+
     act(() => {
       window.dispatchEvent(
         new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }),
       );
     });
-    const undone = [aRef.current!.canUndo, bRef.current!.canUndo].filter(Boolean).length;
-    expect(undone).toBe(1);
+    // Two entries in, one out — a single keystroke must never drain two.
+    expect(aRef.current!.canUndo).toBe(true);
+    expect(bRef.current!.canUndo).toBe(true);
+    expect(aRef.current!.canRedo).toBe(true);
+
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }),
+      );
+    });
+    expect(aRef.current!.canUndo).toBe(false);
+    expect(bRef.current!.canUndo).toBe(false);
   });
 
   it("promotes the next instance to the listener slot when the owner unmounts", () => {
@@ -130,6 +161,68 @@ describe("useUndoRedo", () => {
     });
     expect(result.current.canUndo).toBe(false);
     expect(result.current.canRedo).toBe(false);
+  });
+
+  it("clears the history when the symbol changes (#20)", () => {
+    const { result } = renderHookWithProvider(() => {
+      const undoRedo = useUndoRedo();
+      const { dispatch } = useKlinechartsUIDispatch();
+      return { ...undoRedo, dispatch };
+    });
+    act(() => {
+      result.current.pushAction({
+        type: "overlay_added",
+        data: { id: "x", overlayData: { name: "segment", points: [] } },
+      });
+    });
+    expect(result.current.canUndo).toBe(true);
+
+    // A symbol switch invalidates every recorded entry: the overlays they
+    // reference are gone with the reloaded data, so undo would remove nothing
+    // (or, worse, a same-id overlay of the new symbol).
+    act(() => {
+      result.current.dispatch({
+        type: "SET_SYMBOL",
+        symbol: { ticker: "BTCUSDT" },
+      } as unknown as KlinechartsUIAction);
+    });
+    expect(result.current.canUndo).toBe(false);
+    expect(result.current.canRedo).toBe(false);
+  });
+
+  it("redo of overlay_added restores lock/visible/mode (#21)", () => {
+    const { result, chart } = renderHookWithProvider(() => useUndoRedo());
+    act(() => {
+      result.current.pushAction({
+        type: "overlay_added",
+        data: {
+          id: "x",
+          overlayData: {
+            name: "segment",
+            points: [],
+            lock: true,
+            visible: false,
+            mode: "strong_magnet",
+          },
+        },
+      });
+      result.current.undo();
+    });
+    expect(result.current.canRedo).toBe(true);
+
+    act(() => {
+      result.current.redo();
+    });
+
+    // Regression: only name/points/styles survived, so the recreated drawing
+    // came back unlocked and visible even though the user had locked/hidden it.
+    const payload = (chart.createOverlay as ReturnType<typeof vi.fn>).mock
+      .calls.at(-1)![0] as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      lock: true,
+      visible: false,
+      mode: "strong_magnet",
+    });
   });
 
   it("pushing multiple actions keeps them in order", () => {

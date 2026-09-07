@@ -102,7 +102,12 @@ describe("useDrawingTools — per-drawing API", () => {
 
     const target = result.current.overlays.find((o) => o.id === id);
     expect(target?.visible).toBe(false);
-    expect(chart.overrideOverlay).toHaveBeenCalledWith({ id, visible: false });
+    // groupId ограничивает фильтр группой drawing_tools (как в removeDrawing)
+    expect(chart.overrideOverlay).toHaveBeenCalledWith({
+      id,
+      groupId: "drawing_tools",
+      visible: false,
+    });
   });
 
   it("setDrawingLocked(id, true) блокирует overlay и вызывает overrideOverlay", () => {
@@ -117,7 +122,11 @@ describe("useDrawingTools — per-drawing API", () => {
 
     const target = result.current.overlays.find((o) => o.id === id);
     expect(target?.locked).toBe(true);
-    expect(chart.overrideOverlay).toHaveBeenCalledWith({ id, lock: true });
+    expect(chart.overrideOverlay).toHaveBeenCalledWith({
+      id,
+      groupId: "drawing_tools",
+      lock: true,
+    });
   });
 
   it("изоляция группы: overlay с другим groupId не появляется в overlays и не удаляется removeDrawing", () => {
@@ -189,5 +198,30 @@ describe("drawingLabel", () => {
 
   it("fallback на само имя для неизвестного инструмента", () => {
     expect(drawingLabel("unknown_tool")).toBe("unknown_tool");
+  });
+});
+
+describe("useDrawingTools — общее состояние провайдера", () => {
+  it("два экземпляра хука видят ОДИН список overlays", () => {
+    // Регрессия: список и его setInterval(1s)-polling жили в хуке, поэтому
+    // N тулбаров = N опросов getOverlays() в секунду и N расходящихся копий.
+    const { result, chart } = renderHookWithProvider(() => ({
+      a: useDrawingTools(),
+      b: useDrawingTools(),
+    }));
+
+    act(() => {
+      result.current.a.selectTool("segment");
+    });
+    finishDrawing(chart, { id: "ov-1", name: "segment" });
+
+    expect(result.current.b.overlays).toHaveLength(1);
+    const id = result.current.a.overlays[0]!.id;
+    expect(result.current.b.overlays[0]?.id).toBe(id);
+
+    act(() => {
+      result.current.b.removeDrawing(id);
+    });
+    expect(result.current.a.overlays).toHaveLength(0);
   });
 });
