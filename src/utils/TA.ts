@@ -7,20 +7,32 @@ const TA = {
   /**
    * Simple Moving Average (SMA)
    * Optimized with running sum.
+   *
+   * A non-finite input resets the window (emits null until a full fresh
+   * window accumulates) instead of poisoning the running sum — and every
+   * later value — with NaN forever.
    */
   sma: (data: number[], period: number): (number | null)[] => {
+    if (period < 1) return data.map(() => null);
     const result: (number | null)[] = [];
     let sum = 0;
+    let count = 0;
     for (let i = 0; i < data.length; i++) {
-      sum += data[i];
-      if (i >= period) {
-        sum -= data[i - period];
-      }
-      if (i >= period - 1) {
-        result.push(sum / period);
-      } else {
+      const v = data[i];
+      if (!Number.isFinite(v)) {
+        sum = 0;
+        count = 0;
         result.push(null);
+        continue;
       }
+      sum += v;
+      count += 1;
+      if (count > period) {
+        // Leaving value is inside the current finite run, hence finite.
+        sum -= data[i - period] as number;
+        count = period;
+      }
+      result.push(count === period ? sum / period : null);
     }
     return result;
   },
@@ -28,24 +40,39 @@ const TA = {
   /**
    * Exponential Moving Average (EMA)
    * alpha = 2 / (period + 1)
+   *
+   * A non-finite input restarts the seeding instead of seeding NaN (the old
+   * seed summed the first `period` values unconditionally, so one NaN in the
+   * head poisoned the whole series through the recursion).
    */
   ema: (data: number[], period: number): (number | null)[] => {
+    if (period < 1) return data.map(() => null);
     const result: (number | null)[] = [];
     const alpha = 2 / (period + 1);
     let prevEma: number | null = null;
+    let seedSum = 0;
+    let seedCount = 0;
 
     for (let i = 0; i < data.length; i++) {
+      const v = data[i];
+      if (!Number.isFinite(v)) {
+        prevEma = null;
+        seedSum = 0;
+        seedCount = 0;
+        result.push(null);
+        continue;
+      }
       if (prevEma === null) {
-        if (i === period - 1) {
-          let sum = 0;
-          for (let j = 0; j <= i; j++) sum += data[j];
-          prevEma = sum / period;
+        seedSum += v;
+        seedCount += 1;
+        if (seedCount === period) {
+          prevEma = seedSum / period;
           result.push(prevEma);
         } else {
           result.push(null);
         }
       } else {
-        prevEma = data[i] * alpha + prevEma * (1 - alpha);
+        prevEma = v * alpha + prevEma * (1 - alpha);
         result.push(prevEma);
       }
     }
@@ -55,24 +82,37 @@ const TA = {
   /**
    * Running Moving Average (RMA / Wilder's MA)
    * Used in RSI, alpha = 1 / period
+   *
+   * Same non-finite restart semantics as `ema` (see above).
    */
   rma: (data: number[], period: number): (number | null)[] => {
+    if (period < 1) return data.map(() => null);
     const result: (number | null)[] = [];
     const alpha = 1 / period;
     let prevRma: number | null = null;
+    let seedSum = 0;
+    let seedCount = 0;
 
     for (let i = 0; i < data.length; i++) {
+      const v = data[i];
+      if (!Number.isFinite(v)) {
+        prevRma = null;
+        seedSum = 0;
+        seedCount = 0;
+        result.push(null);
+        continue;
+      }
       if (prevRma === null) {
-        if (i === period - 1) {
-          let sum = 0;
-          for (let j = 0; j <= i; j++) sum += data[j];
-          prevRma = sum / period;
+        seedSum += v;
+        seedCount += 1;
+        if (seedCount === period) {
+          prevRma = seedSum / period;
           result.push(prevRma);
         } else {
           result.push(null);
         }
       } else {
-        prevRma = data[i] * alpha + prevRma * (1 - alpha);
+        prevRma = v * alpha + prevRma * (1 - alpha);
         result.push(prevRma);
       }
     }
@@ -80,22 +120,44 @@ const TA = {
   },
 
   /**
-   * Standard Deviation
+   * Standard Deviation (population)
+   *
+   * Single pass in O(n): maintains the running sum and sum of squares, using
+   * Var = E[x²] − E[x]² instead of re-scanning the window against the SMA on
+   * every bar (O(n·period)) plus the extra SMA array. `Math.max(0, …)` clamps
+   * the catastrophic-cancellation residue on near-constant windows so the
+   * result is exactly 0 instead of a tiny NaN-after-sqrt.
    */
   stdev: (data: number[], period: number): (number | null)[] => {
+    if (period < 1) return data.map(() => null);
     const result: (number | null)[] = [];
-    const sma = TA.sma(data, period);
+    let sum = 0;
+    let sumSq = 0;
+    let count = 0;
 
     for (let i = 0; i < data.length; i++) {
-      const currentSma = sma[i];
-      if (currentSma === null) {
+      const v = data[i];
+      if (!Number.isFinite(v)) {
+        sum = 0;
+        sumSq = 0;
+        count = 0;
         result.push(null);
+        continue;
+      }
+      sum += v;
+      sumSq += v * v;
+      count += 1;
+      if (count > period) {
+        const out = data[i - period] as number;
+        sum -= out;
+        sumSq -= out * out;
+        count = period;
+      }
+      if (count === period) {
+        const mean = sum / period;
+        result.push(Math.sqrt(Math.max(0, sumSq / period - mean * mean)));
       } else {
-        let sumSq = 0;
-        for (let j = 0; j < period; j++) {
-          sumSq += Math.pow(data[i - j] - currentSma, 2);
-        }
-        result.push(Math.sqrt(sumSq / period));
+        result.push(null);
       }
     }
     return result;
@@ -135,6 +197,12 @@ const TA = {
         result.push(null);
         continue;
       }
+      if (up === 0 && down === 0) {
+        // Flat market: no up AND no down movement, so the ratio is 0/0 and
+        // RSI is undefined (Pine yields na here) — null, not 100.
+        result.push(null);
+        continue;
+      }
       if (down === 0) {
         result.push(100);
         continue;
@@ -147,12 +215,15 @@ const TA = {
 
   /**
    * Moving Average Convergence Divergence (MACD)
+   *
+   * Defaults match the de-facto standard (12/26/9) promised by the docs;
+   * without them an `ema(undefined)` silently returned an all-null series.
    */
   macd: (
     data: number[],
-    fastPeriod: number,
-    slowPeriod: number,
-    signalPeriod: number,
+    fastPeriod: number = 12,
+    slowPeriod: number = 26,
+    signalPeriod: number = 9,
   ) => {
     const fastEma = TA.ema(data, fastPeriod);
     const slowEma = TA.ema(data, slowPeriod);
@@ -179,41 +250,102 @@ const TA = {
 
   /**
    * Bollinger Bands (BOLL)
+   *
+   * Single pass in O(n): mid and band width come out of one running window
+   * (sum + sum of squares). The previous version called `sma` AND `stdev`,
+   * and `stdev` internally called `sma` again — three window passes and two
+   * throwaway arrays per calc. Defaults are the de-facto standard 20/2.
    */
-  bollinger: (data: number[], period: number, multiplier: number) => {
-    const mid = TA.sma(data, period);
-    const std = TA.stdev(data, period);
-    const upper = mid.map((m, i) =>
-      m !== null && std[i] !== null
-        ? m + multiplier * (std[i] as number)
-        : null,
-    );
-    const lower = mid.map((m, i) =>
-      m !== null && std[i] !== null
-        ? m - multiplier * (std[i] as number)
-        : null,
-    );
+  bollinger: (
+    data: number[],
+    period: number = 20,
+    multiplier: number = 2,
+  ) => {
+    const mid: (number | null)[] = [];
+    const upper: (number | null)[] = [];
+    const lower: (number | null)[] = [];
+    if (period < 1) {
+      return {
+        mid: data.map(() => null),
+        upper: data.map(() => null),
+        lower: data.map(() => null),
+      };
+    }
+    let sum = 0;
+    let sumSq = 0;
+    let count = 0;
+    for (let i = 0; i < data.length; i++) {
+      const v = data[i];
+      if (!Number.isFinite(v)) {
+        sum = 0;
+        sumSq = 0;
+        count = 0;
+        mid.push(null);
+        upper.push(null);
+        lower.push(null);
+        continue;
+      }
+      sum += v;
+      sumSq += v * v;
+      count += 1;
+      if (count > period) {
+        const out = data[i - period] as number;
+        sum -= out;
+        sumSq -= out * out;
+        count = period;
+      }
+      if (count === period) {
+        const m = sum / period;
+        const std = Math.sqrt(Math.max(0, sumSq / period - m * m));
+        mid.push(m);
+        upper.push(m + multiplier * std);
+        lower.push(m - multiplier * std);
+      } else {
+        mid.push(null);
+        upper.push(null);
+        lower.push(null);
+      }
+    }
 
     return { mid, upper, lower };
   },
 
   /**
    * Weighted Moving Average (WMA)
+   *
+   * O(n) via the sliding recurrence
+   *   WMA[i] = WMA[i−1] + (period·x[i] − windowSum[i−1]) / weightSum
+   * instead of re-summing `period` weighted terms on every bar. The growing
+   * phase accumulates weights 1..count directly, which is exactly what the
+   * naive loop sums once the window is full.
    */
   wma: (data: number[], period: number): (number | null)[] => {
+    if (period < 1) return data.map(() => null);
     const result: (number | null)[] = [];
-    let sumWeight = 0;
-    for (let i = 1; i <= period; i++) sumWeight += i;
+    const sumWeight = (period * (period + 1)) / 2;
+    let weighted = 0;
+    let windowSum = 0;
+    let count = 0;
 
     for (let i = 0; i < data.length; i++) {
-      if (i < period - 1) {
+      const v = data[i];
+      if (!Number.isFinite(v)) {
+        weighted = 0;
+        windowSum = 0;
+        count = 0;
         result.push(null);
+        continue;
+      }
+      if (count < period) {
+        weighted += v * (count + 1);
+        windowSum += v;
+        count += 1;
+        result.push(count === period ? weighted / sumWeight : null);
       } else {
-        let sum = 0;
-        for (let j = 0; j < period; j++) {
-          sum += data[i - j] * (period - j);
-        }
-        result.push(sum / sumWeight);
+        weighted += period * v - windowSum;
+        // Leaving value is inside the current finite run, hence finite.
+        windowSum += v - (data[i - period] as number);
+        result.push(weighted / sumWeight);
       }
     }
     return result;
@@ -254,17 +386,40 @@ const TA = {
 
   /**
    * Volume Weighted Average Price (VWAP)
+   *
+   * Without `timestamps` this is the plain cumulative VWAP (back-compatible).
+   * Pass the bar timestamps to reset the accumulation at each session
+   * boundary — a real session VWAP (like the `vwap` chart indicator, which
+   * resets on the UTC day) instead of a line dragged by yesterday's volume:
+   *   TA.vwap(h, l, c, v, timestamps)                    // UTC-day sessions
+   *   TA.vwap(h, l, c, v, timestamps, (ts) => customKey) // custom sessions
    */
   vwap: (
     highs: number[],
     lows: number[],
     closes: number[],
     volumes: number[],
+    timestamps?: number[],
+    session: "utc-day" | ((timestamp: number) => string | number) = "utc-day",
   ): (number | null)[] => {
     let totalVolume = 0;
     let totalVolumePrice = 0;
+    let sessionKey: string | number | null = null;
     return highs.map((h, i) => {
       const price = (h + lows[i] + closes[i]) / 3;
+      const ts = timestamps?.[i];
+      if (ts != null && Number.isFinite(ts)) {
+        const key =
+          typeof session === "function"
+            ? session(ts)
+            : // UTC day number — integer math, no Date allocation/throw.
+              Math.floor(ts / 86400000);
+        if (sessionKey !== key) {
+          sessionKey = key;
+          totalVolume = 0;
+          totalVolumePrice = 0;
+        }
+      }
       totalVolume += volumes[i];
       totalVolumePrice += price * volumes[i];
       return totalVolume === 0 ? price : totalVolumePrice / totalVolume;

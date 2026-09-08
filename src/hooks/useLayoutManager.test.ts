@@ -171,6 +171,64 @@ describe("useLayoutManager persistence routing", () => {
     expect(result.current.layouts).toHaveLength(0);
   });
 
+  it("persists and restores drawing lock/visible/mode (R6)", async () => {
+    const adapter = memoryAdapter();
+    const { result, chart } = renderHookWithProvider(
+      () => useLayoutManager(),
+      { storage: { adapter } },
+    );
+
+    // Seed a drawing whose flags differ from the defaults.
+    (chart.createOverlay as (cfg: Record<string, unknown>) => unknown)({
+      name: "segment",
+      groupId: "drawing_tools",
+      points: [
+        { timestamp: 1000, value: 1 },
+        { timestamp: 1060, value: 2 },
+      ],
+      lock: true,
+      visible: false,
+      mode: "strong_magnet",
+    });
+
+    let id: string | null = null;
+    act(() => {
+      id = result.current.saveLayout("Flags");
+    });
+
+    const stored = JSON.parse(
+      adapter.store.get(`rkui:layout:${id}`)!,
+    ) as LayoutEntry;
+    expect(stored.state.drawings[0]).toMatchObject({
+      name: "segment",
+      lock: true,
+      visible: false,
+      mode: "strong_magnet",
+    });
+
+    // Wipe the chart and reload: the flags must be passed to createOverlay.
+    act(() =>
+      (chart.removeOverlay as (filter: Record<string, unknown>) => unknown)(
+        {},
+      ),
+    );
+    chart.createOverlay.mockClear();
+    let ok = false;
+    act(() => {
+      ok = result.current.loadLayout(id!);
+    });
+    expect(ok).toBe(true);
+    const restored = chart.createOverlay.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((cfg) => cfg.name === "segment");
+    expect(restored).toMatchObject({
+      groupId: "drawing_tools",
+      lock: true,
+      visible: false,
+      mode: "strong_magnet",
+    });
+  });
+
   it("loads pre-seeded entries from the adapter after mount", async () => {
     const adapter = memoryAdapter();
     adapter.store.set("rkui:layout_index", JSON.stringify(["seed-1"]));

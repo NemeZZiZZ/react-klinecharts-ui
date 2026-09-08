@@ -123,6 +123,13 @@ registerFigure({
 });
 
 interface BrushDataPoint {
+  /**
+   * Bar TIMESTAMP anchoring the stroke point. Despite the name, this used to
+   * store the result of `xAxis.convertFromPixel(x)` — a data INDEX (klinecharts
+   * axis-level conversion never returns a timestamp), so the stroke drifted
+   * whenever history was prepended and serialized layouts anchored to bar
+   * numbers. A legacy index value is repaired on first render below.
+   */
   timestamp: number;
   value: number;
 }
@@ -185,28 +192,61 @@ const brush: OverlayTemplate = {
     const data = overlay.extendData as BrushData | undefined;
     if (!data || !xAxis || !yAxis) return [];
 
+    // Rendering must go through convertTimestampToPixel: convertToPixel on
+    // the x-axis takes a data INDEX, which is only incidentally equal to the
+    // nearest timestamp's index for in-range values and wrong for anything
+    // else (it would hand the numeric timestamp back out as a pixel).
+    const toPixelX =
+      typeof xAxis.convertTimestampToPixel === "function"
+        ? (t: number): number => xAxis.convertTimestampToPixel(t)
+        : (t: number): number => t;
+    const pixelXToTimestamp =
+      typeof xAxis.convertTimestampFromPixel === "function"
+        ? (x: number): number => xAxis.convertTimestampFromPixel(x) ?? 0
+        : (x: number): number => {
+            const list = chart?.getDataList() as
+              | { timestamp: number }[]
+              | undefined;
+            return list?.[Math.round(xAxis.convertFromPixel(x))]?.timestamp ?? 0;
+          };
+
     if (data.pixels.length > 0) {
+      // convertTimestampFromPixel runs through the store, so it also
+      // EXTRAPOLATES indices beyond the data range into future timestamps.
       for (const p of data.pixels) {
         data.points.push({
-          timestamp: xAxis.convertFromPixel(p.x),
+          timestamp: pixelXToTimestamp(p.x),
           value: yAxis.convertFromPixel(p.y),
         });
       }
       data.pixels = [];
     }
 
+    // Repair legacy strokes whose `timestamp` holds a bar INDEX (see
+    // BrushDataPoint): a plausible timestamp is far larger than any data
+    // index, so a small value is unambiguous.
+    for (const p of data.points) {
+      if (p.timestamp < 1e8) {
+        const dataList = chart?.getDataList() as
+          | { timestamp: number }[]
+          | undefined;
+        const index = Math.round(p.timestamp);
+        p.timestamp = dataList?.[index]?.timestamp ?? p.timestamp;
+      }
+    }
+
     let { points } = data;
 
     if (data.isDirty && points.length > 2) {
       const pixelPoints = points.map((p) => ({
-        x: xAxis.convertToPixel(p.timestamp),
+        x: toPixelX(p.timestamp),
         y: yAxis.convertToPixel(p.value),
       }));
 
       const simplified = rdp(pixelPoints, 1.5);
 
       data.points = simplified.map((p) => ({
-        timestamp: xAxis.convertFromPixel(p.x),
+        timestamp: pixelXToTimestamp(p.x),
         value: yAxis.convertFromPixel(p.y),
       }));
       points = data.points;
@@ -218,7 +258,7 @@ const brush: OverlayTemplate = {
     // raw RDP pixels here made the stroke snap by up to half a bar width on
     // the frame right after draw end.
     const coordinates = points.map((p) => ({
-      x: xAxis.convertToPixel(p.timestamp),
+      x: toPixelX(p.timestamp),
       y: yAxis.convertToPixel(p.value),
     }));
 

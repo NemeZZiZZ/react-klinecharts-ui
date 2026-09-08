@@ -17,17 +17,18 @@ const pivotPoints: IndicatorTemplate = {
     let lastS1: number | null = null;
     let lastR2: number | null = null;
     let lastS2: number | null = null;
-    let lastDate = "";
+    let lastDate = -1;
     let dayHigh = -Infinity;
     let dayLow = Infinity;
     let dayClose = 0;
 
     return dataList.map((kLineData: KLineData) => {
-      // Derive the day key from UTC (see vwap.ts for rationale): a stable
-      // boundary independent of the host's local timezone.
-      const date = new Date(kLineData.timestamp).toISOString().slice(0, 10);
+      // Derive the day key from UTC via integer division (see vwap.ts for
+      // rationale): same day bucket as `toISOString().slice(0, 10)` without
+      // allocating a Date and a string per bar.
+      const date = Math.floor(kLineData.timestamp / 86_400_000);
       if (date !== lastDate) {
-        if (lastDate !== "") {
+        if (lastDate !== -1) {
           lastP = (dayHigh + dayLow + dayClose) / 3;
           lastR1 = 2 * lastP - dayLow;
           lastS1 = 2 * lastP - dayHigh;

@@ -10,26 +10,26 @@ import type { Chart } from "klinecharts";
 export const DRAWING_GROUP_ID = "drawing_tools";
 
 /**
- * Реактивный snapshot одного рисунка из группы `drawing_tools`.
- * Поля соответствуют публичным свойствам `Overlay` в klinecharts v10.
+ * Reactive snapshot of one drawing from the `drawing_tools` group.
+ * Fields mirror the public properties of klinecharts v10 `Overlay`.
  */
 export interface DrawingOverlayInfo {
-  /** Stable id из klinecharts (chart.getOverlays()[].id). */
+  /** Stable id from klinecharts (chart.getOverlays()[].id). */
   id: string;
-  /** Имя overlay'я, напр. "segment", "fibonacciLine", "arrow". */
+  /** Overlay name, e.g. "segment", "fibonacciLine", "arrow". */
   name: string;
-  /** Pane id, где нарисован. */
+  /** Pane id the drawing lives on. */
   paneId: string;
-  /** Текущее состояние блокировки. */
+  /** Current lock state. */
   locked: boolean;
-  /** Текущая видимость. */
+  /** Current visibility. */
   visible: boolean;
 }
 
 /**
- * Прочитать текущий список рисунков группы `drawing_tools`.
- * Возвращает `[]` для отсутствующего чарта — вызывающий код (polling в
- * провайдере, refresh после мутации) не должен делать ветвление на null.
+ * Read the current list of drawings in the `drawing_tools` group.
+ * Returns `[]` when there is no chart — callers (provider polling, refresh
+ * after mutation) should not have to branch on null.
  */
 export function readDrawingOverlays(
   chart: Chart | null | undefined,
@@ -47,9 +47,9 @@ export function readDrawingOverlays(
 }
 
 /**
- * Сравнить два snapshot'а по полям, которые видит потребитель.
- * Polling тикает раз в секунду: без этого сравнения каждый тик подменял бы
- * массив и ререндерил дерево даже когда рисунки не менялись.
+ * Compare two snapshots over the fields a consumer can see.
+ * Polling ticks once per second: without this comparison every tick would
+ * swap in a new array and re-render the tree even when nothing changed.
  */
 export function drawingOverlaysEqual(
   a: DrawingOverlayInfo[],

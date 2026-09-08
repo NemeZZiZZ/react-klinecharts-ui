@@ -245,3 +245,23 @@ describe("useCompare — price projection (not raw %)", () => {
     expect(sym?.basePrice).toBe(3000);
   });
 });
+
+describe("useCompare — stable callback identities", () => {
+  it("addSymbol/toggleSymbol survive list changes without recreating", async () => {
+    const { result } = renderHookWithProvider(() => useCompare(), {
+      initialData: MAIN,
+    });
+    const firstAdd = result.current.addSymbol;
+    const firstToggle = result.current.toggleSymbol;
+    await act(async () => {
+      await result.current.addSymbol("ETHUSDT");
+    });
+    // The list changed (re-render), but the callbacks close over a ref mirror
+    // instead of the `symbols` state array — downstream memos don't churn.
+    expect(result.current.addSymbol).toBe(firstAdd);
+    expect(result.current.toggleSymbol).toBe(firstToggle);
+    act(() => result.current.toggleSymbol("ETHUSDT"));
+    expect(result.current.addSymbol).toBe(firstAdd);
+    expect(result.current.toggleSymbol).toBe(firstToggle);
+  });
+});

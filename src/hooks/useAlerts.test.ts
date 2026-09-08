@@ -110,8 +110,7 @@ describe("useAlerts — multi-listener (onAlertTriggered)", () => {
   });
 });
 
-describe("useAlerts — indicator target", () => {
-  it("addAlert with an indicator target stores target on the alert", () => {
+describe("useAlerts — indicator target", () => {  it("addAlert with an indicator target stores target on the alert", () => {
     const { result } = renderHookWithProvider(() => useAlerts());
     act(() => {
       result.current.addAlert(70, "crossing_up", "RSI overbought", undefined, {
@@ -134,6 +133,38 @@ describe("useAlerts — indicator target", () => {
       result.current.addAlert(100, "crossing_up");
     });
     expect(result.current.alerts[0].target).toBeUndefined();
+  });
+});
+
+describe("useAlerts — validation and overlay scoping", () => {
+  it.each([NaN, Infinity, -Infinity])(
+    "addAlert(%s) is ignored: returns '' and records nothing",
+    (price) => {
+      const { result, chart } = renderHookWithProvider(() => useAlerts());
+      let id: string | undefined;
+      act(() => {
+        id = result.current.addAlert(price, "crossing_up");
+      });
+      expect(id).toBe("");
+      expect(result.current.alerts).toEqual([]);
+      expect(chart.createOverlay).not.toHaveBeenCalled();
+    },
+  );
+
+  it("removeAlert scopes the overlay removal to the price_alerts group", () => {
+    const { result, chart } = renderHookWithProvider(() => useAlerts());
+    let id = "";
+    act(() => {
+      id = result.current.addAlert(100, "crossing_up");
+    });
+    chart.removeOverlay.mockClear();
+    act(() => result.current.removeAlert(id));
+    // A bare { id } would drop the FIRST overlay with that id in ANY group —
+    // a drawing/order overlay sharing the id would be deleted instead.
+    expect(chart.removeOverlay).toHaveBeenCalledWith({
+      id,
+      groupId: "price_alerts",
+    });
   });
 });
 

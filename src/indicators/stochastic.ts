@@ -1,28 +1,5 @@
 import type { IndicatorTemplate, KLineData, Indicator } from "klinecharts";
-
-function rollingMinMax(
-  data: number[],
-  period: number,
-): { min: number[]; max: number[] } {
-  const min: number[] = [];
-  const max: number[] = [];
-  for (let i = 0; i < data.length; i++) {
-    if (i < period - 1) {
-      min.push(NaN);
-      max.push(NaN);
-    } else {
-      let lo = data[i];
-      let hi = data[i];
-      for (let j = 1; j < period; j++) {
-        if (data[i - j] < lo) lo = data[i - j];
-        if (data[i - j] > hi) hi = data[i - j];
-      }
-      min.push(lo);
-      max.push(hi);
-    }
-  }
-  return { min, max };
-}
+import { slidingMinMax } from "./window";
 
 function smaWithNaN(data: number[], period: number): number[] {
   const result: number[] = [];
@@ -62,8 +39,12 @@ const stochastic: IndicatorTemplate = {
     const lows = dataList.map((d) => d.low);
     const closes = dataList.map((d) => d.close);
 
-    const { min: lowestLow } = rollingMinMax(lows, period);
-    const { max: highestHigh } = rollingMinMax(highs, period);
+    const { min: lowestLowRaw } = slidingMinMax(lows, period);
+    const { max: highestHighRaw } = slidingMinMax(highs, period);
+    // The deque helper pads warm-up with null; the smoothing below works in
+    // NaN space, so map across (null → NaN keeps `isNaN` checks downstream).
+    const lowestLow = lowestLowRaw.map((v) => v ?? NaN);
+    const highestHigh = highestHighRaw.map((v) => v ?? NaN);
 
     const rawK = closes.map((c, i) => {
       const lo = lowestLow[i];

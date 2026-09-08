@@ -8,6 +8,14 @@ const ray: OverlayTemplate = {
   needDefaultYAxisFigure: true,
   createPointFigures: ({ coordinates, bounding }: any) => {
     if (coordinates.length > 1) {
+      // Identical anchor points (double-click at one spot): no direction,
+      // and the slope branch below would divide by zero (0/0 → NaN figure).
+      if (
+        coordinates[0].x === coordinates[1].x &&
+        coordinates[0].y === coordinates[1].y
+      ) {
+        return [];
+      }
       const coordinate = (() => {
         if (
           coordinates[0].x === coordinates[1].x &&

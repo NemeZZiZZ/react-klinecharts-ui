@@ -117,6 +117,13 @@ export function useOrderLines(): UseOrderLinesReturn {
         callbacksRef.current.set(id, onPriceChange);
       }
 
+      // Keep the tracked options in sync, otherwise a chart remount
+      // reconciles the line with the stale pre-update price/draggable.
+      const tracked = linesRef.current.get(id);
+      if (tracked) {
+        linesRef.current.set(id, { ...tracked, ...options, id });
+      }
+
       const dataList = state.chart.getDataList();
       const anchorTimestamp =
         dataList.length > 0 ? dataList[dataList.length - 1].timestamp : Date.now();

@@ -1,6 +1,6 @@
 ---
 title: useAlerts
-description: Client-side price alerts that fire when the close crosses a level.
+description: Client-side price alerts that fire when the price crosses a level.
 sidebar:
   order: 21
 ---
@@ -9,8 +9,11 @@ import { AlertsDemo } from "../../../demos/AlertsDemo";
 
 Client-side price alerts. Draws a **labelled** locked horizontal line for each
 alert (a Y-axis price mark plus a bell-marked caption above the line) and polls
-the latest candle once per second, firing a callback when the close price crosses
-the alert level. This is the primary hook for reacting to price events — e.g.
+the latest candle once per second, firing a callback when the price crosses
+the alert level. Crossing detection uses the previous (final) bar's close as
+the baseline and counts the forming bar's `high`/`low` as touching the level,
+so a wick that pierces the level and comes back between two ticks still fires.
+This is the primary hook for reacting to price events — e.g.
 forwarding a buy/sell signal to your backend or triggering a push notification.
 
 :::note[Multi-instance safe]
@@ -66,7 +69,7 @@ const off = onAlertTriggered((alert) => {
 | Property | Type | Description |
 | -------- | ---- | ----------- |
 | `alerts` | `Alert[]` | Current alerts (active and triggered) |
-| `addAlert` | `(price, condition, message?, extendData?, target?) => string` | Create an alert; returns its id. `extendData` (`AlertLineExtendData`) customizes the line/label. `target` (`AlertTarget`) watches a price level (default) or an indicator figure value |
+| `addAlert` | `(price, condition, message?, extendData?, target?) => string` | Create an alert; returns its id (returns `""` and creates nothing for a non-finite price). `extendData` (`AlertLineExtendData`) customizes the line/label. `target` (`AlertTarget`) watches a price level (default) or an indicator figure value |
 | `removeAlert` | `(id: string) => void` | Remove a single alert and its line |
 | `clearAlerts` | `() => void` | Remove all alerts |
 | `onAlertTriggered` | `(cb: (alert: Alert) => void) => () => void` | Register a firing listener; returns an unsubscribe. Multiple listeners are all invoked |
@@ -102,12 +105,12 @@ interface AlertLineExtendData {
 
 | Condition | Fires when |
 | --------- | ---------- |
-| `crossing_up` | Previous close `<` price **and** current close `>=` price |
-| `crossing_down` | Previous close `>` price **and** current close `<=` price |
+| `crossing_up` | Previous (final) bar close `<` price **and** (current close `>=` price **or** forming bar high `>=` price) |
+| `crossing_down` | Previous (final) bar close `>` price **and** (current close `<=` price **or** forming bar low `<=` price) |
 | `crossing` | Either direction |
 
 :::caution[Fires once]
-Detection is based on the **latest candle's close**, polled every second from
+Detection is polled every second from
 `chart.getDataList()`. An alert fires at most once (its `triggered` flag flips to
 `true`); recreate it to re-arm.
 :::

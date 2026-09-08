@@ -98,6 +98,7 @@ export function useChartSync({ cellId }: UseChartSyncOptions): void {
     chartsRef,
     broadcastingRef,
     sync,
+    state: workspaceState,
     dispatch: workspaceDispatch,
   } = useWorkspace();
   const { state } = useKlinechartsUI();
@@ -229,24 +230,43 @@ export function useChartSync({ cellId }: UseChartSyncOptions): void {
   // `useWorkspace().state.cells` and dispatch `SET_SYMBOL`/`SET_PERIOD` into
   // the per-cell provider when a cell entry changes. This effect only writes
   // outward to the workspace, never inward to the provider.)
+  // The workspace reducer always builds a new cells array, so dispatching an
+  // unchanged symbol/period still re-renders every workspace consumer. The
+  // mount run is the worst case: every cell reports the symbol/period it was
+  // created with. Skip the dispatch when the cell already holds an equal
+  // value (compared by value — the provider and the cell own distinct
+  // objects, so an identity check would never hit).
   useEffect(() => {
     if (state.symbol) {
-      workspaceDispatch({
-        type: "SET_CELL_SYMBOL",
-        id: cellId,
-        symbol: state.symbol,
-      });
+      const cellSymbol = workspaceState.cells.find((c) => c.id === cellId)?.symbol;
+      if (
+        cellSymbol?.ticker !== state.symbol.ticker ||
+        cellSymbol?.pricePrecision !== state.symbol.pricePrecision ||
+        cellSymbol?.volumePrecision !== state.symbol.volumePrecision
+      ) {
+        workspaceDispatch({
+          type: "SET_CELL_SYMBOL",
+          id: cellId,
+          symbol: state.symbol,
+        });
+      }
     }
     // cellId is a dep on purpose: without it a cell whose id prop changes
     // keeps dispatching symbol updates for the OLD id (workspaceDispatch is
     // the stable useReducer dispatch).
-  }, [state.symbol, cellId, workspaceDispatch]);
+  }, [state.symbol, cellId, workspaceDispatch, workspaceState.cells]);
 
   useEffect(() => {
-    workspaceDispatch({
-      type: "SET_CELL_PERIOD",
-      id: cellId,
-      period: state.period,
-    });
-  }, [state.period, cellId, workspaceDispatch]);
+    const cellPeriod = workspaceState.cells.find((c) => c.id === cellId)?.period;
+    if (
+      cellPeriod?.span !== state.period.span ||
+      cellPeriod?.type !== state.period.type
+    ) {
+      workspaceDispatch({
+        type: "SET_CELL_PERIOD",
+        id: cellId,
+        period: state.period,
+      });
+    }
+  }, [state.period, cellId, workspaceDispatch, workspaceState.cells]);
 }

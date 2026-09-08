@@ -1,10 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect } from "vitest";
 import { render, act } from "@testing-library/react";
-import { useEffect } from "react";
+import { useEffect, type Dispatch, type MutableRefObject } from "react";
 import type { KLineData } from "klinecharts";
 import { WorkspaceProvider, useWorkspace, type ChartCell } from "./index";
 import type { SyncConfig } from "./types";
+import type { KlinechartsUIAction } from "../provider/types";
 import { useChartSync } from "./useChartSync";
 import { KlinechartsUIProvider } from "../provider/ChartTerminalProvider";
 import { useKlinechartsUIDispatch } from "../provider/ChartTerminalContext";
@@ -266,8 +267,7 @@ describe("useChartSync — scroll mirrors the right edge by timestamp", () => {
   });
 });
 
-describe("useChartSync — zoom", () => {
-  it("mirrors the source bar space to siblings", () => {
+describe("useChartSync — zoom", () => {  it("mirrors the source bar space to siblings", () => {
     const source = createMockChart(bars(10));
     const target = createMockChart(bars(10));
     source.getBarSpace.mockReturnValue({ bar: 12, halfBar: 6, gapBar: 2 });
@@ -278,5 +278,73 @@ describe("useChartSync — zoom", () => {
     });
 
     expect(target.setBarSpace).toHaveBeenCalledWith(12);
+  });
+});
+
+describe("useChartSync — workspace mirror skips unchanged values", () => {
+  /** Records every workspace cells array identity across renders. */
+  const seen: ChartCell[][] = [];
+  function CellsProbe() {
+    const { state } = useWorkspace();
+    useEffect(() => {
+      seen.push(state.cells);
+    });
+    return null;
+  }
+
+  const dispatchRef: MutableRefObject<Dispatch<KlinechartsUIAction> | null> = {
+    current: null,
+  };
+  function DispatchGrab({
+    dispatchRef: ref,
+  }: {
+    dispatchRef: MutableRefObject<Dispatch<KlinechartsUIAction> | null>;
+  }) {
+    const { dispatch } = useKlinechartsUIDispatch();
+    useEffect(() => {
+      ref.current = dispatch;
+    });
+    return null;
+  }
+  function MirrorScene() {
+    const source = createMockChart(bars(10));
+    const target = createMockChart(bars(10));
+    return (
+      <WorkspaceProvider defaultCells={[cell("a"), cell("b")]}>
+        <CellsProbe />
+        <KlinechartsUIProvider
+          datafeed={fakeDatafeed()}
+          defaultSymbol={{ ticker: "a", pricePrecision: 2 }}
+        >
+          <DispatchGrab dispatchRef={dispatchRef} />
+          <Register id="b" chart={target} />
+          <Bridge cellId="a" chart={source} />
+        </KlinechartsUIProvider>
+      </WorkspaceProvider>
+    );
+  }
+
+  it("mount dispatches nothing when the cell already holds the same symbol/period", () => {
+    seen.length = 0;
+    render(<MirrorScene />);
+    act(() => {});
+    expect(seen.length).toBeGreaterThan(0);
+    // The workspace reducer always builds a new cells array, so any mount
+    // dispatch would show up as a second identity here (and re-render every
+    // workspace consumer once per cell).
+    for (const cells of seen) expect(cells).toBe(seen[0]);
+  });
+
+  it("a real symbol change still propagates to the workspace cell", () => {
+    seen.length = 0;
+    render(<MirrorScene />);
+    act(() => {
+      dispatchRef.current!({
+        type: "SET_SYMBOL",
+        symbol: { ticker: "ETHUSDT" },
+      });
+    });
+    const latest = seen[seen.length - 1];
+    expect(latest.find((c) => c.id === "a")?.symbol?.ticker).toBe("ETHUSDT");
   });
 });

@@ -8,6 +8,7 @@ import {
   type ReactElement,
 } from "react";
 import type {
+  Datafeed,
   KlinechartsUIOptions,
   KlinechartsUIState,
   KlinechartsUIAction,
@@ -16,9 +17,13 @@ import {
   KlinechartsUIStateContext,
   KlinechartsUIDispatchContext,
 } from "./ChartTerminalContext";
-import { DEFAULT_PERIODS } from "../data/periods";
+import { DEFAULT_PERIODS, type TerminalPeriod } from "../data/periods";
 import { registerExtensions, ensureAlertLineRegistered } from "../extensions";
-import { registerOverlay } from "klinecharts";
+import {
+  registerOverlay,
+  type KLineData,
+  type SymbolInfo,
+} from "klinecharts";
 import { resolveStorage, type ResolvedStorage, type StorageOptions } from "../storage";
 import { createUndoRedoStore } from "./undoRedoStore";
 import { createSharedState } from "./sharedState";
@@ -39,6 +44,11 @@ import {
   type LayoutEntry,
 } from "./layouts";
 import type { Alert } from "./featureTypes";
+import {
+  applyWatchlistTick,
+  blankWatchlistItem,
+  type WatchlistItem,
+} from "./watchlist";
 
 export function reducer(
   state: KlinechartsUIState,
@@ -99,6 +109,10 @@ export function reducer(
     case "SET_LOCALE":
       return { ...state, locale: action.locale };
     case "SET_SCREENSHOT_URL":
+      // Identity guard: the reset effect in useScreenshot fires on mount with
+      // url null while the state is already null — without this every mount
+      // pays a gratuitous re-render of the whole terminal.
+      if (state.screenshotUrl === action.url) return state;
       return { ...state, screenshotUrl: action.url };
     default:
       return state;
@@ -274,6 +288,24 @@ export function KlinechartsUIProvider({
   const autoSaveIdRef = useRef<string | null>(null);
   const autoSaveSignatureRef = useRef<string | null>(null);
 
+  // --- Shared watchlist + quote subscriptions -------------------------------
+  // Both the rows and the datafeed subscriptions are a property of the
+  // provider, not of a hook: with hook-local state two useWatchlist()
+  // consumers each subscribed to the same tickers (double quotes per tick)
+  // and rendered two independent lists. The provider owns ONE subscription
+  // per ticker and one shared row list.
+  const watchlistStore = useMemo(
+    () => createSharedState<unknown>([] as WatchlistItem[]),
+    [],
+  );
+  const watchlistSubsRef = useRef(
+    new Map<string, { symbolInfo: SymbolInfo; period: TerminalPeriod }>(),
+  );
+  // The datafeed the live subscriptions were opened on. Kept in a ref (not
+  // read from props at unsubscribe time) so a runtime datafeed swap
+  // unsubscribes from the OLD feed instead of leaking it.
+  const watchlistFeedRef = useRef<Datafeed | null>(null);
+
   // Provider-owned feature resources (single owner across all hook instances).
   // Multi-listener: several components (toolbar, status bar, sound trigger) can
   // observe alert firings without one overwriting the other.
@@ -368,6 +400,120 @@ export function KlinechartsUIProvider({
     return stopDrawingPoll;
   }, [state.chart, startDrawingPoll, stopDrawingPoll, refreshDrawingOverlays]);
 
+  // --- Shared watchlist subscriptions (one per ticker per provider) ---------
+  const updateWatchlistItem = useCallback(
+    (ticker: string, bar: KLineData) => {
+      const prev = watchlistStore.get() as WatchlistItem[];
+      if (!prev.some((item) => item.ticker === ticker)) return;
+      watchlistStore.set(applyWatchlistTick(prev, ticker, bar));
+    },
+    [watchlistStore],
+  );
+
+  const subscribeWatchlist = useCallback(
+    (ticker: string) => {
+      if (watchlistSubsRef.current.has(ticker)) return;
+      const symbolInfo = { ticker } as SymbolInfo;
+      const period = stateRef.current.period;
+      // Record the sub BEFORE subscribing so a concurrent unsubscribe can see
+      // it, but roll everything back if the feed throws — otherwise the
+      // dup-guard above would block every retry forever.
+      watchlistSubsRef.current.set(ticker, { symbolInfo, period });
+      try {
+        datafeed.subscribe(symbolInfo, period, (bar: KLineData) =>
+          updateWatchlistItem(ticker, bar),
+        );
+        watchlistFeedRef.current = datafeed;
+      } catch {
+        watchlistSubsRef.current.delete(ticker);
+        return;
+      }
+      const prev = watchlistStore.get() as WatchlistItem[];
+      if (!prev.some((item) => item.ticker === ticker)) {
+        watchlistStore.set([...prev, blankWatchlistItem(ticker)]);
+      }
+    },
+    [datafeed, updateWatchlistItem, watchlistStore],
+  );
+
+  const unsubscribeWatchlist = useCallback(
+    (ticker: string) => {
+      const sub = watchlistSubsRef.current.get(ticker);
+      if (sub) {
+        try {
+          (watchlistFeedRef.current ?? datafeed).unsubscribe(
+            sub.symbolInfo,
+            sub.period,
+          );
+        } catch {
+          // a failing feed must not break list management
+        }
+        watchlistSubsRef.current.delete(ticker);
+      }
+      const prev = watchlistStore.get() as WatchlistItem[];
+      if (prev.some((item) => item.ticker === ticker)) {
+        watchlistStore.set(prev.filter((item) => item.ticker !== ticker));
+      }
+    },
+    [datafeed, watchlistStore],
+  );
+
+  // Re-subscribe every watchlist ticker when the period changes: subscriptions
+  // are pinned to the period captured at add-time, and without this the rows
+  // kept quoting the old timeframe after a period switch. Periods are compared
+  // by value (span/type) so a mere object-identity churn does not churn
+  // subscriptions. A datafeed swap re-opens the subs on the new feed while
+  // unsubscribing from the one they were opened on.
+  useEffect(() => {
+    const period = state.period;
+    // Snapshot the feed the subs were OPENED on before the loop: assigning
+    // watchlistFeedRef inside forEach let the second ticker observe the
+    // already-updated ref, conclude "same feed", and stay subscribed on the
+    // old feed (leak + silence) — or unsubscribe from the wrong feed when the
+    // period changed alongside the feed swap.
+    const openedFeed = watchlistFeedRef.current ?? datafeed;
+    const sameFeed = openedFeed === datafeed;
+    watchlistSubsRef.current.forEach((sub, ticker) => {
+      const samePeriod =
+        sub.period.span === period.span && sub.period.type === period.type;
+      if (samePeriod && sameFeed) return;
+      try {
+        openedFeed.unsubscribe(sub.symbolInfo, sub.period);
+      } catch {
+        // ignore — the row below re-subscribes either way
+      }
+      const symbolInfo = { ticker } as SymbolInfo;
+      watchlistSubsRef.current.set(ticker, { symbolInfo, period });
+      datafeed.subscribe(symbolInfo, period, (bar: KLineData) =>
+        updateWatchlistItem(ticker, bar),
+      );
+    });
+    if (watchlistSubsRef.current.size > 0) {
+      watchlistFeedRef.current = datafeed;
+    }
+  }, [state.period, datafeed, updateWatchlistItem]);
+
+  // Unsubscribe everything on provider unmount (the hook no longer owns any
+  // subscription, so a shared per-ticker sub must not outlive the provider).
+  // Reads the feed from watchlistFeedRef — the one the subs were opened on —
+  // so no prop belongs in the dep array.
+  useEffect(() => {
+    const subs = watchlistSubsRef.current;
+    return () => {
+      const feed = watchlistFeedRef.current;
+      if (feed) {
+        subs.forEach((sub) => {
+          try {
+            feed.unsubscribe(sub.symbolInfo, sub.period);
+          } catch {
+            // teardown must not throw
+          }
+        });
+      }
+      subs.clear();
+    };
+  }, []);
+
   /**
    * Wraps dispatch so that per-action callbacks are called synchronously.
    * Because React's dispatch is async, we pre-compute the new state by
@@ -430,17 +576,22 @@ export function KlinechartsUIProvider({
 
   // Reconcile persisted alerts onto the chart. Alerts hydrate from storage
   // into state, but their alertLine overlays are otherwise created only by
-  // useAlerts.addAlert — so after a reload (or a chart remount) the alert
-  // list and the poller were live while no lines existed on the chart, and
-  // removeAlert's removeOverlay silently no-oped. Recreate the lines whenever
-  // the chart instance appears; incremental add/remove stays in useAlerts.
+  // useAlerts.addAlert — so after a reload (or a chart remount, or an addAlert
+  // call made before the chart existed) the alert list and the poller were
+  // live while no lines existed on the chart, and removeAlert's removeOverlay
+  // silently no-oped. Recreate missing lines whenever the chart instance or
+  // the alert list changes; incremental add/remove stays in useAlerts.
   useEffect(() => {
     const chart = state.chart;
     if (!chart) return;
-    const alerts = stateRef.current.alerts;
+    const alerts = state.alerts;
     if (alerts.length === 0) return;
     ensureAlertLineRegistered();
     for (const alert of alerts) {
+      // Guard against duplicates: addAlert already creates the overlay on the
+      // happy path, and re-running this effect must not stack a second line.
+      if (chart.getOverlays({ id: alert.id, groupId: "price_alerts" }).length > 0)
+        continue;
       chart.createOverlay({
         name: "alertLine",
         id: alert.id,
@@ -450,7 +601,7 @@ export function KlinechartsUIProvider({
         lock: true,
       });
     }
-  }, [state.chart]);
+  }, [state.chart, state.alerts]);
 
   // Provider-owned price-alert poller (single owner). Runs one 1s interval —
   // only while there is a chart and at least one alert — reads the live alert
@@ -823,6 +974,9 @@ export function KlinechartsUIProvider({
       refreshDrawingOverlays,
       layoutStore,
       layoutAutoSaveStore,
+      watchlistStore,
+      subscribeWatchlist,
+      unsubscribeWatchlist,
       alertTriggeredListenersRef,
       replayIntervalRef,
       replaySavedDataRef,
@@ -841,6 +995,9 @@ export function KlinechartsUIProvider({
       refreshDrawingOverlays,
       layoutStore,
       layoutAutoSaveStore,
+      watchlistStore,
+      subscribeWatchlist,
+      unsubscribeWatchlist,
     ],
   );
 

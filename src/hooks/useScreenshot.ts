@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { useKlinechartsUI } from "../provider/ChartTerminalContext";
 
 export interface UseScreenshotReturn {
@@ -33,6 +33,13 @@ export function useScreenshot(): UseScreenshotReturn {
   const clear = useCallback(() => {
     dispatch({ type: "SET_SCREENSHOT_URL", url: null });
   }, [dispatch]);
+
+  // A captured data-URL depicts a concrete chart/symbol/period. The chart is
+  // NOT remounted on symbol/period change (it reloads data in place), so
+  // without this the hook keeps serving a stale picture of the old symbol.
+  useEffect(() => {
+    dispatch({ type: "SET_SCREENSHOT_URL", url: null });
+  }, [state.chart, state.symbol, state.period, dispatch]);
 
   return {
     screenshotUrl: state.screenshotUrl,

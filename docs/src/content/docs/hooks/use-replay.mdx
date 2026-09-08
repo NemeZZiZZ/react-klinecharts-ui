@@ -33,6 +33,9 @@ const {
   seekTo,
   setSpeed,
 } = useReplay();
+
+// Opt-in: cap the buffered window for very long histories.
+const capped = useReplay({ maxBars: 2000 });
 ```
 
 ## Try it
@@ -55,3 +58,8 @@ const {
 | `stepBackward` | `() => void` | Go back one bar while paused |
 | `seekTo` | `(index: number) => void` | Seek to a bar index (pauses playback) |
 | `setSpeed` | `(speed: ReplaySpeed) => void` | Change the playback speed |
+
+At higher speeds steps are grouped so the chart reloads at most 6 times per
+second (`MAX_RELOADS_PER_SECOND`) while keeping the same wall-clock pace. The
+optional `useReplay({ maxBars })` caps how many trailing bars are buffered for
+the session (uncapped by default); `totalBars` then reflects the capped window.

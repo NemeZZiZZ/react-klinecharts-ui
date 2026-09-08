@@ -77,6 +77,14 @@ export function useCompare(): UseCompareReturn {
   // the continuation ran. removeSymbol/clearAll/unmount delete from this set,
   // which is how the post-await continuation knows to bail out.
   const pendingRef = useRef<Set<string>>(new Set());
+  // `addSymbol`/`toggleSymbol` only need the CURRENT list to pick a color /
+  // resolve visibility — closing over the `symbols` state array would recreate
+  // both callbacks (and every downstream memo) on each add/remove/toggle. A
+  // ref mirror keeps their identities stable across list changes.
+  const symbolsRef = useRef<CompareSymbol[]>([]);
+  useEffect(() => {
+    symbolsRef.current = symbols;
+  }, [symbols]);
   // Per-instance salt so two simultaneously-mounted useCompare instances
   // (e.g. multi-terminal on one page) comparing the SAME ticker don't
   // overwrite each other's `calc` closure in klinecharts' global registry.
@@ -94,11 +102,11 @@ export function useCompare(): UseCompareReturn {
       // A leaves length 1, so the next symbol is painted with B's color too.
       // Falls back to the length-based pick once every color is taken, which
       // keeps it stable across add/remove/clear cycles and re-mounts.
-      const usedColors = new Set(symbols.map((s) => s.color));
+      const usedColors = new Set(symbolsRef.current.map((s) => s.color));
       const assignedColor =
         color ??
         DEFAULT_COLORS.find((c) => !usedColors.has(c)) ??
-        DEFAULT_COLORS[symbols.length % DEFAULT_COLORS.length];
+        DEFAULT_COLORS[symbolsRef.current.length % DEFAULT_COLORS.length];
 
       const mainDataList = state.chart.getDataList();
       if (!mainDataList || mainDataList.length === 0) return;
@@ -271,7 +279,7 @@ export function useCompare(): UseCompareReturn {
         ];
       });
     },
-    [state.chart, state.symbol, state.period, datafeed, symbols, instanceSalt],
+    [state.chart, state.symbol, state.period, datafeed, instanceSalt],
   );
 
   const removeSymbol = useCallback(
@@ -298,7 +306,7 @@ export function useCompare(): UseCompareReturn {
       const info = indicatorsRef.current.get(ticker);
       if (!info || !state.chart) return;
 
-      const sym = symbols.find((s) => s.ticker === ticker);
+      const sym = symbolsRef.current.find((s) => s.ticker === ticker);
       if (!sym) return;
       const newVisible = !sym.visible;
 
@@ -317,7 +325,7 @@ export function useCompare(): UseCompareReturn {
         ),
       );
     },
-    [state.chart, symbols],
+    [state.chart],
   );
 
   const clearAll = useCallback(() => {
@@ -360,8 +368,16 @@ export function useCompare(): UseCompareReturn {
       return;
     // Deferred: calling setState synchronously inside an effect triggers
     // cascading renders (react-hooks lint), and the chart's own reload effect
-    // runs in the same commit anyway.
-    queueMicrotask(() => clearAll());
+    // runs in the same commit anyway. Guarded: without cancellation a stale
+    // microtask fires after unmount (or after a newer symbol change already
+    // re-added comparisons) and wipes state that no longer belongs to it.
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) clearAll();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [state.symbol, state.period, clearAll]);
 
   return { symbols, addSymbol, removeSymbol, toggleSymbol, clearAll };

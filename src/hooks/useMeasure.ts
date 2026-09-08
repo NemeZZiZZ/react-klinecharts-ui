@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useKlinechartsUI } from "../provider/ChartTerminalContext";
 import type { MeasurePoint, MeasureResult } from "../provider/featureTypes";
 
@@ -42,6 +42,16 @@ export function useMeasure(): UseMeasureReturn {
   const { state, dispatch } = useKlinechartsUI();
   const { isActive, fromPoint, result } = state.measure;
 
+  // The draw-end callback below outlives the render that created it (it fires
+  // on a later user click), so it must not close over `state.chart` from
+  // startMeasure time: after a chart swap that instance is gone and
+  // getDataList() would measure against discarded data. (`dispatch` is stable
+  // and safe to close over.)
+  const chartRef = useRef(state.chart);
+  useEffect(() => {
+    chartRef.current = state.chart;
+  }, [state.chart]);
+
   const cleanup = useCallback(() => {
     state.chart?.removeOverlay({ id: MEASURE_OVERLAY_ID });
   }, [state.chart]);
@@ -74,7 +84,7 @@ export function useMeasure(): UseMeasureReturn {
         const points = overlay?.points;
         if (!points || points.length < 2) return;
 
-        const chart = state.chart;
+        const chart = chartRef.current;
         if (!chart) return;
 
         const dataList = chart.getDataList();

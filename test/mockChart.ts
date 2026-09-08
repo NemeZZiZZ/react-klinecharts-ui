@@ -45,6 +45,7 @@ export interface MockChart {
   setBarSpace: ReturnType<typeof vi.fn>;
   convertFromPixel: ReturnType<typeof vi.fn>;
   convertToPixel: ReturnType<typeof vi.fn>;
+  getConvertPictureUrl: ReturnType<typeof vi.fn>;
   __data: KLineData[];
   /** Replace the mock's underlying data list (e.g. to simulate a reload). */
   __setData: (next: KLineData[]) => void;
@@ -195,6 +196,7 @@ export function createMockChart(initialData: KLineData[] = []): MockChart {
     // exercise sync override them.
     convertFromPixel: vi.fn(() => []),
     convertToPixel: vi.fn(() => ({})),
+    getConvertPictureUrl: vi.fn(() => "data:image/jpeg;base64,"),
   } as MockChart;
 
   // `__data` is a live view of the `data` closure variable so it never diverges

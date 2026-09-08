@@ -28,6 +28,7 @@ import {
 } from "../provider/layouts";
 import { DRAWING_GROUP_ID } from "../provider/drawingOverlays";
 import type { SharedState } from "../provider/types";
+import type { OverlayMode } from "klinecharts";
 
 // Re-exported: the types moved to the provider layer, the public API of the
 // hook (and of the package) keeps exposing them from here.
@@ -367,6 +368,13 @@ export function useLayoutManager(): UseLayoutManagerReturn {
             // Restore into the drawing group so useDrawingTools (which lists
             // and removes by groupId) sees the restored overlays.
             groupId: DRAWING_GROUP_ID,
+            // Persisted drawing flags (lock/visible/mode) — without them a
+            // locked or hidden drawing reloaded unlocked and visible.
+            ...(drawing.lock != null ? { lock: drawing.lock } : {}),
+            ...(drawing.visible != null ? { visible: drawing.visible } : {}),
+            ...(drawing.mode != null
+              ? { mode: drawing.mode as OverlayMode }
+              : {}),
           });
         }
       }

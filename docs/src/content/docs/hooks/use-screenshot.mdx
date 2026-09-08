@@ -21,7 +21,9 @@ const { screenshotUrl, capture, download, clear } = useScreenshot();
 | `clear()` | `() => void` | Clear `screenshotUrl` from state |
 
 The screenshot is produced via `chart.getConvertPictureUrl(true, "jpeg", bgColor)`.
-Background depends on the theme: `#151517` (dark) / `#ffffff` (light).
+Background depends on the theme: `#151517` (dark) / `#ffffff` (light). The
+stored URL is cleared automatically when the chart instance, symbol or period
+changes (a capture always depicts one concrete chart state).
 
 ## Try it
 

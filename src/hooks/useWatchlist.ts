@@ -1,17 +1,12 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import {
   useKlinechartsUI,
   useKlinechartsUIDispatch,
 } from "../provider/ChartTerminalContext";
-import type { SymbolInfo, KLineData } from "klinecharts";
-import type { TerminalPeriod } from "../data/periods";
+import type { WatchlistItem } from "../provider/watchlist";
+import type { SharedState } from "../provider/types";
 
-export interface WatchlistItem {
-  ticker: string;
-  lastPrice: number | null;
-  change: number | null;
-  changePercent: number | null;
-}
+export type { WatchlistItem } from "../provider/watchlist";
 
 export interface UseWatchlistReturn {
   items: WatchlistItem[];
@@ -21,67 +16,43 @@ export interface UseWatchlistReturn {
   activeSymbol: string | null;
 }
 
+/**
+ * Headless watchlist hook.
+ *
+ * The rows AND the datafeed subscriptions live in the provider-owned
+ * `watchlistStore` (see `provider/watchlist.ts`): every `useWatchlist()`
+ * instance of one provider observes and mutates one list, and each ticker is
+ * subscribed exactly once no matter how many components use the hook. The
+ * provider also re-subscribes all tickers when the period changes —
+ * subscriptions are pinned to a period, so without that the rows would keep
+ * quoting the old timeframe after a period switch.
+ */
 export function useWatchlist(): UseWatchlistReturn {
   const { state } = useKlinechartsUI();
-  const { dispatch, datafeed } = useKlinechartsUIDispatch();
+  const {
+    dispatch,
+    watchlistStore,
+    subscribeWatchlist,
+    unsubscribeWatchlist,
+  } = useKlinechartsUIDispatch();
 
-  const [items, setItems] = useState<WatchlistItem[]>([]);
-
-  // Track active subscriptions so we can clean them up.
-  const subscriptionsRef = useRef<
-    Map<string, { symbolInfo: SymbolInfo; period: TerminalPeriod }>
-  >(new Map());
+  const store = watchlistStore as unknown as SharedState<WatchlistItem[]>;
+  const items = useSyncExternalStore(store.subscribe, store.get, store.get);
 
   const activeSymbol = state.symbol?.ticker ?? null;
 
   const addSymbol = useCallback(
     (ticker: string) => {
-      // Prevent duplicates.
-      setItems((prev) => {
-        if (prev.some((item) => item.ticker === ticker)) return prev;
-        return [
-          ...prev,
-          { ticker, lastPrice: null, change: null, changePercent: null },
-        ];
-      });
-
-      if (subscriptionsRef.current.has(ticker)) return;
-
-      const symbolInfo = { ticker } as SymbolInfo;
-      const period = state.period;
-
-      subscriptionsRef.current.set(ticker, { symbolInfo, period });
-
-      datafeed.subscribe(symbolInfo, period, (bar: KLineData) => {
-        setItems((prev) =>
-          prev.map((item) => {
-            if (item.ticker !== ticker) return item;
-            const change = bar.close - bar.open;
-            const changePercent =
-              bar.open !== 0 ? (change / bar.open) * 100 : null;
-            return {
-              ...item,
-              lastPrice: bar.close,
-              change,
-              changePercent,
-            };
-          }),
-        );
-      });
+      subscribeWatchlist(ticker);
     },
-    [datafeed, state.period],
+    [subscribeWatchlist],
   );
 
   const removeSymbol = useCallback(
     (ticker: string) => {
-      const sub = subscriptionsRef.current.get(ticker);
-      if (sub) {
-        datafeed.unsubscribe(sub.symbolInfo, sub.period);
-        subscriptionsRef.current.delete(ticker);
-      }
-      setItems((prev) => prev.filter((item) => item.ticker !== ticker));
+      unsubscribeWatchlist(ticker);
     },
-    [datafeed],
+    [unsubscribeWatchlist],
   );
 
   const switchSymbol = useCallback(
@@ -90,16 +61,6 @@ export function useWatchlist(): UseWatchlistReturn {
     },
     [dispatch],
   );
-
-  // Clean up all subscriptions on unmount.
-  useEffect(() => {
-    return () => {
-      subscriptionsRef.current.forEach((sub) => {
-        datafeed.unsubscribe(sub.symbolInfo, sub.period);
-      });
-      subscriptionsRef.current.clear();
-    };
-  }, [datafeed]);
 
   return {
     items,

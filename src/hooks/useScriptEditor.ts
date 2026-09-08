@@ -1,6 +1,6 @@
-import { useState, useCallback, useRef, useId } from "react";
+import { useState, useCallback, useEffect, useRef, useId } from "react";
 import { registerIndicator } from "klinecharts";
-import type { KLineData } from "klinecharts";
+import type { Chart, KLineData } from "klinecharts";
 import { useKlinechartsUI } from "../provider/ChartTerminalContext";
 import TA from "../utils/TA";
 
@@ -106,14 +106,23 @@ export function useScriptEditor(): UseScriptEditorReturn {
   const [status, setStatus] = useState("");
   const [isRunning, setIsRunning] = useState(false);
 
-  const activeIdRef = useRef<string | null>(null);
-  // `hasActiveScript` is reactive so the UI (e.g. a "Remove" button) updates
-  // immediately when a script is run/removed. The previous implementation read
-  // `activeNameRef.current` during render, which never triggered a re-render.
-  const [activeName, setActiveName] = useState<string | null>(null);
-  const activeNameRef = useRef<string | null>(null);
-  activeNameRef.current = activeName;
-  const hasActiveScript = activeName !== null;
+  // The live script binding. `hasActiveScript` is reactive so the UI (e.g. a
+  // "Remove" button) updates immediately when a script is run/removed. The
+  // owning chart is stored alongside the ids: the chart is NOT remounted on a
+  // symbol/period change but IS replaced on remount, and the new instance has
+  // none of our indicators — deriving `hasActiveScript` with a chart-identity
+  // check (instead of a bare non-null flag) stops the UI from claiming a live
+  // script whose ids point at a discarded chart, with no reset effect needed.
+  const [active, setActive] = useState<{
+    chart: Chart;
+    name: string;
+    id: string | null;
+  } | null>(null);
+  const activeRef = useRef(active);
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
+  const hasActiveScript = active !== null && active.chart === state.chart;
   // Per-instance salt for the registered template name (same pattern as
   // useCompare). The klinecharts registry is global: two provider instances
   // (multi-chart workspace) sharing one template name would silently
@@ -211,12 +220,15 @@ export function useScriptEditor(): UseScriptEditorReturn {
         },
       });
 
-      // Remove previous custom script indicator if exists
-      if (activeNameRef.current) {
+      // Remove the previous custom script indicator, from the chart it was
+      // created on (after a chart swap that instance is gone and its ids are
+      // meaningless on the new one).
+      const prev = activeRef.current;
+      if (prev && prev.id) {
         try {
-          chart.removeIndicator({
-            id: activeIdRef.current!,
-            name: activeNameRef.current,
+          prev.chart.removeIndicator({
+            id: prev.id,
+            name: prev.name,
           } as any);
         } catch {
           // ignore
@@ -236,8 +248,13 @@ export function useScriptEditor(): UseScriptEditorReturn {
         indicatorId = chart.createIndicator({ name: indicatorName }, false);
       }
 
-      activeIdRef.current = typeof indicatorId === "string" ? indicatorId : null;
-      setActiveName(indicatorName);
+      const bound: { chart: Chart; name: string; id: string | null } = {
+        chart,
+        name: indicatorName,
+        id: typeof indicatorId === "string" ? indicatorId : null,
+      };
+      activeRef.current = bound;
+      setActive(bound);
 
       const title = scriptName.trim() || `Script #${scriptCounter}`;
       setStatus(
@@ -251,21 +268,21 @@ export function useScriptEditor(): UseScriptEditorReturn {
   }, [state.chart, code, scriptName, params, placement, instanceSalt]);
 
   const removeScript = useCallback(() => {
-    const chart = state.chart;
-    if (chart && activeNameRef.current && activeIdRef.current) {
+    const prev = activeRef.current;
+    if (prev && prev.id) {
       try {
-        chart.removeIndicator({
-          id: activeIdRef.current,
-          name: activeNameRef.current,
+        prev.chart.removeIndicator({
+          id: prev.id,
+          name: prev.name,
         } as any);
       } catch {
         // ignore
       }
-      activeIdRef.current = null;
-      setActiveName(null);
+      activeRef.current = null;
+      setActive(null);
       setStatus("Indicator removed.");
     }
-  }, [state.chart]);
+  }, []);
 
   const resetCode = useCallback(() => {
     setCode(DEFAULT_SCRIPT);

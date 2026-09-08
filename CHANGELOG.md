@@ -4,7 +4,7 @@ All notable changes to **react-klinecharts-ui** are documented in this file.
 
 ---
 
-## Unreleased
+## 2.2.0 — 2026-09-08
 
 ### Fixed
 
@@ -168,6 +168,87 @@ mouse path.
   renaming, deleting or auto-saving re-read and `JSON.parse`d every stored
   layout to refresh the list. The list is now updated incrementally
   (`upsertLayout` / `removeLayoutFromList`) and only read in full on mount.
+- **`useWatchlist` double-subscribed with two instances.** Items and the
+  subscription map were hook-local, so two components using the hook each
+  opened a datafeed subscription per ticker (two quotes per tick) and rendered
+  divergent lists. Both now live in a provider-owned store with one
+  subscription per ticker (`subscribeWatchlist` / `unsubscribeWatchlist`).
+- **Watchlist quotes stuck to the old timeframe after a period switch.**
+  Subscriptions captured the period at add-time and were never revisited, so
+  the rows kept quoting the previous timeframe. The provider re-subscribes
+  every ticker when `state.period` changes (compared by span/type value, so a
+  mere object-identity churn does not churn subscriptions) and on a datafeed
+  swap — unsubscribing from the feed the sub was opened on, not the new one.
+- **`useAlerts.removeAlert` could delete a foreign overlay.** It called
+  `removeOverlay({ id })` without the `price_alerts` group this hook assigns
+  at creation — a bare `{ id }` drops the FIRST overlay with that id in ANY
+  group, so an id clash with a drawing/order overlay removed that one instead
+  (same defect class as the drawing-tools `groupId` fix).
+- **`useAlerts.addAlert` accepted non-finite prices.** A `NaN`/`Infinity` alert
+  can never cross anything (the poller comparisons stay false) and its overlay
+  label rendered "NaN". The call is now ignored and returns `""`.
+- **`useScreenshot` served a stale picture after a symbol/period change.** The
+  captured data-URL depicts one concrete chart state, but the chart reloads in
+  place without remounting, so the old screenshot survived indefinitely. The
+  hook resets the URL when the chart instance, symbol or period changes (plus
+  an identity guard in the `SET_SCREENSHOT_URL` reducer so the mount reset
+  does not re-render the terminal for nothing).
+- **`useScriptEditor` wrote a ref during render and leaked across chart swaps.**
+  `activeNameRef.current = activeName` ran in the render body (impure under
+  concurrent rendering), and the active id/name pointed at the discarded chart
+  after a remount — `hasActiveScript` stayed true for a script that no longer
+  existed, and `removeScript()` fired at the NEW chart with the OLD id. The
+  binding (`chart`, `name`, `id`) is now one state object synced to a ref in an
+  effect, and `hasActiveScript` additionally requires the bound chart to be the
+  current one — no reset effect needed. `removeScript` is chart-independent
+  (stable identity) and removes from the chart the script was created on.
+- **`useMeasure` measured against a discarded chart.** `onDrawEnd` closed over
+  `state.chart` from `startMeasure` time; when the chart swapped between the
+  two clicks, the result was computed from the old instance's data. The
+  callback now reads the chart through a ref.
+- **`orderLine` / `alertLine` threw on an empty drag.** `performEventPressedMove`
+  assigned `points[0].value` unconditionally — a drag event with no points (or
+  no `performPoint.value`) raised a TypeError inside klinecharts' drag handling.
+  Both now bail out on missing data.
+- **`useCompare` ran a stale clear-all after unmount.** The symbol/period-change
+  `queueMicrotask(() => clearAll())` was never cancelled, so it could wipe a
+  list that no longer belonged to it. It now carries a cancellation flag
+  (same discipline as the drawing-tools microtask fix).
+- **`useSymbolSearch` queried a stale datafeed.** The debounced continuation
+  closed over the `datafeed` prop from keystroke time; a feed swap inside the
+  debounce window sent the search to the old feed. It now reads the feed
+  through a ref (which also keeps `setQuery` identity stable across swaps).
+- **TA math poisoned by one non-finite value.** `sma`/`ema`/`rma` folded every
+  input into a running accumulator unconditionally, so a single `NaN` turned
+  the rest of the series into `NaN` forever (EMA/RMA even seeded `NaN` when it
+  sat in the head). All three now restart their window/seed on non-finite
+  input and emit `null` until a fresh window accumulates; degenerate periods
+  emit all-`null` instead of dividing by zero.
+- **`TA.rsi` returned 100 on a flat market.** With no up AND no down movement
+  the ratio is 0/0 (Pine yields na); the `down === 0` branch caught it and
+  reported maximum bullishness. All-zero Wilder averages now yield `null`.
+- **`TA.vwap` had no session reset.** It accumulated from bar 0 forever, unlike
+  the `vwap` chart indicator (UTC-day reset) — a line dragged by yesterday's
+  volume. It accepts an optional `timestamps` array plus a session key
+  (`"utc-day"` by default, or a custom `(ts) => key` function); without
+  timestamps the behavior is unchanged.
+- **`stochastic` scanned every window from scratch (O(n·period)).** The
+  lowest-low/highest-high double loop now runs through O(n) monotone deques
+  (`src/indicators/window.ts`), verified value-identical against the naive
+  loop.
+- **`ichimoku` re-scanned windows up to 3× per bar.** Tenkan/kijun/spanB were
+  recomputed inside the per-bar map (tenkan walked again for spanA's
+  `prevTenkan`, etc.). Each window is now computed once up front with the
+  shared deque helper; spanA/spanB read off the precomputed lines at
+  `index - offset` with identical values.
+- **`TA.stdev` / `TA.wma` / `TA.bollinger` are single-pass O(n).** `stdev` used
+  Var = E[x²] − E[x]² over a running sum/sum-of-squares instead of re-scanning
+  each window against a separately allocated SMA array; `wma` uses the sliding
+  recurrence instead of re-summing `period` weighted terms per bar; `bollinger`
+  derives mid and width from one shared window instead of calling `sma` AND
+  `stdev` (which called `sma` again — three passes, two throwaway arrays).
+  `cci` keeps its exact mean-absolute-deviation loop (no exact incremental
+  form exists) but now documents it.
 
 ### Changed
 
@@ -178,6 +259,12 @@ mouse path.
   while at least one hook is subscribed and a chart exists, and the snapshot is
   published through a shared store, so every consumer re-renders only when the
   list actually changes (`drawingOverlaysEqual`).
+- **The workspace mirror dispatched unchanged values on every mount.**
+  `useChartSync` reported its symbol/period to the workspace unconditionally,
+  and the workspace reducer always builds a new cells array — so each cell's
+  mount re-rendered every workspace consumer for nothing. Both effects now
+  compare by value (ticker/precisions, span/type) and skip the dispatch when
+  the cell already agrees.
 - **The layout list and auto-save moved to the provider.** `layouts`,
   `autoSaveEnabled` and the 5s sweep were hook-local, so two `useLayoutManager`
   instances each kept a private list (a save in one was invisible to the other)
@@ -200,6 +287,111 @@ mouse path.
   `autoSaveEnabled` is shared.
 - `useUndoRedo` tests (+2): the history is cleared on a symbol change, and a
   redo re-creates the drawing with its `lock` / `visible` / `mode`.
+- `src/hooks/useWatchlist.test.tsx` (+6): two instances share one list and one
+  subscription per ticker, no resubscribe on a duplicate add, ticks update both
+  instances, one unsubscribe on remove, re-subscribe on the new timeframe after
+  a period change (row survives), and shared `activeSymbol`.
+- `src/hooks/useAlerts.test.ts` (+4): `NaN`/`Infinity`/`-Infinity` prices are
+  ignored (`""`, no alert, no overlay) and `removeAlert` scopes the removal to
+  `groupId: "price_alerts"`.
+- `src/hooks/useScreenshot.test.ts` (+4), `useScriptEditor.test.ts` (+4),
+  `useMeasure.test.ts` (+2): capture stores the URL; symbol change and chart
+  swap clear it; run/swap/remove semantics of the script binding; measure
+  result shape and measuring against the current chart after a swap.
+- `src/hooks/useCompare.test.ts` (+1): `addSymbol`/`toggleSymbol` keep their
+  identity across list changes. `src/hooks/useSymbolSearch.test.tsx` (+1): a
+  pending debounced search queries the swapped-in feed.
+- `src/workspace/useChartSync.test.tsx` (+2): mount dispatches nothing when the
+  cell already agrees (cells array identity stable), and a real symbol change
+  still propagates.
+- `src/utils/TA.test.ts` (+14): NaN recovery for sma/ema/rma/wma/stdev,
+  all-null degenerate periods, RSI `null` on a flat series, O(n) recurrence
+  equivalence vs the naive loops (wma/stdev, several periods), bollinger
+  consistency with sma/stdev, and VWAP session reset (default UTC-day, custom
+  key, back-compatible cumulative mode).
+- `src/indicators/window.test.ts` (+4): the deque min/max matches the naive
+  loop on random/monotonic/constant series, degenerate periods, and warm-up
+  behavior. `src/extensions/overlays/dragGuard.test.ts` (+6): the drag guards
+  on `orderLine` / `alertLine`.
+
+### Fixed
+
+- **Watchlist re-subscription could leak one feed per extra ticker (round-4
+  audit).** The provider effect that re-subscribes watchlist rows on a
+  datafeed/period change assigned `watchlistFeedRef.current = datafeed` INSIDE
+  the loop over subscriptions. With two or more tickers and a datafeed swap,
+  the first ticker updated the ref and every subsequent ticker compared the new
+  feed against itself (`sameFeed === true`) and returned early — it stayed
+  subscribed on the OLD feed forever (leak) and received no quotes from the new
+  one. When feed AND period changed together, those tickers also unsubscribed
+  on the wrong feed. The opened feed is now captured once before the loop and
+  the ref is assigned a single time after it.
+- **Layouts dropped drawing `lock` / `visible` / `mode`.**
+  `serializeChartLayout` persisted only name/points/styles/extendData, so a
+  locked or hidden drawing reloaded from a layout came back unlocked and
+  visible (undo/redo had the same fix in the previous round; layouts were
+  missed). The three flags are now persisted and passed back to
+  `createOverlay` on restore.
+- **Alerts stopped re-materializing their overlays after the first chart.**
+  The reconciliation effect ran only on `state.chart` changes with a
+  mount-time list: an alert added while no chart existed, or after the chart
+  was replaced, never got its `price_alerts` line. The effect now also depends
+  on `state.alerts` and skips alerts whose overlay already exists.
+- **A re-initialized indicator lost `visible: true`.** The canvas bootstrap
+  override only forwarded `visible: false` from the persisted visibility map;
+  an explicit `true` fell through to the template default (invisible templates
+  stayed invisible after a reload). The override now forwards the stored value
+  in both directions.
+- **`updateOrderLine` / `updateAnnotation` were lost on a chart remount.** The
+  updates mutated the live overlay but not the reconciliation source
+  (`linesRef` / state), so a chart swap re-created the line with the OLD
+  price/draggable and the annotation with the OLD text/color. Both updates now
+  also land in the reconciliation source.
+- **`brush` stored bar indices disguised as timestamps.** `extendData.points`
+  (which `serializeChartLayout` persists into layouts) filled `timestamp` with
+  `xAxis.convertFromPixel(x)` — the axis-level converter returns a DATA INDEX,
+  so a saved freehand stroke shifted by one bar for every bar of prepended
+  history and broke entirely when the index pointed past the data list. Strokes
+  are now anchored with `convertTimestampToPixel` / `convertTimestampFromPixel`
+  and carry real timestamps; indices found in previously saved layouts are
+  repaired against the data list on load (values `< 1e8` are treated as legacy
+  indices).
+- **Identical ray points produced a NaN figure.** `ray` / `getRayLine`
+  (`src/overlays/utils.ts`) computed a slope of 0/0 when both points were equal
+  and emitted a coordinate of `NaN`. Both now return no figure.
+- **Position overlays ignored `pricePrecision`.** `longPosition` /
+  `shortPosition` rendered Target/Stop labels with `toFixed(2)`; they now use
+  the chart symbol's `pricePrecision` (falling back to 2) and guard against a
+  missing second point instead of a non-null assertion.
+- **VWAP / pivot points built a `Date` per bar.** The session key used
+  `new Date(ts).toISOString().slice(0, 10)` per bar per calc pass; it is now
+  integer math (`Math.floor(ts / 86_400_000)`), matching `TA.vwap`.
+- **A throwing `datafeed.subscribe` zombie-blocked the ticker.**
+  `subscribeWatchlist` recorded the subscription BEFORE calling it; when the
+  feed threw, the row was never added yet the duplicate guard rejected every
+  retry. The entry is now rolled back on throw.
+- **Docs (`docs/utilities/ta.md`).** The signature table still listed
+  `TA.sma/ema/rma/wma/stdev` as `number[]` (they return `(number|null)[]`
+  since the NaN-handling fix), and listed a `TA.stoch(...)` that does not
+  exist (stochastic lives in `src/indicators/stochastic.ts`); both corrected.
+
+### Added
+
+- `TA.macd(data, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9)` and
+  `TA.bollinger(data, period = 20, multiplier = 2)` now carry the defaults the
+  documentation always promised — previously a doc-following caller got all-null
+  results silently (`ema(undefined)` never seeds).
+- `src/hooks/useWatchlist.test.tsx` (+2): a throwing `subscribe` does not
+  zombie-block a retry, and a datafeed swap moves EVERY subscription to the new
+  feed (the R1 regression test).
+- `src/hooks/useOrderLines.test.ts` (+1) and `src/hooks/useAnnotations.test.ts`
+  (+1): updates made while the chart is unavailable survive the remount.
+- `src/hooks/useLayoutManager.test.ts` (+1): a layout round-trips drawing
+  `lock` / `visible` / `mode`.
+- `src/overlays/ray.test.ts` (+3): identical points yield no figure, distinct
+  points produce a finite line, `getRayLine` guard.
+- `src/utils/TA.test.ts` (+2): `macd()` and `bollinger()` defaults equal the
+  explicit 12/26/9 and 20/2 calls.
 
 ---
 

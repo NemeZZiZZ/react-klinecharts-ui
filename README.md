@@ -951,7 +951,7 @@ const { screenshotUrl, capture, download, clear } = useScreenshot();
 | `download(filename?)` | `(filename?: string) => void` | Download as a file (default: `"chart-screenshot.jpg"`) |
 | `clear()`             | `() => void`                  | Clear `screenshotUrl` from state                       |
 
-Screenshot is created via `chart.getConvertPictureUrl(true, "jpeg", bgColor)`. Background depends on the current theme: `#151517` for dark, `#ffffff` for light.
+Screenshot is created via `chart.getConvertPictureUrl(true, "jpeg", bgColor)`. Background depends on the current theme: `#151517` for dark, `#ffffff` for light. The stored URL is cleared automatically when the chart instance, symbol or period changes (a capture always depicts one concrete chart state).
 
 ```tsx
 const { screenshotUrl, capture, download, clear } = useScreenshot();
@@ -1236,6 +1236,8 @@ return rsi.map((v, i) => ({
 
 Manage a list of tracked symbols with live price updates from your datafeed.
 
+> **Multi-instance safe.** The list lives in a provider-owned store with one datafeed subscription per ticker, so any number of `useWatchlist()` instances share the same rows and quotes. Subscriptions follow `state.period` — switching the timeframe re-subscribes every ticker (rows are kept).
+
 ```typescript
 import { useWatchlist } from "react-klinecharts-ui";
 
@@ -1407,6 +1409,9 @@ const {
   seekTo,
   setSpeed,
 } = useReplay();
+
+// Opt-in: cap the buffered window for very long histories.
+const capped = useReplay({ maxBars: 2000 });
 ```
 
 #### Return type: `UseReplayReturn`
@@ -1426,11 +1431,13 @@ const {
 | `seekTo` | `(index: number) => void` | Seek to a specific bar index (pauses playback) |
 | `setSpeed` | `(speed: ReplaySpeed) => void` | Change the playback speed |
 
+At higher speeds steps are grouped so the chart reloads at most 6 times per second (`MAX_RELOADS_PER_SECOND`) while keeping the same wall-clock pace. The optional `useReplay({ maxBars })` caps how many trailing bars are buffered for the session (uncapped by default); `totalBars` then reflects the capped window.
+
 ---
 
 ### useAlerts
 
-Client-side price alerts. Draws a **labelled** locked horizontal line (price tag on the Y-axis + a bell-marked caption above the line) on the chart for each alert and polls the latest candle once per second, firing a callback when the close price crosses the alert level. This is the primary hook for reacting to price events — e.g. forwarding a buy/sell signal to your backend or triggering a push notification (see [Backend Signals & Notifications](#backend-signals--notifications)).
+Client-side price alerts. Draws a **labelled** locked horizontal line (price tag on the Y-axis + a bell-marked caption above the line) on the chart for each alert and polls the latest candle once per second, firing a callback when the price crosses the alert level. Crossing detection uses the previous (final) bar's close as the baseline and counts the forming bar's `high`/`low` as touching the level, so a wick that pierces the level and comes back between two ticks still fires. This is the primary hook for reacting to price events — e.g. forwarding a buy/sell signal to your backend or triggering a push notification (see [Backend Signals & Notifications](#backend-signals--notifications)).
 
 > **Multi-instance safe.** The alert list lives in the shared store (`state.alerts`) and the crossing poller is owned by the provider (one poller, active only while alerts exist), so multiple `useAlerts()` instances share one list. Note: `onAlertTriggered` registers a **single** listener — the last registration wins.
 
@@ -1466,7 +1473,7 @@ onAlertTriggered((alert) => {
 | Property | Type | Description |
 |----------|------|-------------|
 | `alerts` | `Alert[]` | Current alerts (active and triggered) |
-| `addAlert` | `(price: number, condition: AlertCondition, message?: string, extendData?: AlertLineExtendData) => string` | Create an alert at a price level; returns its id. The optional `extendData` customizes the line/label look |
+| `addAlert` | `(price: number, condition: AlertCondition, message?: string, extendData?: AlertLineExtendData) => string` | Create an alert at a price level; returns its id (returns `""` and creates nothing for a non-finite price). The optional `extendData` customizes the line/label look |
 | `removeAlert` | `(id: string) => void` | Remove a single alert and its chart line |
 | `clearAlerts` | `() => void` | Remove all alerts |
 | `onAlertTriggered` | `(callback: (alert: Alert) => void) => void` | Register a callback fired once when an alert's condition is met |
@@ -1506,11 +1513,11 @@ The `line` / `mark` / `label` style types are shared with [`useOrderLines`](#use
 
 | Condition | Fires when |
 |-----------|------------|
-| `crossing_up` | Previous close `<` price **and** current close `>=` price |
-| `crossing_down` | Previous close `>` price **and** current close `<=` price |
+| `crossing_up` | Previous (final) bar close `<` price **and** (current close `>=` price **or** forming bar high `>=` price) |
+| `crossing_down` | Previous (final) bar close `>` price **and** (current close `<=` price **or** forming bar low `<=` price) |
 | `crossing` | Either direction |
 
-> Detection is based on the **latest candle's close**, polled every second from `chart.getDataList()`. An alert fires at most once (its `triggered` flag flips to `true`); recreate it to re-arm.
+> Detection is polled every second from `chart.getDataList()`. An alert fires at most once (its `triggered` flag flips to `true`); recreate it to re-arm.
 
 ---
 

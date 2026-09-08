@@ -22,6 +22,15 @@ export function useSymbolSearch(debounceMs = 300): UseSymbolSearchReturn {
   // AbortController for the in-flight fetch — cancelled when a new query arrives.
   const abortRef = useRef<AbortController | null>(null);
 
+  // The debounced continuation fires up to `debounceMs` after the keystroke —
+  // by then the `datafeed` prop may have been swapped. Read it through a ref
+  // so a pending search always queries the CURRENT feed instead of a stale
+  // closure (and so `setQuery` keeps a stable identity across feed swaps).
+  const datafeedRef = useRef(datafeed);
+  useEffect(() => {
+    datafeedRef.current = datafeed;
+  }, [datafeed]);
+
   // Cancels the pending debounce timer and any in-flight request. Shared by
   // setQuery (new input), selectSymbol and clearResults — without it a
   // pending search completed after a select/clear and its results
@@ -57,7 +66,8 @@ export function useSymbolSearch(debounceMs = 300): UseSymbolSearchReturn {
           // searchSymbols is optional on the Datafeed — without it the search
           // resolves to an empty result list instead of throwing.
           const data =
-            (await datafeed.searchSymbols?.(q, controller.signal)) ?? [];
+            (await datafeedRef.current.searchSymbols?.(q, controller.signal)) ??
+            [];
           if (!controller.signal.aborted) {
             setResults(data);
           }
@@ -72,7 +82,7 @@ export function useSymbolSearch(debounceMs = 300): UseSymbolSearchReturn {
         }
       }, debounceMs);
     },
-    [datafeed, debounceMs, cancelPending]
+    [debounceMs, cancelPending]
   );
 
   const selectSymbol = useCallback(

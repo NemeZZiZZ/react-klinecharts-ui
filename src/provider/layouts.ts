@@ -28,6 +28,10 @@ export interface ChartLayoutState {
     points: any[];
     styles?: any;
     extendData?: any;
+    /** Drawing flags — a locked/hidden drawing must survive a layout reload. */
+    lock?: boolean;
+    visible?: boolean;
+    mode?: string;
   }>;
 }
 
@@ -195,9 +199,9 @@ export interface SerializeChartLayoutParams {
 }
 
 /**
- * Снимок текущего состояния чарта для сохранения в layout.
- * Вынесено из хука: одинаково используется `saveLayout` и автоматическим
- * сохранением, которое живёт в провайдере.
+ * Snapshot the current chart state for saving into a layout.
+ * Lives outside the hook: used identically by `saveLayout` and by the
+ * provider-owned auto-save sweep.
  */
 export function serializeChartLayout({
   chart,
@@ -240,6 +244,11 @@ export function serializeChartLayout({
         points: overlay.points,
         styles: overlay.styles,
         extendData: overlay.extendData,
+        // Undo/redo payloads already carry these; layouts must too — a locked
+        // or hidden drawing used to reload unlocked and visible.
+        ...(overlay.lock != null ? { lock: overlay.lock } : {}),
+        ...(overlay.visible != null ? { visible: overlay.visible } : {}),
+        ...(overlay.mode != null ? { mode: overlay.mode } : {}),
       });
     }
   }
@@ -258,7 +267,7 @@ export function serializeChartLayout({
 }
 
 /**
- * Сигнатура содержимого layout — только persisted-поля: meta.timestamp /
+ * Content signature of a layout — persisted fields only: meta.timestamp /
  * lastModified are `Date.now()` stamps and would differ on every sweep,
  * making auto-save rewrite an unchanged layout forever.
  */

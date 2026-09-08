@@ -137,6 +137,16 @@ describe("TA.macd", () => {
     expect(dea.every((v) => v === null)).toBe(true);
     expect(macd.every((v) => v === null)).toBe(true);
   });
+
+  it("defaults to 12/26/9 — the documented signature", () => {
+    // The docs have always promised these defaults; previously the parameters
+    // were required, so TA.macd(data) silently returned all-null.
+    const withDefaults = TA.macd(CLOSE);
+    const explicit = TA.macd(CLOSE, 12, 26, 9);
+    expect(withDefaults.dif).toEqual(explicit.dif);
+    expect(withDefaults.dea).toEqual(explicit.dea);
+    expect(withDefaults.macd).toEqual(explicit.macd);
+  });
 });
 
 describe("TA.bollinger", () => {
@@ -160,6 +170,14 @@ describe("TA.bollinger", () => {
     expect(mid[2]).toBe(5);
     expect(upper[2]).toBe(5);
     expect(lower[2]).toBe(5);
+  });
+
+  it("defaults to 20/2 — the documented signature", () => {
+    const withDefaults = TA.bollinger(CLOSE);
+    const explicit = TA.bollinger(CLOSE, 20, 2);
+    expect(withDefaults.mid).toEqual(explicit.mid);
+    expect(withDefaults.upper).toEqual(explicit.upper);
+    expect(withDefaults.lower).toEqual(explicit.lower);
   });
 });
 
@@ -216,8 +234,7 @@ describe("TA.vwap", () => {
   });
 });
 
-describe("TA.hma", () => {
-  it("returns an array of the same length with leading nulls during warm-up", () => {
+describe("TA.hma", () => {  it("returns an array of the same length with leading nulls during warm-up", () => {
     const data = Array.from({ length: 40 }, (_, i) => 100 + Math.sin(i));
     const out = TA.hma(data, 10);
     expect(out.length).toBe(data.length);
@@ -254,5 +271,158 @@ describe("TA.hma", () => {
     // diffValues[j] ↔ data[12 + j] and wma(4) first yields at j = 3.
     expect(out[15]).toBeCloseTo(golden[3] as number, 12);
     expect(out[30]).toBeCloseTo(golden[18] as number, 12);
+  });
+});
+
+describe("TA — non-finite inputs restart the window (no NaN poisoning)", () => {
+  it("sma recovers after a NaN instead of poisoning every later value", () => {
+    const out = TA.sma([1, 2, NaN, 4, 5, 6, 7], 3);
+    expect(out.slice(0, 5)).toEqual([null, null, null, null, null]);
+    expect(out[5]).toBe(5); // (4+5+6)/3
+    expect(out[6]).toBe(6); // window slid to (5+6+7)/3
+    expect(out.every((v) => v === null || Number.isFinite(v))).toBe(true);
+  });
+
+  it("ema reseeds after a NaN", () => {
+    const out = TA.ema([1, 2, 3, NaN, 4, 5, 6], 3);
+    expect(out[2]).toBe(2);
+    expect(out[3]).toBeNull();
+    // fresh seed over [4,5,6]
+    expect(out[6]).toBe(5);
+    expect(out.every((v) => v === null || Number.isFinite(v))).toBe(true);
+  });
+
+  it("rma reseeds after a NaN", () => {
+    const out = TA.rma([2, 4, 6, NaN, 2, 4, 6], 3);
+    expect(out[2]).toBe(4);
+    expect(out[6]).toBe(4);
+    expect(out.every((v) => v === null || Number.isFinite(v))).toBe(true);
+  });
+
+  it("wma and stdev recover after a NaN", () => {
+    const wma = TA.wma([1, 2, 3, NaN, 1, 2, 3], 3);
+    expect(wma[2]).toBeCloseTo(14 / 6, 12);
+    expect(wma[6]).toBeCloseTo(14 / 6, 12);
+    const stdev = TA.stdev([2, 4, 6, NaN, 2, 4, 6], 3);
+    expect(stdev[2]).toBeCloseTo(Math.sqrt(8 / 3), 10);
+    expect(stdev[6]).toBeCloseTo(Math.sqrt(8 / 3), 10);
+  });
+
+  it("degenerate periods emit nulls instead of NaN", () => {
+    for (const fn of [
+      () => TA.sma([1, 2, 3], 0),
+      () => TA.ema([1, 2, 3], 0),
+      () => TA.rma([1, 2, 3], 0),
+      () => TA.wma([1, 2, 3], 0),
+      () => TA.stdev([1, 2, 3], 0),
+    ]) {
+      expect(fn().every((v) => v === null)).toBe(true);
+    }
+    const { mid, upper, lower } = TA.bollinger([1, 2, 3], 0, 2);
+    expect([...mid, ...upper, ...lower].every((v) => v === null)).toBe(true);
+  });
+});
+
+describe("TA.rsi — flat market", () => {
+  it("returns null (not 100) when there is no movement at all", () => {
+    const out = TA.rsi(Array(20).fill(100), 14);
+    expect(out.every((v) => v === null)).toBe(true);
+  });
+});
+
+describe("TA — O(n) recurrence matches the naive window loop", () => {
+  // Deterministic pseudo-random series (no Math.random — stable goldens).
+  const series = Array.from(
+    { length: 200 },
+    (_, i) => 100 + 20 * Math.sin(i * 0.7) + 5 * Math.sin(i * 2.3),
+  );
+  const naiveWma = (data: number[], period: number) => {
+    const w = (period * (period + 1)) / 2;
+    return data.map((_, i) => {
+      if (i < period - 1) return null;
+      let s = 0;
+      for (let j = 0; j < period; j++) s += data[i - j] * (period - j);
+      return s / w;
+    });
+  };
+  const naiveStdev = (data: number[], period: number) => {
+    return data.map((_, i) => {
+      if (i < period - 1) return null;
+      const win = data.slice(i - period + 1, i + 1);
+      const m = win.reduce((a, b) => a + b, 0) / period;
+      return Math.sqrt(
+        win.reduce((a, b) => a + (b - m) * (b - m), 0) / period,
+      );
+    });
+  };
+
+  it.each([3, 5, 14, 30])("wma matches naive (period %i)", (period) => {
+    const fast = TA.wma(series, period);
+    const slow = naiveWma(series, period);
+    expect(fast.length).toBe(slow.length);
+    fast.forEach((v, i) => {
+      if (v === null || slow[i] === null) {
+        expect(v).toBeNull();
+        expect(slow[i]).toBeNull();
+      } else {
+        expect(v).toBeCloseTo(slow[i] as number, 9);
+      }
+    });
+  });
+
+  it.each([3, 5, 14, 30])("stdev matches naive (period %i)", (period) => {
+    const fast = TA.stdev(series, period);
+    const slow = naiveStdev(series, period);
+    fast.forEach((v, i) => {
+      if (v === null || slow[i] === null) {
+        expect(v).toBeNull();
+        expect(slow[i]).toBeNull();
+      } else {
+        expect(v).toBeCloseTo(slow[i] as number, 9);
+      }
+    });
+  });
+
+  it("bollinger mid/std match sma/stdev on the same input", () => {
+    const { mid, upper } = TA.bollinger(series, 14, 2);
+    const sma = TA.sma(series, 14);
+    const std = TA.stdev(series, 14);
+    mid.forEach((m, i) => {
+      expect(m).toBe(sma[i]);
+      if (m === null) {
+        expect(upper[i]).toBeNull();
+      } else {
+        expect(upper[i]).toBeCloseTo(m + 2 * (std[i] as number), 12);
+      }
+    });
+  });
+});
+
+describe("TA.vwap — sessions", () => {
+  const DAY = 86400000;
+  // Two UTC days, one bar each (rising prices, constant volume).
+  const highs = [12, 22];
+  const lows = [10, 20];
+  const closes = [11, 21];
+  const volumes = [5, 5];
+  const stamps = [1000, DAY + 1000];
+
+  it("without timestamps stays cumulative (back-compatible)", () => {
+    const out = TA.vwap(highs, lows, closes, volumes);
+    // cumulative: (11*5 + 21*5) / 10 = 16, not the second bar's 21
+    expect(out[1]).toBeCloseTo(16, 12);
+  });
+
+  it("with timestamps resets at the UTC day boundary by default", () => {
+    const out = TA.vwap(highs, lows, closes, volumes, stamps);
+    expect(out[0]).toBeCloseTo(11, 12);
+    // fresh session: second bar stands alone → its own typical price
+    expect(out[1]).toBeCloseTo(21, 12);
+  });
+
+  it("accepts a custom session key", () => {
+    // Same session for both bars → cumulative despite the day boundary.
+    const out = TA.vwap(highs, lows, closes, volumes, stamps, () => "all");
+    expect(out[1]).toBeCloseTo(16, 12);
   });
 });

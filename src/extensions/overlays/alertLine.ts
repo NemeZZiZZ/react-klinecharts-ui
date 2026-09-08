@@ -138,6 +138,7 @@ const alertLine: OverlayTemplate = {
     return figures;
   },
   performEventPressedMove: ({ points, performPoint }) => {
+    if (!points[0] || performPoint?.value == null) return;
     points[0].value = performPoint.value;
   },
 };

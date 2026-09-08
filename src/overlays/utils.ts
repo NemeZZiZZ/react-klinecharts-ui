@@ -22,6 +22,14 @@ export function getRayLine(
   bounding: Bounding
 ): LineAttrs | LineAttrs[] {
   if (coordinates.length > 1) {
+    // Identical anchor points (a double-click at one spot) have no direction:
+    // every branch below would produce a degenerate or NaN figure.
+    if (
+      coordinates[0].x === coordinates[1].x &&
+      coordinates[0].y === coordinates[1].y
+    ) {
+      return [];
+    }
     let coordinate: Coordinate;
     if (
       coordinates[0].x === coordinates[1].x &&

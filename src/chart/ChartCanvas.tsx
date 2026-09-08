@@ -145,7 +145,11 @@ export const ChartCanvas = forwardRef<Chart, ChartCanvasProps>(
         const visible = indicatorVisibilityRef.current[id];
         return {
           ...(yAxisId ? { yAxisId } : {}),
-          ...(visible === false ? { visible: false } : {}),
+          // Forward an explicit `true` too: a layout load records
+          // `visible: true` for previously-hidden indicators, and dropping it
+          // here would resurrect a still-hidden-on-old-chart indicator as
+          // visible after a chart remount.
+          ...(visible !== undefined ? { visible } : {}),
         };
       },
       [],

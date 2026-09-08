@@ -334,6 +334,20 @@ export interface KlinechartsUIDispatchValue {
    */
   layoutAutoSaveStore: SharedState<boolean>;
   /**
+   * Provider-owned watchlist (see `watchlist.ts`), shared by every
+   * `useWatchlist` instance: the quote subscriptions are a property of the
+   * provider, so two components using the hook observe one list instead of
+   * each opening its own datafeed subscription for the same tickers.
+   */
+  watchlistStore: SharedState<unknown>;
+  /**
+   * Subscribe this provider to realtime quotes for `ticker` (no-op when
+   * already subscribed) and add its row to `watchlistStore`.
+   */
+  subscribeWatchlist: (ticker: string) => void;
+  /** Drop the subscription for `ticker` and remove its row. */
+  unsubscribeWatchlist: (ticker: string) => void;
+  /**
    * Listener set registered via `useAlerts.onAlertTriggered`; invoked by the
    * provider-owned crossing poller when an alert fires. A Set so multiple
    * components (toolbar, status bar, sound trigger) can all observe firings

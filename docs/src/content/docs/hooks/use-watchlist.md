@@ -7,6 +7,13 @@ sidebar:
 
 Manage a list of tracked symbols with live price updates from your datafeed.
 
+:::note[Multi-instance safe]
+The list lives in a provider-owned store with one datafeed subscription per
+ticker, so any number of `useWatchlist()` instances share the same rows and
+quotes. Subscriptions follow `state.period` — switching the timeframe
+re-subscribes every ticker (rows are kept).
+:::
+
 ```ts
 import { useWatchlist } from "react-klinecharts-ui";
 

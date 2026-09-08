@@ -10,7 +10,7 @@ const longPosition: OverlayTemplate = {
   needDefaultXAxisFigure: true,
   needDefaultYAxisFigure: true,
   createPointFigures: (params: any) => {
-    const { coordinates, overlay, yAxis } = params;
+    const { coordinates, overlay, yAxis, chart } = params;
     const figures: any[] = [];
     if (coordinates.length > 1 && yAxis) {
       const startX = coordinates[0].x;
@@ -20,8 +20,13 @@ const longPosition: OverlayTemplate = {
       const stopY =
         coordinates.length > 2 ? coordinates[2].y : entryY + 40;
 
-      const entryPrice = overlay.points[0].value!;
-      const targetPrice = overlay.points[1].value!;
+      // Respect the symbol's price precision: toFixed(2) is wrong for
+      // BTC/USDT (needs ~1 decimal) or JPY pairs (needs ~3).
+      const precision: number =
+        chart?.getSymbol?.()?.pricePrecision ?? 2;
+      const entryPrice = overlay.points[0]?.value;
+      const targetPrice = overlay.points[1]?.value;
+      if (entryPrice == null || targetPrice == null) return figures;
       const stopPrice =
         overlay.points[2]?.value ?? yAxis.convertFromPixel(stopY);
 
@@ -74,7 +79,7 @@ const longPosition: OverlayTemplate = {
         attrs: {
           x: endX,
           y: targetY,
-          text: `Target: ${targetPrice.toFixed(2)} (${profitPercent}%)`,
+          text: `Target: ${targetPrice.toFixed(precision)} (${profitPercent}%)`,
           align: "left",
           baseline: "bottom",
         },
@@ -92,7 +97,7 @@ const longPosition: OverlayTemplate = {
         attrs: {
           x: endX,
           y: stopY,
-          text: `Stop: ${stopPrice.toFixed(2)} (${lossPercent}%)`,
+          text: `Stop: ${stopPrice.toFixed(precision)} (${lossPercent}%)`,
           align: "left",
           baseline: "top",
         },

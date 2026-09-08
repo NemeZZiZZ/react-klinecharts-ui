@@ -144,10 +144,13 @@ export function useAnnotations(): UseAnnotationsReturn {
     };
   }, [state.chart]);
 
-  // Reconcile: annotations added before the chart existed, or whose chart was
-  // remounted, live in state but have no overlay. Recreate the missing ones
-  // whenever the chart instance changes (mirrors the provider's alert-line
-  // reconciliation).
+  // Reconcile: annotations added before the chart existed, whose chart was
+  // remounted, or that were edited while the chart was briefly unavailable
+  // (updateAnnotation then skipped overrideOverlay — its chart-only update
+  // made the remount revert to the stale text/color) live in state but have
+  // no/fresh overlays. Recreate the missing ones from the CURRENT state
+  // entries whenever the chart instance or the list changes (mirrors the
+  // provider's alert-line reconciliation).
   useEffect(() => {
     const chart = state.chart;
     if (!chart) return;

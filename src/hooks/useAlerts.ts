@@ -12,6 +12,10 @@ export type { AlertLineExtendData } from "../extensions/overlays/alertLine";
 
 export interface UseAlertsReturn {
   alerts: Alert[];
+  /**
+   * Returns the new alert id, or "" when `price` is not finite (the call is
+   * ignored — a NaN/Infinity alert could never fire).
+   */
   addAlert: (
     price: number,
     condition: AlertCondition,
@@ -59,6 +63,11 @@ export function useAlerts(): UseAlertsReturn {
       extendData?: AlertLineExtendData,
       target?: AlertTarget,
     ): string => {
+      // A non-finite price can never cross anything: the poller's comparisons
+      // stay false forever and the overlay label renders "NaN". Ignore the
+      // call instead of recording a dead alert.
+      if (!Number.isFinite(price)) return "";
+
       const id = `alert_${ALERT_ID_SESSION}_${++alertCounter}`;
 
       // Default label: explicit text → message → formatted price (using the
@@ -108,7 +117,10 @@ export function useAlerts(): UseAlertsReturn {
   const removeAlert = useCallback(
     (id: string) => {
       dispatch({ type: "REMOVE_ALERT", id });
-      state.chart?.removeOverlay({ id });
+      // Scope by the group this hook assigns at creation: a bare `{ id }`
+      // removes the FIRST overlay with that id in ANY group, so an id clash
+      // with a drawing/order overlay would delete foreign UI.
+      state.chart?.removeOverlay({ id, groupId: "price_alerts" });
     },
     [state.chart, dispatch],
   );
