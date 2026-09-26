@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import { useKlinechartsUI, useKlinechartsUIDispatch } from "../provider/ChartTerminalContext";
+import {
+  getOverlaysScoped,
+  removeOverlayScoped,
+} from "../utils/overlays";
 import type {
   UndoRedoAction,
   UndoRedoInstance,
@@ -85,9 +89,11 @@ export function useUndoRedo(): UseUndoRedoReturn {
     try {
       switch (action.type) {
         case "overlay_added": {
-          // Remove the overlay that was added
+          // Remove the overlay that was added — scoped to the drawing group:
+          // klinecharts v10 ignores groupId when id is set, so a bare {id}
+          // could delete a foreign overlay on an id collision.
           const { id, overlayData } = action.data;
-          state.chart.removeOverlay({ id });
+          removeOverlayScoped(state.chart, { id, groupId: DRAWING_GROUP_ID });
           store.appendRedo({
             type: "overlay_added",
             data: { id, overlayData },
@@ -267,7 +273,10 @@ export function useUndoRedo(): UseUndoRedoReturn {
           // Remove all the restored overlays
           const { overlays } = action.data;
           const snapshotOverlays = overlays.map((o: any) => {
-            const allOverlays = state.chart?.getOverlays({ id: o.id });
+            const allOverlays = getOverlaysScoped<any>(state.chart!, {
+              id: o.id,
+              groupId: DRAWING_GROUP_ID,
+            });
             const actual = allOverlays?.[0];
             return actual
               ? {
@@ -287,7 +296,10 @@ export function useUndoRedo(): UseUndoRedoReturn {
             // Defense in depth: a payload entry without a valid id must never
             // reach removeOverlay — an empty filter matches every overlay.
             if (typeof (overlay as { id?: unknown }).id !== "string") continue;
-            state.chart.removeOverlay({ id: overlay.id });
+            removeOverlayScoped(state.chart, {
+              id: overlay.id,
+              groupId: DRAWING_GROUP_ID,
+            });
           }
           store.appendUndo({
             type: "overlays_removed",

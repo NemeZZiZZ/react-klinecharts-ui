@@ -41,20 +41,29 @@ function reducer(state: WorkspaceState, action: WorkspaceAction): WorkspaceState
             : state.activeCellId,
       };
     }
-    case "SET_CELL_SYMBOL":
+    case "SET_CELL_SYMBOL": {
+      // Bail when no cell matches: without this, useChartSync's mirror effect
+      // (which dispatches whenever the cell value differs) would loop forever —
+      // map() below always returns a fresh array identity, retriggering the
+      // effect. Missing cells happen when REMOVE_CELL fires while the chart's
+      // sync bridge is still mounted, or on a cellId typo.
+      if (!state.cells.some((c) => c.id === action.id)) return state;
       return {
         ...state,
         cells: state.cells.map((c) =>
           c.id === action.id ? { ...c, symbol: action.symbol } : c,
         ),
       };
-    case "SET_CELL_PERIOD":
+    }
+    case "SET_CELL_PERIOD": {
+      if (!state.cells.some((c) => c.id === action.id)) return state;
       return {
         ...state,
         cells: state.cells.map((c) =>
           c.id === action.id ? { ...c, period: action.period } : c,
         ),
       };
+    }
     case "SET_ACTIVE_CELL":
       return { ...state, activeCellId: action.id };
     default:

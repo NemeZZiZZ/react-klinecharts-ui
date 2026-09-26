@@ -155,4 +155,40 @@ describe("storage adapter — adapter failure is non-fatal", () => {
     expect(result.current.isMainIndicatorActive("MA")).toBe(true);
     expect(result.current.isSubIndicatorActive("VOL")).toBe(true);
   });
+
+  it("nested corruption: indicators.main as a string falls back to defaults", () => {
+    // Root shape is a valid object — only the nested field is corrupt. The old
+    // root-only check hydrated "MA" (a string) into mainIndicators and
+    // ChartCanvas crashed on .forEach at chart-ready.
+    const a = memoryAdapter();
+    a.store.set(
+      "rkui:indicators",
+      JSON.stringify({ main: "MA", sub: ["VOL"], axes: "x", visibility: [1] }),
+    );
+    const { result } = renderHookWithProvider(() => useIndicators(), {
+      storage: { adapter: a },
+    });
+    expect(result.current.isMainIndicatorActive("MA")).toBe(true);
+    expect(result.current.isSubIndicatorActive("VOL")).toBe(true);
+  });
+
+  it("nested corruption: non-alert elements are filtered out of hydrated alerts", () => {
+    const a = memoryAdapter();
+    a.store.set(
+      "rkui:alerts",
+      JSON.stringify([
+        "garbage",
+        { id: 42, price: "100", condition: "crossing_up" },
+        { id: "ok", price: 100, condition: "crossing_up", triggered: false },
+        { id: "bad-price", price: Number.NaN, condition: "crossing" },
+        { id: "bad-cond", price: 5, condition: "whatever" },
+      ]),
+    );
+    const { result } = renderHookWithProvider(() => useAlerts(), {
+      storage: { adapter: a },
+    });
+    expect(result.current.alerts).toEqual([
+      { id: "ok", price: 100, condition: "crossing_up", triggered: false },
+    ]);
+  });
 });

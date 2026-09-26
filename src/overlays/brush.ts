@@ -138,6 +138,13 @@ interface BrushData {
   pixels: Array<{ x: number; y: number }>;
   points: BrushDataPoint[];
   isDirty: boolean;
+  /**
+   * Data-list length at the last legacy-index repair attempt. The repair
+   * needs a retry only when pagination changes the data (indices shift) —
+   * without this guard an unresolvable point re-ran getDataList() on EVERY
+   * animation frame (scroll/zoom/crosshair) forever.
+   */
+  legacyRepairDataLen?: number;
   // NOTE: a legacy `paneId` field may still exist in persisted extendData
   // from older versions; it is inert (see the onDrawing note below).
 }
@@ -224,14 +231,17 @@ const brush: OverlayTemplate = {
 
     // Repair legacy strokes whose `timestamp` holds a bar INDEX (see
     // BrushDataPoint): a plausible timestamp is far larger than any data
-    // index, so a small value is unambiguous.
-    for (const p of data.points) {
-      if (p.timestamp < 1e8) {
-        const dataList = chart?.getDataList() as
-          | { timestamp: number }[]
-          | undefined;
-        const index = Math.round(p.timestamp);
-        p.timestamp = dataList?.[index]?.timestamp ?? p.timestamp;
+    // index, so a small value is unambiguous. Retry only when the data list
+    // length changed (pagination shifts indices) — not on every frame.
+    const dataList = chart?.getDataList() as { timestamp: number }[] | undefined;
+    const dataLen = dataList?.length ?? 0;
+    if (data.legacyRepairDataLen !== dataLen) {
+      data.legacyRepairDataLen = dataLen;
+      for (const p of data.points) {
+        if (p.timestamp < 1e8) {
+          const index = Math.round(p.timestamp);
+          p.timestamp = dataList?.[index]?.timestamp ?? p.timestamp;
+        }
       }
     }
 

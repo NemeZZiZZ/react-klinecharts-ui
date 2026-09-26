@@ -70,13 +70,21 @@ export function useCompare(): UseCompareReturn {
   const indicatorsRef = useRef<
     Map<string, { name: string; indicatorId: string | null }>
   >(new Map());
-  // Tickers with an in-flight addSymbol fetch. The indicatorsRef entry only
-  // appears AFTER the await, so without this two rapid addSymbol calls for
-  // the same ticker both passed the guard and registered duplicate
-  // indicators; and a removeSymbol during the fetch was "resurrected" when
-  // the continuation ran. removeSymbol/clearAll/unmount delete from this set,
-  // which is how the post-await continuation knows to bail out.
-  const pendingRef = useRef<Set<string>>(new Set());
+  // Tickers with an in-flight addSymbol fetch, mapped to a per-ticker
+  // generation counter. The indicatorsRef entry only appears AFTER the await,
+  // so without this two rapid addSymbol calls for the same ticker both passed
+  // the guard and registered duplicate indicators. The GENERATION is what
+  // defeats the remove→re-add race: a bare slot-presence check lets the stale
+  // fetch through when a newer add re-occupied the slot — the older
+  // continuation would register its (stale-anchor) indicator and delete the
+  // slot out from under the fresh fetch. removeSymbol/clearAll/unmount delete
+  // the entry, so any in-flight continuation with an older generation bails.
+  const pendingRef = useRef<Map<string, number>>(new Map());
+  // Monotonic generation source. It must NOT reset when removeSymbol deletes
+  // the map entry: a per-ticker `get ?? 0` would re-issue the same generation
+  // for the re-added ticker, and the stale in-flight fetch would pass the
+  // equality check. A hook-lifetime counter keeps every generation unique.
+  const pendingGenRef = useRef(0);
   // `addSymbol`/`toggleSymbol` only need the CURRENT list to pick a color /
   // resolve visibility — closing over the `symbols` state array would recreate
   // both callbacks (and every downstream memo) on each add/remove/toggle. A
@@ -127,7 +135,8 @@ export function useCompare(): UseCompareReturn {
       // All synchronous early-outs are past — occupy the pending slot for the
       // whole flight. (Placing the add before the mainDataList check above
       // would leak the slot when the chart has no data yet.)
-      pendingRef.current.add(ticker);
+      const pendingGen = ++pendingGenRef.current;
+      pendingRef.current.set(ticker, pendingGen);
       let compareData: Awaited<
         ReturnType<typeof datafeed.getHistoryKLineData>
       >;
@@ -140,13 +149,16 @@ export function useCompare(): UseCompareReturn {
         );
       } catch {
         // Fetch failed — release the pending slot so a retry is possible.
-        pendingRef.current.delete(ticker);
+        if (pendingRef.current.get(ticker) === pendingGen) {
+          pendingRef.current.delete(ticker);
+        }
         return;
       }
 
-      // Removed/cleared (or the hook unmounted) while the fetch was in
-      // flight — the pending slot is already gone; do not register anything.
-      if (!pendingRef.current.has(ticker)) return;
+      // Removed/cleared (or the hook unmounted) while the fetch was in flight
+      // — OR a newer addSymbol for the same ticker superseded this one
+      // (remove→re-add race: the slot is occupied but by a NEWER generation).
+      if (pendingRef.current.get(ticker) !== pendingGen) return;
       pendingRef.current.delete(ticker);
 
       if (!compareData || compareData.length === 0) return;

@@ -19,6 +19,7 @@ import {
 } from "./ChartTerminalContext";
 import { DEFAULT_PERIODS, type TerminalPeriod } from "../data/periods";
 import { registerExtensions, ensureAlertLineRegistered } from "../extensions";
+import { getOverlaysScoped } from "../utils/overlays";
 import {
   registerOverlay,
   type KLineData,
@@ -61,6 +62,25 @@ export function reducer(
       return { ...state, chart: action.chart, collapsedPanes: {} };
     case "SET_SYMBOL":
       return { ...state, symbol: action.symbol };
+    case "ENSURE_PRICE_PRECISION":
+      // Auto-detected from loaded bars (see detectPricePrecision). Guards:
+      // an explicit pricePrecision always wins; without a symbol there is
+      // nothing to fill; a STALE init resolving after a symbol switch must not
+      // stamp the old symbol's precision onto the new one (the loader's gen
+      // counter only bumps once the new symbol's init starts, so the ticker
+      // check is the only guard in that window). Same-reference return lets
+      // React bail out of the re-render, keeping repeat dispatches free.
+      if (
+        state.symbol == null ||
+        state.symbol.ticker !== action.ticker ||
+        state.symbol.pricePrecision !== undefined
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        symbol: { ...state.symbol, pricePrecision: action.pricePrecision },
+      };
     case "SET_PERIOD":
       return { ...state, period: action.period };
     case "SET_THEME":
@@ -68,6 +88,11 @@ export function reducer(
     case "SET_TIMEZONE":
       return { ...state, timezone: action.timezone };
     case "SET_LOADING":
+      // Identity guard (same rationale as SET_SCREENSHOT_URL): the loader
+      // dispatches on every request start/settle, and with overlapping
+      // init+forward requests the boolean is often unchanged — without this
+      // each scroll page pays a full provider re-render + onStateChange.
+      if (state.isLoading === action.isLoading) return state;
       return { ...state, isLoading: action.isLoading };
     case "SET_MAIN_INDICATORS":
       return { ...state, mainIndicators: action.indicators };
@@ -198,12 +223,58 @@ export function KlinechartsUIProvider({
       };
 
       // Hydrate indicators. Stored shape: { main: string[], sub: Record<string,string>, axes, visibility }.
+      // read() validates only the ROOT shape — a corrupt nested payload like
+      // { main: "MA" } would hydrate a string into mainIndicators and crash
+      // ChartCanvas' forEach at chart-ready. Validate every field we use.
       const storedIndicators = read<{
         main?: string[];
         sub?: Record<string, string>;
         axes?: Record<string, string>;
         visibility?: Record<string, boolean>;
       }>("indicators", {});
+      const isStringRecord = (
+        v: unknown,
+      ): v is Record<string, string> =>
+        v !== null &&
+        typeof v === "object" &&
+        !Array.isArray(v) &&
+        Object.values(v).every((x) => typeof x === "string");
+      const hydratedMain =
+        Array.isArray(storedIndicators.main) &&
+        storedIndicators.main.every((v) => typeof v === "string")
+          ? storedIndicators.main
+          : undefined;
+      const hydratedSub = isStringRecord(storedIndicators.sub)
+        ? storedIndicators.sub
+        : undefined;
+      const hydratedAxes = isStringRecord(storedIndicators.axes)
+        ? storedIndicators.axes
+        : {};
+      const hydratedVisibility =
+        storedIndicators.visibility !== null &&
+        typeof storedIndicators.visibility === "object" &&
+        !Array.isArray(storedIndicators.visibility) &&
+        Object.values(storedIndicators.visibility).every(
+          (x) => typeof x === "boolean",
+        )
+          ? storedIndicators.visibility
+          : {};
+
+      // Same nested-shape guard for alerts: a corrupt element ("garbage")
+      // would reconcile into a ghost overlay with id undefined that
+      // removeAlert could never target.
+      const storedAlerts = read<Alert[]>("alerts", []);
+      const hydratedAlerts = storedAlerts.filter(
+        (a): a is Alert =>
+          a !== null &&
+          typeof a === "object" &&
+          typeof (a as Alert).id === "string" &&
+          typeof (a as Alert).price === "number" &&
+          Number.isFinite((a as Alert).price) &&
+          ((a as Alert).condition === "crossing_up" ||
+            (a as Alert).condition === "crossing_down" ||
+            (a as Alert).condition === "crossing"),
+      );
 
       return {
         chart: null,
@@ -222,18 +293,18 @@ export function KlinechartsUIProvider({
         // (Settings live in useKlinechartsUISettings useState and hydrate
         // separately via the dispatch-context `storage`.)
         mainIndicators:
-          storedIndicators.main ?? opts.defaultMainIndicators ?? ["MA"],
-        subIndicators: storedIndicators.sub ??
+          hydratedMain ?? opts.defaultMainIndicators ?? ["MA"],
+        subIndicators: hydratedSub ??
           (opts.defaultSubIndicators
             ? opts.defaultSubIndicators.reduce(
                 (acc, name) => ({ ...acc, [name]: "" }),
                 {} as Record<string, string>,
               )
             : { VOL: "" }),
-        indicatorAxes: storedIndicators.axes ?? {},
-        indicatorVisibility: storedIndicators.visibility ?? {},
+        indicatorAxes: hydratedAxes,
+        indicatorVisibility: hydratedVisibility,
         collapsedPanes: {},
-        alerts: read<Alert[]>("alerts", []),
+        alerts: hydratedAlerts,
         measure: { isActive: false, fromPoint: null, result: null },
         replay: {
           isReplaying: false,
@@ -299,12 +370,11 @@ export function KlinechartsUIProvider({
     [],
   );
   const watchlistSubsRef = useRef(
-    new Map<string, { symbolInfo: SymbolInfo; period: TerminalPeriod }>(),
+    new Map<
+      string,
+      { symbolInfo: SymbolInfo; period: TerminalPeriod; feed: Datafeed }
+    >(),
   );
-  // The datafeed the live subscriptions were opened on. Kept in a ref (not
-  // read from props at unsubscribe time) so a runtime datafeed swap
-  // unsubscribes from the OLD feed instead of leaking it.
-  const watchlistFeedRef = useRef<Datafeed | null>(null);
 
   // Provider-owned feature resources (single owner across all hook instances).
   // Multi-listener: several components (toolbar, status bar, sound trigger) can
@@ -341,7 +411,14 @@ export function KlinechartsUIProvider({
 
   useEffect(() => {
     stateRef.current = state;
-    replayActiveRef.current = state.replay.isReplaying;
+    // One-way propagation: stopReplay clears the ref EARLY (before its
+    // dispatched state commits), so blindly mirroring `state.replay.
+    // isReplaying` here would transiently RE-ARM the ref from the stale
+    // state of the same commit (a getBars entering that window would be
+    // served the old replay slice). startReplay sets the ref itself.
+    if (!state.replay.isReplaying) {
+      replayActiveRef.current = false;
+    }
     callbacksRef.current = {
       onStateChange,
       onSymbolChange,
@@ -415,22 +492,34 @@ export function KlinechartsUIProvider({
       if (watchlistSubsRef.current.has(ticker)) return;
       const symbolInfo = { ticker } as SymbolInfo;
       const period = stateRef.current.period;
+      // Add the row BEFORE subscribing: a feed that emits its first quote
+      // synchronously inside subscribe() would otherwise hit
+      // updateWatchlistItem's "not listed" guard and the snapshot was lost.
+      const prev = watchlistStore.get() as WatchlistItem[];
+      const addedRow = !prev.some((item) => item.ticker === ticker);
+      if (addedRow) {
+        watchlistStore.set([...prev, blankWatchlistItem(ticker)]);
+      }
       // Record the sub BEFORE subscribing so a concurrent unsubscribe can see
       // it, but roll everything back if the feed throws — otherwise the
-      // dup-guard above would block every retry forever.
-      watchlistSubsRef.current.set(ticker, { symbolInfo, period });
+      // dup-guard above would block every retry forever. The feed is stored
+      // PER SUB: a datafeed swap must unsubscribe from the feed the sub was
+      // opened on, never from the new one.
+      watchlistSubsRef.current.set(ticker, {
+        symbolInfo,
+        period,
+        feed: datafeed,
+      });
       try {
         datafeed.subscribe(symbolInfo, period, (bar: KLineData) =>
           updateWatchlistItem(ticker, bar),
         );
-        watchlistFeedRef.current = datafeed;
       } catch {
         watchlistSubsRef.current.delete(ticker);
-        return;
-      }
-      const prev = watchlistStore.get() as WatchlistItem[];
-      if (!prev.some((item) => item.ticker === ticker)) {
-        watchlistStore.set([...prev, blankWatchlistItem(ticker)]);
+        if (addedRow) {
+          const cur = watchlistStore.get() as WatchlistItem[];
+          watchlistStore.set(cur.filter((item) => item.ticker !== ticker));
+        }
       }
     },
     [datafeed, updateWatchlistItem, watchlistStore],
@@ -441,10 +530,7 @@ export function KlinechartsUIProvider({
       const sub = watchlistSubsRef.current.get(ticker);
       if (sub) {
         try {
-          (watchlistFeedRef.current ?? datafeed).unsubscribe(
-            sub.symbolInfo,
-            sub.period,
-          );
+          sub.feed.unsubscribe(sub.symbolInfo, sub.period);
         } catch {
           // a failing feed must not break list management
         }
@@ -455,7 +541,7 @@ export function KlinechartsUIProvider({
         watchlistStore.set(prev.filter((item) => item.ticker !== ticker));
       }
     },
-    [datafeed, watchlistStore],
+    [watchlistStore],
   );
 
   // Re-subscribe every watchlist ticker when the period changes: subscriptions
@@ -463,53 +549,54 @@ export function KlinechartsUIProvider({
   // kept quoting the old timeframe after a period switch. Periods are compared
   // by value (span/type) so a mere object-identity churn does not churn
   // subscriptions. A datafeed swap re-opens the subs on the new feed while
-  // unsubscribing from the one they were opened on.
+  // unsubscribing from the one they were opened on (tracked PER SUB — a shared
+  // feed ref raced when a new ticker subscribed between the swap and this
+  // reconciliation).
   useEffect(() => {
     const period = state.period;
-    // Snapshot the feed the subs were OPENED on before the loop: assigning
-    // watchlistFeedRef inside forEach let the second ticker observe the
-    // already-updated ref, conclude "same feed", and stay subscribed on the
-    // old feed (leak + silence) — or unsubscribe from the wrong feed when the
-    // period changed alongside the feed swap.
-    const openedFeed = watchlistFeedRef.current ?? datafeed;
-    const sameFeed = openedFeed === datafeed;
     watchlistSubsRef.current.forEach((sub, ticker) => {
       const samePeriod =
         sub.period.span === period.span && sub.period.type === period.type;
+      const sameFeed = sub.feed === datafeed;
       if (samePeriod && sameFeed) return;
       try {
-        openedFeed.unsubscribe(sub.symbolInfo, sub.period);
+        sub.feed.unsubscribe(sub.symbolInfo, sub.period);
       } catch {
         // ignore — the row below re-subscribes either way
       }
       const symbolInfo = { ticker } as SymbolInfo;
-      watchlistSubsRef.current.set(ticker, { symbolInfo, period });
-      datafeed.subscribe(symbolInfo, period, (bar: KLineData) =>
-        updateWatchlistItem(ticker, bar),
-      );
+      // Record-then-subscribe mirrors subscribeWatchlist; on a throwing feed,
+      // drop the record so the NEXT effect run retries instead of leaving the
+      // ticker permanently silent behind a fresh-looking entry.
+      watchlistSubsRef.current.set(ticker, {
+        symbolInfo,
+        period,
+        feed: datafeed,
+      });
+      try {
+        datafeed.subscribe(symbolInfo, period, (bar: KLineData) =>
+          updateWatchlistItem(ticker, bar),
+        );
+      } catch {
+        watchlistSubsRef.current.delete(ticker);
+      }
     });
-    if (watchlistSubsRef.current.size > 0) {
-      watchlistFeedRef.current = datafeed;
-    }
   }, [state.period, datafeed, updateWatchlistItem]);
 
   // Unsubscribe everything on provider unmount (the hook no longer owns any
   // subscription, so a shared per-ticker sub must not outlive the provider).
-  // Reads the feed from watchlistFeedRef — the one the subs were opened on —
-  // so no prop belongs in the dep array.
+  // Each sub carries the feed it was opened on — a runtime datafeed swap must
+  // never unsubscribe from (or leak on) the wrong feed.
   useEffect(() => {
     const subs = watchlistSubsRef.current;
     return () => {
-      const feed = watchlistFeedRef.current;
-      if (feed) {
-        subs.forEach((sub) => {
-          try {
-            feed.unsubscribe(sub.symbolInfo, sub.period);
-          } catch {
-            // teardown must not throw
-          }
-        });
-      }
+      subs.forEach((sub) => {
+        try {
+          sub.feed.unsubscribe(sub.symbolInfo, sub.period);
+        } catch {
+          // teardown must not throw
+        }
+      });
       subs.clear();
     };
   }, []);
@@ -590,7 +677,8 @@ export function KlinechartsUIProvider({
     for (const alert of alerts) {
       // Guard against duplicates: addAlert already creates the overlay on the
       // happy path, and re-running this effect must not stack a second line.
-      if (chart.getOverlays({ id: alert.id, groupId: "price_alerts" }).length > 0)
+      // Scoped lookup: a valid id ignores groupId in klinecharts v10.
+      if (getOverlaysScoped(chart, { id: alert.id, groupId: "price_alerts" }).length > 0)
         continue;
       chart.createOverlay({
         name: "alertLine",
@@ -635,7 +723,14 @@ export function KlinechartsUIProvider({
         if (indicatorCache.has(cacheKey)) return indicatorCache.get(cacheKey)!;
         let value: number | null = null;
         try {
-          const indicators = chart.getIndicators({ id: indicatorId });
+          let indicators = chart.getIndicators({ id: indicatorId });
+          if (!indicators || indicators.length === 0) {
+            // Tolerate a bare indicator NAME: canonical ids here are
+            // `main_<name>`/`sub_<name>`, but AlertTarget.indicatorId is an
+            // unconstrained string and v10's filter ignores `name` next to a
+            // valid id — an alert on "RSI" would otherwise sit armed forever.
+            indicators = chart.getIndicators({ name: indicatorId });
+          }
           const ind = indicators?.[0];
           const result = ind?.result;
           const last = Array.isArray(result) ? result[lastIdx] : null;
@@ -676,6 +771,18 @@ export function KlinechartsUIProvider({
         const prevValue = prevValueByAlert.get(alert.id) ?? null;
         prevValueByAlert.set(alert.id, currentValue);
 
+        // A forming bar that OPENED before the alert was created carries
+        // pre-arming price action: its wick may have touched the level before
+        // the alert existed. For such a bar the baseline is the first observed
+        // price (≈ the price at arming time) and the whole-bar `touched`
+        // signal is suppressed — otherwise a mid-bar-created alert fires
+        // immediately for a crossing it never observed. Alerts without
+        // `createdAt` (hydrated from storage, or dispatched directly) are
+        // considered always-armed and keep the full wick detection.
+        const formingBar = dataList[lastIdx];
+        const barPredatesAlert =
+          alert.createdAt != null && formingBar.timestamp < alert.createdAt;
+
         // Baseline = close of the PREVIOUS (already final) bar: the value the
         // level had to be on the other side of for a crossing to count. Using
         // the previous bar's close instead of the previous 1s sample keeps the
@@ -686,7 +793,7 @@ export function KlinechartsUIProvider({
         const prevBarClose =
           prevBar && typeof prevBar.close === "number" ? prevBar.close : null;
         const baseline =
-          barLow !== null && barHigh !== null && prevBarClose !== null
+          !barPredatesAlert && barLow !== null && barHigh !== null && prevBarClose !== null
             ? prevBarClose
             : prevValue;
         if (baseline === null || !Number.isFinite(baseline)) continue;
@@ -695,6 +802,7 @@ export function KlinechartsUIProvider({
         // some point during the bar even though the close is back on the
         // baseline side.
         const touched =
+          !barPredatesAlert &&
           barLow !== null &&
           barHigh !== null &&
           barLow <= alert.price &&
@@ -857,8 +965,14 @@ export function KlinechartsUIProvider({
           };
           writeLayoutEntry(layoutBackend, autoSaveIdRef.current, updated);
           upsertEntry(updated);
+          return;
         }
-        return;
+        // The "Auto-save" entry was deleted externally (layout manager) while
+        // this sweep still points at its id. The signature above is already
+        // consumed, so without clearing the ref every later sweep would
+        // silently skip the write — auto-save would never persist again.
+        // Drop the stale id and fall through to the create path.
+        autoSaveIdRef.current = null;
       }
 
       // First sweep that saw a change: create the auto-save slot.

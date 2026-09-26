@@ -3,6 +3,24 @@ import type { UndoRedoAction, UndoRedoStore } from "./types";
 const EMPTY: UndoRedoAction[] = [];
 
 /**
+ * History depth cap. Every entry carries a full overlay/indicator snapshot
+ * (points/styles/extendData — a brush stroke alone can hold hundreds of
+ * points), so an unbounded stack grew memory monotonically for the life of
+ * the chart. 100 entries matches the de-facto editor standard.
+ */
+const MAX_STACK_DEPTH = 100;
+
+function pushCapped(
+  stack: UndoRedoAction[],
+  action: UndoRedoAction,
+): UndoRedoAction[] {
+  const next = [...stack, action];
+  return next.length > MAX_STACK_DEPTH
+    ? next.slice(next.length - MAX_STACK_DEPTH)
+    : next;
+}
+
+/**
  * Provider-owned undo/redo history.
  *
  * The stacks used to live in `useUndoRedo`'s own `useState`, which meant every
@@ -39,7 +57,7 @@ export function createUndoRedoStore(): UndoRedoStore {
     getRedoStack: () => redo,
     pushAction(action) {
       if (processing) return; // ignore actions caused by undo/redo itself
-      undo = [...undo, action];
+      undo = pushCapped(undo, action);
       redo = EMPTY;
       emit();
     },
@@ -59,10 +77,10 @@ export function createUndoRedoStore(): UndoRedoStore {
       return action;
     },
     appendUndo(action) {
-      undo = [...undo, action];
+      undo = pushCapped(undo, action);
     },
     appendRedo(action) {
-      redo = [...redo, action];
+      redo = pushCapped(redo, action);
     },
     clear() {
       if (undo.length === 0 && redo.length === 0) return;

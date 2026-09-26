@@ -36,6 +36,19 @@ export interface Datafeed {
     search: string,
     signal?: AbortSignal,
   ): Promise<PartialSymbolInfo[]>;
+  /**
+   * Load historical bars.
+   *
+   * Contract:
+   * - `from`/`to` are millisecond timestamps; `to` is EXCLUSIVE (a forward
+   *   pagination asks for `oldestLoadedBar.timestamp - 1`). Feeds with an
+   *   inclusive upper bound (Binance-style `endTime`) are tolerated — the
+   *   loader drops bars that are not strictly older than the anchor — but
+   *   honoring exclusivity avoids the extra traffic.
+   * - Bars MUST be sorted ascending by timestamp; klinecharts prepends/appends
+   *   verbatim without sorting, and an unsorted response corrupts pagination.
+   * - When `from` is 0, load the most recent available data.
+   */
   getHistoryKLineData(
     symbol: SymbolInfo,
     period: TerminalPeriod,
@@ -164,6 +177,7 @@ export interface KlinechartsUIState {
 export type KlinechartsUIAction =
   | { type: "SET_CHART"; chart: Chart | null }
   | { type: "SET_SYMBOL"; symbol: PartialSymbolInfo }
+  | { type: "ENSURE_PRICE_PRECISION"; ticker: string; pricePrecision: number }
   | { type: "SET_PERIOD"; period: TerminalPeriod }
   | { type: "SET_THEME"; theme: string }
   | { type: "SET_TIMEZONE"; timezone: string }

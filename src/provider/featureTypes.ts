@@ -47,6 +47,14 @@ export interface Alert {
    */
   target?: AlertTarget;
   /**
+   * Arming time (ms epoch), set by `useAlerts.addAlert`. Price bars that
+   * OPENED before this moment carry pre-arming price action, so their wicks
+   * cannot fire the alert (a mid-bar-created alert must not fire for a touch
+   * that predates it). Absent on alerts hydrated from storage — those are
+   * treated as always-armed.
+   */
+  createdAt?: number;
+  /**
    * Visual style for the alert line overlay (color, label text, line/mark
    * styling, bell marker). Persisted in the store so it survives undo/redo
    * and layout presets.

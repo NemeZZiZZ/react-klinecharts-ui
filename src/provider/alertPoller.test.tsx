@@ -143,4 +143,81 @@ describe("provider alert poller", () => {
 
     expect(state.current!.alerts[0]!.triggered).toBe(false);
   });
+
+  it("alert created mid-bar does NOT fire on a wick that predates its creation", () => {
+    vi.useFakeTimers();
+    // The forming bar (timestamp 2) opened long before "now" — and the alert
+    // carries createdAt = now. The wick to 102 happened before arming, so the
+    // alert must stay silent even though prevBarClose 99 < 100 < 102.
+    const stateRef: MutableRefObject<KlinechartsUIState | null> = { current: null };
+    render(
+      <KlinechartsUIProvider datafeed={idleDatafeed}>
+        <HarnessWithCreatedAt
+          data={[bar(1, 99), bar(2, 98, 102, 97)]}
+          price={100}
+          stateRef={stateRef}
+        />
+      </KlinechartsUIProvider>,
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+
+    expect(stateRef.current!.alerts[0]!.triggered).toBe(false);
+  });
+
+  it("alert created mid-bar DOES fire on a bar that opened after arming", () => {
+    vi.useFakeTimers();
+    // The forming bar opened at "now" — NOT before the alert's createdAt —
+    // so full detection applies (prev close 99 < 100, current close 101).
+    const now = Date.now();
+    const stateRef: MutableRefObject<KlinechartsUIState | null> = { current: null };
+    render(
+      <KlinechartsUIProvider datafeed={idleDatafeed}>
+        <HarnessWithCreatedAt
+          data={[bar(now - 60_000, 99), bar(now, 101, 102, 99)]}
+          price={100}
+          stateRef={stateRef}
+        />
+      </KlinechartsUIProvider>,
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(stateRef.current!.alerts[0]!.triggered).toBe(true);
+  });
 });
+
+/** Same as Harness, but the alert carries createdAt=now (armed mid-bar). */
+function HarnessWithCreatedAt({
+  data,
+  price,
+  stateRef,
+}: {
+  data: KLineData[];
+  price: number;
+  stateRef: MutableRefObject<KlinechartsUIState | null>;
+}) {
+  const { dispatch } = useKlinechartsUI();
+  useEffect(() => {
+    dispatch({
+      type: "SET_CHART",
+      chart: createMockChart(data) as never,
+    } as KlinechartsUIAction);
+    dispatch({
+      type: "ADD_ALERT",
+      alert: {
+        id: "a1",
+        price,
+        condition: "crossing_up",
+        triggered: false,
+        createdAt: Date.now(),
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return <StateProbe stateRef={stateRef} />;
+}

@@ -6,6 +6,7 @@ import {
 import type { Alert, AlertCondition, AlertTarget } from "../provider/featureTypes";
 import { ensureAlertLineRegistered } from "../extensions";
 import type { AlertLineExtendData } from "../extensions/overlays/alertLine";
+import { removeOverlayScoped } from "../utils/overlays";
 
 export type { Alert, AlertCondition, AlertTarget } from "../provider/featureTypes";
 export type { AlertLineExtendData } from "../extensions/overlays/alertLine";
@@ -84,6 +85,9 @@ export function useAlerts(): UseAlertsReturn {
         condition,
         message,
         triggered: false,
+        // Arming time: the poller suppresses wick signals from bars that
+        // opened before this moment (see Alert.createdAt).
+        createdAt: Date.now(),
         extendData: resolvedExtendData,
         // Persist the target only when it's an indicator alert; omit for the
         // default price target so existing serialized alerts stay compatible.
@@ -117,10 +121,12 @@ export function useAlerts(): UseAlertsReturn {
   const removeAlert = useCallback(
     (id: string) => {
       dispatch({ type: "REMOVE_ALERT", id });
-      // Scope by the group this hook assigns at creation: a bare `{ id }`
-      // removes the FIRST overlay with that id in ANY group, so an id clash
-      // with a drawing/order overlay would delete foreign UI.
-      state.chart?.removeOverlay({ id, groupId: "price_alerts" });
+      // Scoped removal: klinecharts v10 ignores groupId when id is set, so a
+      // bare {id} could delete a foreign overlay on an id collision (see
+      // utils/overlays).
+      if (state.chart) {
+        removeOverlayScoped(state.chart, { id, groupId: "price_alerts" });
+      }
     },
     [state.chart, dispatch],
   );

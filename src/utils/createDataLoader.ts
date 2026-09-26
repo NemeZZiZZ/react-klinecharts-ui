@@ -1,6 +1,7 @@
 import type { Dispatch, MutableRefObject } from "react";
 import type { DataLoader, KLineData } from "klinecharts";
 import type { Datafeed, KlinechartsUIAction } from "../provider/types";
+import { detectPricePrecision } from "./pricePrecision";
 
 /**
  * Replay context. While `active` is true, the loader serves the saved buffer
@@ -107,24 +108,47 @@ export function createDataLoader(
           if (data.length > 0) {
             oldestTimestamp = data[0].timestamp;
           }
+          // Sub-cent instruments (e.g. PEPE) squash into a flat line under the
+          // default pricePrecision=2; feed the detected precision back into
+          // the symbol so the renderer's symbol-key effect re-applies it
+          // (one extra init fetch, terminating — the reducer no-ops once the
+          // precision is set). The reducer no-ops for default-scale data
+          // (null), for symbols with an explicit precision, and when the
+          // ticker no longer matches (stale init from a previous symbol).
+          const detectedPrecision = detectPricePrecision(data as KLineData[]);
+          if (detectedPrecision !== null) {
+            dispatch({
+              type: "ENSURE_PRICE_PRECISION",
+              ticker: params.symbol.ticker,
+              pricePrecision: detectedPrecision,
+            });
+          }
           params.callback(data as KLineData[], {
             forward: data.length > 0,
             backward: false,
           });
         } else if (params.type === "forward" && oldestTimestamp !== null) {
           gen = genCounter.current;
+          const anchor = oldestTimestamp;
           const data = await datafeed.getHistoryKLineData(
             params.symbol,
             { ...params.period, label: "" },
             0,
-            oldestTimestamp - 1,
+            anchor - 1,
           );
           if (gen !== genCounter.current) return; // init for new period started — discard
-          if (data.length > 0) {
-            oldestTimestamp = data[0].timestamp;
+          // `to` is exclusive by contract, but a feed treating it as inclusive
+          // (Binance-style `endTime`) re-returns the oldest loaded bar — and
+          // klinecharts prepends verbatim without dedupe, duplicating it on
+          // the chart. Drop anything not strictly older than the anchor.
+          const older = (data as KLineData[]).filter(
+            (b) => b.timestamp < anchor,
+          );
+          if (older.length > 0) {
+            oldestTimestamp = older[0].timestamp;
           }
-          params.callback(data as KLineData[], {
-            forward: data.length > 0,
+          params.callback(older, {
+            forward: older.length > 0,
             backward: false,
           });
         } else if (params.type === "backward") {

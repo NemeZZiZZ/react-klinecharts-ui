@@ -13,6 +13,11 @@ import {
   type DrawingOverlayInfo,
 } from "../provider/drawingOverlays";
 import type { SharedState } from "../provider/types";
+import {
+  getOverlaysScoped,
+  overrideOverlayScoped,
+  removeOverlayScoped,
+} from "../utils/overlays";
 
 // `DrawingOverlayInfo` moved to the provider (the overlay snapshot is shared by
 // every hook instance, so its type lives next to the store that owns it).
@@ -331,20 +336,57 @@ export function useDrawingTools(): UseDrawingToolsReturn {
 
   const removeDrawing = useCallback(
     (id: string) => {
-      // groupId в filter гарантирует, что при коллизии id с чужим overlay
-      // (orderLine, alertLine и т.п.) последний не будет удалён.
-      state.chart?.removeOverlay({ id, groupId: DRAWING_GROUP_ID });
+      const chart = state.chart;
+      if (!chart) return;
+      // klinecharts v10 ignores groupId when id is set (see utils/overlays) —
+      // resolve through the scoped lookup so an id collision with a foreign
+      // overlay (orderLine, alertLine, …) can never delete the wrong object.
+      const target = getOverlaysScoped(chart, {
+        id,
+        groupId: DRAWING_GROUP_ID,
+      })[0];
+      if (!target) {
+        refreshOverlaysRef.current();
+        return;
+      }
+      // Record for undo — same payload shape as removeAllDrawings, single
+      // entry. Before the fix only the bulk path was undoable, so a drawing
+      // deleted via the list/Delete key was unrecoverable.
+      const o = target as any;
+      undoRedoListenerRef.current?.({
+        type: "overlays_removed",
+        data: {
+          overlays: [
+            {
+              name: o.name,
+              id: o.id,
+              points: o.points,
+              styles: o.styles,
+              extendData: o.extendData,
+              lock: o.lock,
+              visible: o.visible,
+              mode: o.mode,
+            },
+          ],
+        },
+      });
+      removeOverlayScoped(chart, { id, groupId: DRAWING_GROUP_ID });
       refreshOverlaysRef.current();
     },
-    [state.chart],
+    [state.chart, undoRedoListenerRef],
   );
 
   const setDrawingVisible = useCallback(
     (id: string, visible: boolean) => {
-      // groupId в filter — как в removeDrawing: при коллизии id с чужим
-      // overlay (orderLine, alertLine) overrideOverlay без группы переключил
-      // бы НЕ тот объект.
-      state.chart?.overrideOverlay({ id, groupId: DRAWING_GROUP_ID, visible });
+      // Scoped (see removeDrawing): a bare {id} override would flip a foreign
+      // overlay on an id collision and merge our groupId into it.
+      if (state.chart) {
+        overrideOverlayScoped(state.chart, {
+          id,
+          groupId: DRAWING_GROUP_ID,
+          visible,
+        });
+      }
       refreshOverlaysRef.current();
     },
     [state.chart],
@@ -352,7 +394,13 @@ export function useDrawingTools(): UseDrawingToolsReturn {
 
   const setDrawingLocked = useCallback(
     (id: string, locked: boolean) => {
-      state.chart?.overrideOverlay({ id, groupId: DRAWING_GROUP_ID, lock: locked });
+      if (state.chart) {
+        overrideOverlayScoped(state.chart, {
+          id,
+          groupId: DRAWING_GROUP_ID,
+          lock: locked,
+        });
+      }
       refreshOverlaysRef.current();
     },
     [state.chart],

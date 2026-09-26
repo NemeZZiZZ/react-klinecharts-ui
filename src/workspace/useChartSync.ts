@@ -210,10 +210,28 @@ export function useChartSync({ cellId }: UseChartSyncOptions): void {
     chart.subscribeAction("onScroll", onScroll);
     chart.subscribeAction("onZoom", onZoom);
 
+    // klinecharts never emits onCrosshairChange when the cursor LEAVES the
+    // chart: the leave path calls setCrosshair() without a paneId and the
+    // store's emit gate requires a string paneId — so without this patch the
+    // siblings keep a frozen crosshair line forever. Patch at the DOM level,
+    // the same gap useCrosshair patches for the local legend.
+    const dom = chart.getDom() as HTMLElement | null;
+    const onLeave = () => {
+      if (!sync.crosshair) return;
+      broadcast((target) => {
+        // setCrosshair({}) (via executeAction, notExecuteAction) drops the
+        // paneId, so the target's crosshair figures clear on the redraw; no
+        // action is re-emitted, hence no echo.
+        target.executeAction("onCrosshairChange", {});
+      });
+    };
+    dom?.addEventListener("mouseleave", onLeave);
+
     return () => {
       chart.unsubscribeAction("onCrosshairChange", onCrosshairChange);
       chart.unsubscribeAction("onScroll", onScroll);
       chart.unsubscribeAction("onZoom", onZoom);
+      dom?.removeEventListener("mouseleave", onLeave);
     };
   }, [
     chart,
@@ -230,6 +248,8 @@ export function useChartSync({ cellId }: UseChartSyncOptions): void {
   // `useWorkspace().state.cells` and dispatch `SET_SYMBOL`/`SET_PERIOD` into
   // the per-cell provider when a cell entry changes. This effect only writes
   // outward to the workspace, never inward to the provider.)
+  // `sync.symbol` / `sync.period` gate this outward report: with the flag off
+  // the workspace cells are left untouched.
   // The workspace reducer always builds a new cells array, so dispatching an
   // unchanged symbol/period still re-renders every workspace consumer. The
   // mount run is the worst case: every cell reports the symbol/period it was
@@ -237,6 +257,7 @@ export function useChartSync({ cellId }: UseChartSyncOptions): void {
   // value (compared by value — the provider and the cell own distinct
   // objects, so an identity check would never hit).
   useEffect(() => {
+    if (!sync.symbol) return;
     if (state.symbol) {
       const cellSymbol = workspaceState.cells.find((c) => c.id === cellId)?.symbol;
       if (
@@ -254,9 +275,10 @@ export function useChartSync({ cellId }: UseChartSyncOptions): void {
     // cellId is a dep on purpose: without it a cell whose id prop changes
     // keeps dispatching symbol updates for the OLD id (workspaceDispatch is
     // the stable useReducer dispatch).
-  }, [state.symbol, cellId, workspaceDispatch, workspaceState.cells]);
+  }, [state.symbol, cellId, workspaceDispatch, workspaceState.cells, sync.symbol]);
 
   useEffect(() => {
+    if (!sync.period) return;
     const cellPeriod = workspaceState.cells.find((c) => c.id === cellId)?.period;
     if (
       cellPeriod?.span !== state.period.span ||
@@ -268,5 +290,5 @@ export function useChartSync({ cellId }: UseChartSyncOptions): void {
         period: state.period,
       });
     }
-  }, [state.period, cellId, workspaceDispatch, workspaceState.cells]);
+  }, [state.period, cellId, workspaceDispatch, workspaceState.cells, sync.period]);
 }

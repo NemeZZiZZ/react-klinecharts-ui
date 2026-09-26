@@ -13,8 +13,15 @@ export function useScreenshot(): UseScreenshotReturn {
 
   const capture = useCallback(() => {
     if (!state.chart) return;
-    const url = state.chart.getConvertPictureUrl(true, "jpeg", state.theme === "dark" ? "#151517" : "#ffffff");
-    dispatch({ type: "SET_SCREENSHOT_URL", url });
+    try {
+      const url = state.chart.getConvertPictureUrl(true, "jpeg", state.theme === "dark" ? "#151517" : "#ffffff");
+      dispatch({ type: "SET_SCREENSHOT_URL", url });
+    } catch (error) {
+      // canvas.toDataURL throws on a tainted canvas (a cross-origin image
+      // drawn by an overlay/indicator figure) — surface as a console error,
+      // not an exception in the consumer's click handler.
+      console.error("Screenshot capture failed:", error);
+    }
   }, [state.chart, state.theme, dispatch]);
 
   const download = useCallback(

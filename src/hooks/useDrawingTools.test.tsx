@@ -6,6 +6,7 @@ import { KlinechartsUIProvider } from "../provider/ChartTerminalProvider";
 import { renderHookWithProvider } from "../../test/renderHook";
 import { fakeDatafeed } from "../../test/renderHook";
 import { useDrawingTools, drawingLabel } from "./useDrawingTools";
+import { useUndoRedo } from "./useUndoRedo";
 
 // Fake timers: per-drawing API запускает polling-fallback (setInterval 1s),
 // который вне act() вызывает React-варнинги. Замораживаем таймеры, чтобы
@@ -85,9 +86,9 @@ describe("useDrawingTools — per-drawing API", () => {
     act(() => result.current.removeDrawing(id));
 
     expect(result.current.overlays).toHaveLength(0);
-    expect(chart.removeOverlay).toHaveBeenCalledWith(
-      expect.objectContaining({ id, groupId: "drawing_tools" }),
-    );
+    // Scoped helper: сначала getOverlays({id}) с проверкой groupId, затем
+    // удаление строго по id (groupId в removeOverlay в v10 игнорируется).
+    expect(chart.removeOverlay).toHaveBeenCalledWith({ id });
   });
 
   it("setDrawingVisible(id, false) прячет overlay и вызывает overrideOverlay", () => {
@@ -102,10 +103,10 @@ describe("useDrawingTools — per-drawing API", () => {
 
     const target = result.current.overlays.find((o) => o.id === id);
     expect(target?.visible).toBe(false);
-    // groupId ограничивает фильтр группой drawing_tools (как в removeDrawing)
+    // Scoped override: groupId проверяется до вызова и НЕ уходит в payload
+    // (klinecharts v10 смержил бы его в чужой overlay при коллизии id).
     expect(chart.overrideOverlay).toHaveBeenCalledWith({
       id,
-      groupId: "drawing_tools",
       visible: false,
     });
   });
@@ -124,7 +125,6 @@ describe("useDrawingTools — per-drawing API", () => {
     expect(target?.locked).toBe(true);
     expect(chart.overrideOverlay).toHaveBeenCalledWith({
       id,
-      groupId: "drawing_tools",
       lock: true,
     });
   });
@@ -167,8 +167,56 @@ describe("useDrawingTools — per-drawing API", () => {
     expect(foreignAfter[0].id).toBe("foreign_1");
   });
 
-  it("no-op при state.chart === null: 3 операции не throw", () => {
-    // Кастомный рендер без регистрации mock chart → state.chart остаётся null.
+  it("коллизия id: removeDrawing/override НЕ трогают чужой overlay с тем же id в другой группе", () => {
+    // klinecharts v10 игнорирует groupId при валидном id — регрессионный тест
+    // на scoped-хелпер (utils/overlays).
+    const { result, chart } = renderHookWithProvider(() => useDrawingTools());
+    const chartAny = chart as any;
+    act(() => {
+      chartAny.createOverlay({
+        name: "orderLine",
+        id: "shared_id",
+        groupId: "order_lines",
+        lock: false,
+        visible: true,
+      });
+    });
+
+    act(() => result.current.removeDrawing("shared_id"));
+    expect(chartAny.getOverlays({ id: "shared_id" })).toHaveLength(1);
+    expect(chart.removeOverlay).not.toHaveBeenCalled();
+
+    act(() => result.current.setDrawingVisible("shared_id", false));
+    act(() => result.current.setDrawingLocked("shared_id", true));
+    expect(chart.overrideOverlay).not.toHaveBeenCalled();
+    const foreign = chartAny.getOverlays({ id: "shared_id" })[0];
+    expect(foreign.visible).toBe(true);
+    expect(foreign.groupId).toBe("order_lines");
+  });
+
+  it("removeDrawing записывает undo-экшен: undo() восстанавливает рисунок", () => {
+    const { result, chart } = renderHookWithProvider(() => ({
+      tools: useDrawingTools(),
+      undoApi: useUndoRedo(),
+    }));
+    act(() => result.current.tools.setAutoRetrigger(false));
+    act(() => result.current.tools.selectTool("segment"));
+    const id = chart.createOverlay.mock.results[0].value as string;
+    finishDrawing(chart, { id, name: "segment" });
+
+    // Сбрасываем историю: onDrawEnd уже записал overlay_added.
+    act(() => result.current.undoApi.clear());
+    act(() => result.current.tools.removeDrawing(id));
+    expect(result.current.tools.overlays).toHaveLength(0);
+    expect(result.current.undoApi.canUndo).toBe(true);
+
+    act(() => result.current.undoApi.undo());
+    const restored = (chart as any).getOverlays({ groupId: "drawing_tools" });
+    expect(restored).toHaveLength(1);
+    expect(restored[0].name).toBe("segment");
+  });
+
+  it("no-op при state.chart === null: 3 операции не throw", () => {    // Кастомный рендер без регистрации mock chart → state.chart остаётся null.
     const wrapper = ({ children }: { children: ReactNode }) => (
       <KlinechartsUIProvider datafeed={fakeDatafeed([])}>
         {children}

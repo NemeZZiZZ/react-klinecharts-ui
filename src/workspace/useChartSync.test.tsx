@@ -187,6 +187,40 @@ describe("useChartSync — crosshair mirrors TIME, not pixels", () => {
 
     expect(target.executeAction).not.toHaveBeenCalled();
   });
+
+  it("clears the sibling crosshair when the cursor leaves the source chart", () => {
+    // klinecharts emits NO onCrosshairChange on mouseleave (the store's emit
+    // gate requires a string paneId), so the DOM event is the only signal.
+    const source = createMockChart(bars(50));
+    const target = createMockChart(bars(50));
+    const dom = document.createElement("div");
+    source.getDom.mockReturnValue(dom);
+
+    render(<Scene source={source} target={target} />);
+    act(() => {
+      dom.dispatchEvent(new Event("mouseleave"));
+    });
+
+    // An empty crosshair payload drops the paneId → the target's crosshair
+    // figures clear on the next redraw (and no action re-emits → no echo).
+    expect(target.executeAction).toHaveBeenCalledWith("onCrosshairChange", {});
+  });
+
+  it("does NOT clear siblings on mouseleave when the crosshair channel is off", () => {
+    const source = createMockChart(bars(50));
+    const target = createMockChart(bars(50));
+    const dom = document.createElement("div");
+    source.getDom.mockReturnValue(dom);
+
+    render(
+      <Scene source={source} target={target} sync={{ crosshair: false }} />,
+    );
+    act(() => {
+      dom.dispatchEvent(new Event("mouseleave"));
+    });
+
+    expect(target.executeAction).not.toHaveBeenCalled();
+  });
 });
 
 describe("useChartSync — scroll mirrors the right edge by timestamp", () => {
@@ -346,5 +380,74 @@ describe("useChartSync — workspace mirror skips unchanged values", () => {
     });
     const latest = seen[seen.length - 1];
     expect(latest.find((c) => c.id === "a")?.symbol?.ticker).toBe("ETHUSDT");
+  });
+
+  it("a bridge whose cellId matches no cell does not loop (REMOVE_CELL while mounted)", () => {
+    // The mirror effect dispatches whenever the cell value differs; for a
+    // missing cell it ALWAYS differs. If the workspace reducer built a fresh
+    // cells array for the no-op dispatch, the effect dep would change and
+    // re-dispatch forever (React's "Maximum update depth exceeded").
+    seen.length = 0;
+    const source = createMockChart(bars(10));
+    render(
+      <WorkspaceProvider defaultCells={[cell("a"), cell("b")]}>
+        <CellsProbe />
+        <KlinechartsUIProvider
+          datafeed={fakeDatafeed()}
+          defaultSymbol={{ ticker: "ghost", pricePrecision: 2 }}
+        >
+          <Bridge cellId="missing" chart={source} />
+        </KlinechartsUIProvider>
+      </WorkspaceProvider>,
+    );
+    act(() => {});
+    for (const cells of seen) expect(cells).toBe(seen[0]);
+  });
+
+  it("sync.symbol=false stops the outward symbol report to the workspace cell", () => {
+    seen.length = 0;
+    const source = createMockChart(bars(10));
+    render(
+      <WorkspaceProvider
+        defaultCells={[cell("a"), cell("b")]}
+        sync={{ symbol: false }}
+      >
+        <CellsProbe />
+        <KlinechartsUIProvider
+          datafeed={fakeDatafeed()}
+          defaultSymbol={{ ticker: "ZZZ", pricePrecision: 2 }}
+        >
+          <Bridge cellId="a" chart={source} />
+        </KlinechartsUIProvider>
+      </WorkspaceProvider>,
+    );
+    act(() => {});
+    const latest = seen[seen.length - 1];
+    // Without the gate the provider's "ZZZ" would overwrite the cell's "a".
+    expect(latest.find((c) => c.id === "a")?.symbol?.ticker).toBe("a");
+  });
+
+  it("sync.period=false stops the outward period report to the workspace cell", () => {
+    seen.length = 0;
+    const source = createMockChart(bars(10));
+    render(
+      <WorkspaceProvider
+        defaultCells={[cell("a"), cell("b")]}
+        sync={{ period: false }}
+      >
+        <CellsProbe />
+        <KlinechartsUIProvider
+          datafeed={fakeDatafeed()}
+          defaultSymbol={{ ticker: "a", pricePrecision: 2 }}
+          defaultPeriod={{ span: 5, type: "minute", label: "5m" }}
+        >
+          <Bridge cellId="a" chart={source} />
+        </KlinechartsUIProvider>
+      </WorkspaceProvider>,
+    );
+    act(() => {});
+    const latest = seen[seen.length - 1];
+    // Without the gate the provider's 5m would overwrite the cell's 1m.
+    expect(latest.find((c) => c.id === "a")?.period?.span).toBe(1);
   });
 });

@@ -159,12 +159,10 @@ describe("useAlerts — validation and overlay scoping", () => {
     });
     chart.removeOverlay.mockClear();
     act(() => result.current.removeAlert(id));
-    // A bare { id } would drop the FIRST overlay with that id in ANY group —
-    // a drawing/order overlay sharing the id would be deleted instead.
-    expect(chart.removeOverlay).toHaveBeenCalledWith({
-      id,
-      groupId: "price_alerts",
-    });
+    // Scoped helper: groupId is verified via getOverlays first, then removal
+    // goes by id only (klinecharts v10 ignores groupId next to a valid id).
+    expect(chart.removeOverlay).toHaveBeenCalledWith({ id });
+    expect(chart.getOverlays).toHaveBeenCalledWith({ id });
   });
 });
 

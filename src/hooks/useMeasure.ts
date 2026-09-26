@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useKlinechartsUI } from "../provider/ChartTerminalContext";
+import { removeOverlayScoped } from "../utils/overlays";
 import type { MeasurePoint, MeasureResult } from "../provider/featureTypes";
 
 export type { MeasurePoint, MeasureResult } from "../provider/featureTypes";
@@ -53,17 +54,25 @@ export function useMeasure(): UseMeasureReturn {
   }, [state.chart]);
 
   const cleanup = useCallback(() => {
-    state.chart?.removeOverlay({ id: MEASURE_OVERLAY_ID });
+    // Scoped: a foreign overlay reusing the id must not be removed.
+    if (state.chart) {
+      removeOverlayScoped(state.chart, {
+        id: MEASURE_OVERLAY_ID,
+        groupId: "measure",
+      });
+    }
   }, [state.chart]);
 
   const startMeasure = useCallback(() => {
     cleanup();
+    // Without a chart there is nothing to click on: activating the mode here
+    // left `isActive` stuck true with no overlay and no reconciliation (the
+    // only exit used to be an explicit cancelMeasure).
+    if (!state.chart) return;
     dispatch({
       type: "SET_MEASURE",
       measure: { isActive: true, fromPoint: null, result: null },
     });
-
-    if (!state.chart) return;
 
     // Create a segment overlay that the user draws by clicking two points.
     // The onDrawEnd callback fires when the user finishes placing both points.
@@ -130,8 +139,14 @@ export function useMeasure(): UseMeasureReturn {
 
   // Clean up the overlay on unmount.
   useEffect(() => {
+    const chart = state.chart;
     return () => {
-      state.chart?.removeOverlay({ id: MEASURE_OVERLAY_ID });
+      if (chart) {
+        removeOverlayScoped(chart, {
+          id: MEASURE_OVERLAY_ID,
+          groupId: "measure",
+        });
+      }
     };
   }, [state.chart]);
 

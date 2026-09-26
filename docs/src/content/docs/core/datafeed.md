@@ -23,7 +23,9 @@ interface Datafeed {
 
   /**
    * Load historical bars.
-   * from/to — timestamps in milliseconds.
+   * from/to — timestamps in milliseconds; `to` is EXCLUSIVE (forward
+   * pagination asks for oldestLoadedBar.timestamp - 1). Bars must be sorted
+   * ascending by timestamp — klinecharts never sorts or dedupes them.
    * When from=0, load the most recent available data.
    */
   getHistoryKLineData(

@@ -174,6 +174,8 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
   // built-in defaults when storage is absent, the namespace is disabled, or the
   // stored value is missing/corrupt.
   const hydratedRef = useRef(false);
+  const lastNotifiedRef = useRef<string | null>(null);
+  const lastPersistedRef = useRef<string | null>(null);
   useEffect(() => {
     if (hydratedRef.current) return;
     hydratedRef.current = true;
@@ -182,7 +184,12 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
     if (storage && storage.persists("settings")) {
       try {
         const raw = storage.adapter.getItem(storage.key("settings"));
-        if (raw) initial = { ...defaultSettings, ...JSON.parse(raw) };
+        if (raw) {
+          initial = { ...defaultSettings, ...JSON.parse(raw) };
+          // Seed the persistence baseline with the value already in storage
+          // so the persist effect doesn't write the hydrated value back.
+          lastPersistedRef.current = JSON.stringify(initial);
+        }
       } catch {
         // corrupt entry — fall through to defaults
       }
@@ -197,26 +204,31 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
   useEffect(() => {
     onSettingsChangeRef.current = onSettingsChange;
   });
-  const lastNotifiedRef = useRef<string | null>(null);
   useEffect(() => {
+    // Skip the pre-hydration commit: the hydration effect above runs in the
+    // same commit, but this closure still sees the PRE-hydration defaults —
+    // seeding the baseline with them fired a phantom onSettingsChange on
+    // mount whenever the persisted settings differed from the defaults.
+    if (stored === null) return;
     const json = JSON.stringify(settings);
     if (lastNotifiedRef.current === null) {
-      // First observed snapshot (defaults or the hydration result) is not a
-      // user change.
+      // First hydrated snapshot is not a user change.
       lastNotifiedRef.current = json;
       return;
     }
     if (lastNotifiedRef.current === json) return;
     lastNotifiedRef.current = json;
     onSettingsChangeRef.current?.({ ...settings });
-  }, [settings]);
+  }, [stored, settings]);
 
   // Write the settings slice back through the storage adapter whenever it
   // changes. Content-compared, so hydrating from storage does not immediately
   // write the same value back. Guarded by the resolved storage config.
-  const lastPersistedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!storage || !storage.persists("settings")) return;
+    // Same pre-hydration gate as the notify effect: without it the first
+    // commit wrote the DEFAULTS over the stored (about-to-be-hydrated) value.
+    if (stored === null) return;
     const json = JSON.stringify(settings);
     if (lastPersistedRef.current === json) return;
     lastPersistedRef.current = json;
@@ -225,7 +237,7 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
     } catch {
       // adapter failure is non-fatal
     }
-  }, [settings, storage]);
+  }, [stored, settings, storage]);
 
   const candleTypes = useMemo(
     () =>
@@ -272,17 +284,37 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
     [state.chart, setSettings]
   );
 
-  // Apply the current settings whenever a NEW chart instance appears — keyed on
-  // the chart identity, not on a one-shot "already applied" flag: a chart
-  // recreated at runtime (remount, renderer swap) used to come back with
-  // klinecharts' own defaults while this hook still reported the user's
-  // settings, leaving UI and chart permanently out of sync.
-  const appliedChartRef = useRef<unknown>(null);
+  // Single owner of the chart's style state. Re-applies whenever the chart
+  // instance, the theme OR the settings change — the old one-shot
+  // `appliedChartRef` guard left the chart at stale styles in three cases:
+  // (a) settings changed after the first apply (no re-apply at all),
+  // (b) a theme toggle: setTheme merges the full built-in preset over the
+  //     current styles, permanently clobbering custom colors — settings are
+  //     the persisted source of truth, so they re-apply ON TOP of the new
+  //     theme preset, and
+  // (c) a late-mounted first consumer whose bootstrap ran with pre-hydration
+  //     defaults.
+  const settingsJson = JSON.stringify(settings);
+  const lastAppliedRef = useRef<{
+    chart: unknown;
+    theme: string;
+    json: string;
+  } | null>(null);
   useEffect(() => {
     const chart = state.chart;
-    if (!chart || appliedChartRef.current === chart) return;
-    appliedChartRef.current = chart;
+    if (!chart) return;
+    const prev = lastAppliedRef.current;
+    const themeChanged = !prev || prev.chart !== chart || prev.theme !== state.theme;
+    const settingsChanged = !prev || prev.json !== settingsJson;
+    if (!themeChanged && !settingsChanged) return;
+    lastAppliedRef.current = { chart, theme: state.theme, json: settingsJson };
 
+    // Rebase the preset only on theme change / fresh chart: re-applying the
+    // theme on every settings change would clobber unrelated `styles`-prop
+    // customizations the provider applies on its own effect.
+    if (themeChanged) {
+      chart.setStyles(state.theme);
+    }
     // Everything expressible as styles, in one call.
     chart.setStyles(buildStyles(settings));
 
@@ -301,7 +333,9 @@ export function useKlinechartsUISettings(): UseKlinechartsUISettingsReturn {
         ...(settings.yAxisInside && { inside: true }),
       });
     }
-  }, [state.chart, settings, applyPaneAxis]);
+    // settingsJson covers `settings`; buildStyles(settings) is derived.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.chart, state.theme, settingsJson, applyPaneAxis]);
 
   const applyStyle = useCallback(
     (path: string, value: unknown) => {

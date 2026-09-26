@@ -145,3 +145,50 @@ describe("reducer — unknown action returns state unchanged", () => {
     expect(next).toBe(s);
   });
 });
+
+describe("reducer — ENSURE_PRICE_PRECISION (auto-detected fill)", () => {
+  it("fills pricePrecision when the symbol has none", () => {
+    const s = makeState({ symbol: { ticker: "PEPE" } });
+    const next = reducer(s, {
+      type: "ENSURE_PRICE_PRECISION",
+      ticker: "PEPE",
+      pricePrecision: 8,
+    });
+    expect(next.symbol).toEqual({ ticker: "PEPE", pricePrecision: 8 });
+  });
+
+  it("never overrides an explicit pricePrecision and returns the same reference", () => {
+    const s = makeState({ symbol: { ticker: "X", pricePrecision: 4 } });
+    const next = reducer(s, {
+      type: "ENSURE_PRICE_PRECISION",
+      ticker: "X",
+      pricePrecision: 8,
+    });
+    expect(next.symbol?.pricePrecision).toBe(4);
+    expect(next).toBe(s);
+  });
+
+  it("is a no-op when no symbol is set", () => {
+    const s = makeState({ symbol: null });
+    const next = reducer(s, {
+      type: "ENSURE_PRICE_PRECISION",
+      ticker: "PEPE",
+      pricePrecision: 8,
+    });
+    expect(next).toBe(s);
+  });
+
+  it("ignores a stale init resolving after a symbol switch (ticker mismatch)", () => {
+    // The loader's gen counter only bumps once the NEW symbol's init starts,
+    // so an old init settling in between would otherwise stamp its precision
+    // onto the new symbol — and the explicit-precision guard would keep the
+    // wrong value forever.
+    const s = makeState({ symbol: { ticker: "AAPL" } });
+    const next = reducer(s, {
+      type: "ENSURE_PRICE_PRECISION",
+      ticker: "PEPE",
+      pricePrecision: 8,
+    });
+    expect(next).toBe(s);
+  });
+});

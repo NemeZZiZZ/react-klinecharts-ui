@@ -4,6 +4,144 @@ All notable changes to **react-klinecharts-ui** are documented in this file.
 
 ---
 
+## 2.3.0 — 2026-09-26
+
+### Fixed
+
+- **Sub-cent symbols (PEPE, SHIB, …) rendered as a flat line with all axis
+  labels reading `0.00`.** klinecharts clamps the candle-pane Y axis to
+  `10^-pricePrecision` per tick and defaults to 2 decimals when the symbol
+  carries none: for a `0.000005`-priced token the data range (~`2e-7`) is far
+  below the `0.01` minimum span, so the axis force-expands to ±0.04 and the
+  candles collapse into a sub-pixel band. The terminal now detects the
+  precision implied by the smallest movement in the bars returned by the
+  initial `getHistoryKLineData` load (wicks, body, and adjacent-close deltas;
+  order-of-magnitude based, so float-subtraction noise like
+  `65000.12 - 65000.11` cannot inflate it) and feeds it back into the symbol
+  via a new internal `ENSURE_PRICE_PRECISION` action — the chart re-scales and
+  the labels gain the missing decimals. Default-scale data detects nothing and
+  dispatches nothing (normal symbols never pay the extra symbol refresh), and
+  an explicit `pricePrecision` on the symbol always wins.
+- **A stale init could stamp the wrong symbol's auto-detected precision onto
+  the new symbol.** The loader's generation counter only bumps once the NEW
+  symbol's init starts, so an old symbol's init resolving in the gap after
+  `SET_SYMBOL` would fill the new symbol's `pricePrecision` — and the
+  explicit-precision guard would then keep the wrong value forever.
+  `ENSURE_PRICE_PRECISION` now carries the ticker and the reducer ignores
+  mismatches.
+- **Workspace sync crashed with "Maximum update depth exceeded" when a sync
+  bridge's `cellId` matched no cell** (`REMOVE_CELL` while the bridge stayed
+  mounted, or a typo'd id). The mirror effects dispatch whenever the cell
+  value differs — for a missing cell it ALWAYS differs — and the workspace
+  reducer built a fresh `cells` array for the no-op dispatch, retriggering
+  the effect forever. `SET_CELL_SYMBOL`/`SET_CELL_PERIOD` now return the same
+  state reference when no cell matches.
+- **Deleting the "Auto-save" layout permanently killed auto-save for the
+  session.** The 5s sweep consumed the changed-content signature before the
+  write attempt, then found the entry gone and skipped the write — with the
+  stale id kept, every later sweep skipped too. The sweep now drops the stale
+  id and falls through to the create path.
+- **`SET_LOADING` no longer re-renders the whole terminal when the flag is
+  unchanged.** With overlapping init+forward requests the loader dispatches
+  the same boolean repeatedly; the reducer now returns the same state
+  reference (the existing `SET_SCREENSHOT_URL` pattern).
+- **Overlay operations claiming a `groupId` scope were NOT scoped.**
+  klinecharts v10's filter short-circuits on a valid `id` and ignores
+  `groupId`/`name`: `removeOverlay({ id, groupId })` removed the overlay with
+  that id in ANY group, and `overrideOverlay({ id, groupId, … })` additionally
+  merged our `groupId` into the victim (silently re-homing it). All id+group
+  call sites (drawing tools, price alerts, undo/redo, the alert reconciler)
+  now go through `utils/overlays` scoped helpers that verify the group BEFORE
+  calling by id and never forward `groupId` into the override payload.
+- **`removeDrawing` bypassed undo.** Only `removeAllDrawings` recorded an
+  `overlays_removed` action; a drawing deleted via the list/Delete key was
+  unrecoverable and diverged the undo sequence. Single-drawing removal now
+  snapshots the overlay and records the same action shape.
+- **Price alerts created mid-bar fired immediately for a wick that predated
+  the alert.** The poller's baseline (previous bar close) plus the whole-bar
+  `touched` signal bypassed the documented "first observation never fires"
+  seed. `useAlerts.addAlert` now stamps `createdAt` on the alert; a forming
+  bar that OPENED before that moment cannot fire the alert (baseline falls
+  back to the first observed price, wick signal suppressed). Alerts hydrated
+  from storage have no `createdAt` and keep the full wick detection.
+- **Indicator alerts accept a bare indicator name.** The poller resolved
+  targets by `id` only, and v10's filter ignores `name` next to a valid id —
+  an alert armed on `"RSI"` instead of `sub_RSI` sat silent forever. Falls
+  back to a name lookup when the id misses.
+- **Synced crosshairs never cleared when the cursor left the source chart.**
+  klinecharts emits no `onCrosshairChange` on mouseleave (the store's emit
+  gate requires a string paneId), so siblings kept a frozen line. The sync
+  bridge now listens for DOM `mouseleave` (the same gap `useCrosshair` already
+  patched locally) and broadcasts an empty crosshair, which clears the target
+  drawing without echo.
+- **`sync.symbol` / `sync.period` config channels were silently ignored.** The
+  outward report effects wrote the provider's symbol/period into the workspace
+  cell regardless of the flags. The channels now gate the outward report;
+  inward (cross-cell) linking stays the consumer's job, as documented.
+- **`useCompare`: remove→re-add while the first fetch was in flight
+  resurrected the stale fetch and discarded the fresh one.** The post-await
+  guard checked only that the pending slot was occupied — by the NEWER fetch.
+  The pending map now carries a monotonically increasing generation (never
+  reset on remove, so a re-add can't reissue the same one) and a continuation
+  proceeds only when its own generation is still current.
+- **Settings hook fired a phantom `onSettingsChange` on mount and transiently
+  overwrote stored settings with defaults.** Hydration, notify and persist
+  effects share the mount commit but the closures saw the pre-hydration
+  defaults; the notify/persist effects now skip the pre-hydration commit and
+  the persistence baseline is seeded with the hydrated value.
+- **A theme toggle permanently clobbered custom settings styles.** The
+  settings bootstrap was a one-shot guard per chart instance, and
+  `setStyles(theme)` merges the full built-in preset over current styles. The
+  effect now owns the chart's style state: on theme change it rebases the
+  preset and re-applies the (persisted) settings on top; on settings change it
+  re-applies without the rebase; a recreated chart always receives the current
+  settings.
+- **Hydration validated only the root shape of stored JSON.** A corrupt nested
+  payload (`{"main": "MA"}` — string where `string[]` belongs) crashed
+  ChartCanvas' `forEach` at chart-ready; a garbage element in the alerts array
+  reconciled into a ghost overlay with `id: undefined` that `removeAlert`
+  could never target. Stored indicators/alerts are now field-validated, with
+  corrupt entries dropped back to defaults.
+- **`loadLayout` threw on a truncated layout entry instead of returning
+  `false`.** `readLayoutEntry` parsed without a shape check; entries lacking a
+  `state` object now degrade to `null`. Layout index writes are deduped
+  (two providers sharing one backend race the index read-modify-write).
+- **Forward pagination duplicated a bar with inclusive-`to` feeds** (e.g.
+  Binance `endTime`): klinecharts prepends the response verbatim. The loader
+  now drops anything not strictly older than the anchor, and the Datafeed
+  contract documents `to` as exclusive + ascending order required.
+- **Watchlist fixes.** A row is added BEFORE subscribing (a feed emitting its
+  first quote synchronously inside `subscribe` no longer loses it); a throwing
+  `subscribe` in the period/feed reconciliation loop no longer leaves a
+  fresh-looking entry that blocks every retry (the ticker went permanently
+  silent); each subscription records the feed it was opened on, so a runtime
+  datafeed swap can no longer unsubscribe from — or leak on — the wrong feed.
+- **Undo/redo history is capped at 100 entries** (each carries a full
+  overlay/indicator snapshot; it grew unboundedly for the life of the chart).
+- **`useMeasure`: `startMeasure` before the chart exists no longer leaves the
+  mode stuck active** with no overlay and no reconciliation.
+- **`createOrderLine` with an already-existing id returns `null`** instead of
+  reporting success for a line klinecharts silently never created.
+- **`useScriptEditor` reconciles a vanished script indicator** (wiped by a
+  layout load) instead of leaving `hasActiveScript` true with a dead Remove
+  button.
+- **`useScreenshot.capture` no longer throws on a tainted canvas** — a
+  cross-origin image drawn by an overlay makes `toDataURL` throw; the failure
+  is logged and the click handler survives.
+- **Replay: a `getBars` entering the commit window after `stopReplay` could be
+  served the old replay slice** — the every-render effect re-armed
+  `replayActiveRef` from the stale state of the same commit. The ref is now
+  propagated one-way (cleared only); `startReplay` sets it.
+- **`brush` legacy-index repair no longer retries on every animation frame**
+  for strokes pointing past the loaded range; it re-runs only when the data
+  list length changes.
+- **Docs:** `TA.ema`/`rma` seed with an SMA of the first `period` values
+  (TA-Lib convention), not Pine's first-value seed — the docstring previously
+  claimed full Pine parity. Watchlist `change`/`changePercent` documented as
+  the forming bar's move, not the day change.
+
+---
+
 ## 2.2.0 — 2026-09-08
 
 ### Fixed

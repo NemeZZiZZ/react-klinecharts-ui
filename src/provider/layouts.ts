@@ -147,7 +147,20 @@ export function readLayoutEntry(
   if (!backend) return null;
   try {
     const raw = backend.getItem(backend.entryPrefix + id);
-    return raw ? JSON.parse(raw) : null;
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    // Shape check, not just syntax: a truncated/hand-edited entry ("{}", or
+    // no `state`) must degrade to null — loadLayout would otherwise throw
+    // reading `entry.state.version` off undefined.
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      !("state" in parsed) ||
+      (parsed as LayoutEntry).state === null ||
+      typeof (parsed as LayoutEntry).state !== "object"
+    ) {
+      return null;
+    }
+    return parsed as LayoutEntry;
   } catch {
     return null;
   }
@@ -173,7 +186,10 @@ export function writeLayoutIndex(
   backend: LayoutBackend | null,
   ids: string[],
 ): void {
-  backend?.setItem(backend.indexKey, JSON.stringify(ids));
+  // Dedupe on write: concurrent providers sharing one backend race the
+  // read-modify-write on this index (no locking possible), and a duplicated
+  // id is the mildest corruption — cheap insurance.
+  backend?.setItem(backend.indexKey, JSON.stringify([...new Set(ids)]));
 }
 
 export function deleteLayoutEntry(

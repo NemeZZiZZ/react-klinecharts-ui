@@ -275,6 +275,10 @@ using only the **public** klinecharts API (`executeAction`,
 `convertFromPixel` / `convertToPixel`, `scrollToTimestamp`, `setBarSpace`) — no
 internal `_chartStore`. A re-entrancy guard prevents feedback loops.
 Per-channel sync can be disabled via the `sync` prop (`{ scroll: false }`).
+`symbol` / `period` gate each cell's *outward* report into the workspace
+cells list (`useWorkspace().state.cells`) — linking symbols/periods *across*
+cells remains the consumer's job (read the cells list and dispatch
+`SET_SYMBOL`/`SET_PERIOD` into the per-cell provider).
 
 Both X-axis channels are mirrored through **time**, not through pixels: the
 source converts its pixel (or bar index) to a timestamp and every sibling maps
@@ -403,6 +407,16 @@ interface PartialSymbolInfo {
   [key: string]: unknown; // Any additional fields
 }
 ```
+
+**Price precision auto-detection.** When a symbol carries no explicit
+`pricePrecision`, the terminal inspects the bars returned by the first
+`getHistoryKLineData` load and, for sub-cent price scales (e.g. PEPE at
+`0.000005` with `1e-8` ticks), fills the precision in automatically (up to 12
+decimal places). Without this, klinecharts falls back to its default of 2
+decimals, clamping the Y axis to a `0.01` minimum span — sub-cent candles
+squash into a flat line and every axis label reads `0.00`. Data implying the
+default scale never triggers a refresh, and an explicit `pricePrecision`
+always wins over the detected value.
 
 ### KlinechartsUIState
 
@@ -1022,7 +1036,7 @@ const {
 createOrderLine(options: OrderLineOptions): string | null
 ```
 
-Returns the `id` of the created line, or `null` if the chart is not ready.
+Returns the `id` of the created line, or `null` if the chart is not ready **or an overlay with the requested `id` already exists** (klinecharts silently ignores duplicate-id creation — the hook reports the collision instead of returning a success-looking id for a line that never changed).
 
 ```typescript
 interface OrderLineOptions extends OrderLineExtendData {

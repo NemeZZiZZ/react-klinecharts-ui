@@ -194,6 +194,74 @@ describe("createDataLoader", () => {
     expect(loadingFlags()).toEqual([true, false, true, true, true, false]);
   });
 
+  it("forward load drops bars not strictly older than the anchor (inclusive-to feeds)", async () => {
+    // A feed that treats `to` as INCLUSIVE (Binance-style endTime) re-returns
+    // the oldest loaded bar; klinecharts prepends verbatim — without the
+    // filter the anchor bar would duplicate on the chart.
+    const dispatch = vi.fn();
+    const history = bars(5); // oldest timestamp: 1_700_000_000_000
+    const anchorDuplicate = bars(1)[0]!;
+    const olderBar = { ...anchorDuplicate, timestamp: 1_700_000_000_000 - 60_000 };
+    const feed: Datafeed = {
+      searchSymbols: async () => [],
+      getHistoryKLineData: vi
+        .fn()
+        .mockImplementationOnce(async () => history) // init
+        .mockImplementationOnce(async () => [anchorDuplicate, olderBar]), // forward
+      subscribe: () => {},
+      unsubscribe: () => {},
+    };
+    const loader = createDataLoader(feed, dispatch);
+    await loader.getBars({
+      type: "init",
+      symbol: { ticker: "T" },
+      period: { span: 1, type: "minute" },
+      callback: vi.fn(),
+    } as never);
+
+    const fwdCb = vi.fn();
+    await loader.getBars({
+      type: "forward",
+      symbol: { ticker: "T" },
+      period: { span: 1, type: "minute" },
+      callback: fwdCb,
+    } as never);
+
+    const [data, more] = fwdCb.mock.calls[0];
+    expect(data).toHaveLength(1);
+    expect(data[0].timestamp).toBe(1_700_000_000_000 - 60_000);
+    expect(more).toEqual({ forward: true, backward: false });
+  });
+
+  it("forward load reports forward:false when everything returned was the duplicate anchor", async () => {
+    const dispatch = vi.fn();
+    const history = bars(5);
+    const feed: Datafeed = {
+      searchSymbols: async () => [],
+      getHistoryKLineData: vi
+        .fn()
+        .mockImplementationOnce(async () => history)
+        .mockImplementationOnce(async () => [bars(1)[0]]), // only the anchor
+      subscribe: () => {},
+      unsubscribe: () => {},
+    };
+    const loader = createDataLoader(feed, dispatch);
+    await loader.getBars({
+      type: "init",
+      symbol: { ticker: "T" },
+      period: { span: 1, type: "minute" },
+      callback: vi.fn(),
+    } as never);
+    const fwdCb = vi.fn();
+    await loader.getBars({
+      type: "forward",
+      symbol: { ticker: "T" },
+      period: { span: 1, type: "minute" },
+      callback: fwdCb,
+    } as never);
+    expect(fwdCb).toHaveBeenCalledWith([], { forward: false, backward: false });
+  });
+
   it("a shared genRef discards a stale init in flight on a previous loader instance", async () => {
     const dispatch = vi.fn();
     const genRef = { current: 0 };
@@ -235,6 +303,75 @@ describe("createDataLoader", () => {
     resolveOld(bars(10));
     await oldDone;
     expect(oldCb).not.toHaveBeenCalled();
+  });
+});
+
+describe("createDataLoader — price precision auto-detection", () => {
+  const pepeBars = (): KLineData[] =>
+    Array.from({ length: 5 }, (_, i) => {
+      const close = 0.00000498 + i * 1e-8;
+      return {
+        timestamp: 1_700_000_000_000 + i * 60_000,
+        open: i === 0 ? 0.00000498 : 0.00000498 + (i - 1) * 1e-8,
+        high: close + 1e-8,
+        low: close - 1e-8,
+        close,
+        volume: 1e12,
+      };
+    });
+
+  it("dispatches ENSURE_PRICE_PRECISION on init for sub-cent price scales", async () => {
+    const dispatch = vi.fn();
+    const loader = createDataLoader(makeDatafeed(pepeBars()), dispatch);
+    await loader.getBars({
+      type: "init",
+      symbol: { ticker: "PEPE" },
+      period: { span: 1, type: "minute" },
+      callback: vi.fn(),
+    } as never);
+
+    const ensure = dispatch.mock.calls.find(
+      (c) => (c[0] as KlinechartsUIAction).type === "ENSURE_PRICE_PRECISION",
+    );
+    expect(ensure).toBeDefined();
+    expect(ensure![0]).toMatchObject({ ticker: "PEPE", pricePrecision: 8 });
+  });
+
+  it("never dispatches ENSURE_PRICE_PRECISION for default-scale data", async () => {
+    const dispatch = vi.fn();
+    const loader = createDataLoader(makeDatafeed(bars(5)), dispatch);
+    await loader.getBars({
+      type: "init",
+      symbol: { ticker: "T" },
+      period: { span: 1, type: "minute" },
+      callback: vi.fn(),
+    } as never);
+
+    const types = dispatch.mock.calls.map((c) => (c[0] as KlinechartsUIAction).type);
+    expect(types).not.toContain("ENSURE_PRICE_PRECISION");
+  });
+
+  it("does not dispatch on forward loads (init already ensured the symbol)", async () => {
+    const dispatch = vi.fn();
+    const loader = createDataLoader(makeDatafeed(pepeBars()), dispatch);
+    await loader.getBars({
+      type: "init",
+      symbol: { ticker: "PEPE" },
+      period: { span: 1, type: "minute" },
+      callback: vi.fn(),
+    } as never);
+    expect(
+      dispatch.mock.calls.some((c) => (c[0] as KlinechartsUIAction).type === "ENSURE_PRICE_PRECISION"),
+    ).toBe(true);
+    dispatch.mockClear();
+    await loader.getBars({
+      type: "forward",
+      symbol: { ticker: "PEPE" },
+      period: { span: 1, type: "minute" },
+      callback: vi.fn(),
+    } as never);
+    const types = dispatch.mock.calls.map((c) => (c[0] as KlinechartsUIAction).type);
+    expect(types).not.toContain("ENSURE_PRICE_PRECISION");
   });
 });
 

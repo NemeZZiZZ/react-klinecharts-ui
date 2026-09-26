@@ -1,6 +1,12 @@
 /**
  * Technical Analysis (TA) Utility Library
- * Ported logic to match TradingView / Pine Script calculations.
+ *
+ * Logic follows TradingView / Pine Script conventions, with ONE deliberate
+ * deviation: `ema`/`rma` (and everything built on them — `macd`'s signal
+ * line, `atr`) seed with an SMA of the first `period` values (the TA-Lib
+ * convention), while Pine's `ta.ema` seeds with the first non-na source
+ * value. Early values (roughly the first 3×period bars, and the recursive
+ * tail after data gaps) therefore differ slightly from TradingView.
  */
 
 const TA = {

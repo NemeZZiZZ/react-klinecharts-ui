@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { act, waitFor } from "@testing-library/react";
 import { renderHookWithProvider } from "../../test/renderHook";
 import { useLayoutManager, type LayoutEntry } from "./useLayoutManager";
+import { useKlinechartsUIDispatch } from "../provider/ChartTerminalContext";
 import type { StorageAdapter } from "../storage";
 
 /** In-memory StorageAdapter with an inspectable backing map. */
@@ -283,5 +284,50 @@ describe("useLayoutManager — общее состояние провайдер�
       result.current.a.setAutoSaveEnabled(true);
     });
     expect(result.current.b.autoSaveEnabled).toBe(true);
+  });
+});
+
+describe("useLayoutManager — auto-save sweep", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("recreates the 'Auto-save' slot after the entry is deleted externally", () => {
+    // Regression: the provider sweep kept a stale autoSaveIdRef after
+    // deleteLayout removed the entry; the signature was consumed before the
+    // write attempt, so every later 5s sweep silently skipped — auto-save
+    // never persisted again for the rest of the session.
+    const adapter = memoryAdapter();
+    const { result } = renderHookWithProvider(
+      () => ({ lm: useLayoutManager(), dispatch: useKlinechartsUIDispatch().dispatch }),
+      { storage: { adapter } },
+    );
+    act(() => result.current.lm.setAutoSaveEnabled(true));
+
+    // A signature-visible change (symbol is part of layoutContentSignature) →
+    // the next sweep creates the auto-save slot.
+    act(() => {
+      result.current.dispatch({ type: "SET_SYMBOL", symbol: { ticker: "AAA" } });
+      vi.advanceTimersByTime(5000);
+    });
+    const created = result.current.lm.layouts.find((l) => l.name === "Auto-save");
+    expect(created).toBeTruthy();
+
+    act(() => result.current.lm.deleteLayout(created!.id));
+    expect(result.current.lm.layouts.some((l) => l.name === "Auto-save")).toBe(false);
+
+    // Another change + sweep: the slot must be recreated under a fresh id.
+    act(() => {
+      result.current.dispatch({ type: "SET_SYMBOL", symbol: { ticker: "BBB" } });
+      vi.advanceTimersByTime(5000);
+    });
+    const recreated = result.current.lm.layouts.filter((l) => l.name === "Auto-save");
+    expect(recreated).toHaveLength(1);
+    expect(recreated[0]!.id).not.toBe(created!.id);
+    expect(recreated[0]!.state.meta.symbol).toBe("BBB");
   });
 });

@@ -265,3 +265,41 @@ describe("useCompare — stable callback identities", () => {
     expect(result.current.toggleSymbol).toBe(firstToggle);
   });
 });
+
+describe("useCompare — in-flight races", () => {
+  it("remove→re-add during the first fetch: the FRESH fetch wins", async () => {
+    const { result, datafeed } = renderHookWithProvider(() => useCompare(), {
+      initialData: MAIN,
+    });
+
+    // Two deferred fetches: A (stale, started first) and B (fresh).
+    const deferred: Array<(d: KLineData[]) => void> = [];
+    datafeed.getHistoryKLineData = (() =>
+      new Promise<KLineData[]>((r) => deferred.push(r))) as typeof datafeed.getHistoryKLineData;
+
+    await act(async () => {
+      void result.current.addSymbol("ETHUSDT"); // fetch A in flight
+    });
+    act(() => result.current.removeSymbol("ETHUSDT"));
+    await act(async () => {
+      void result.current.addSymbol("ETHUSDT"); // fetch B in flight
+    });
+    expect(deferred).toHaveLength(2);
+
+    // Stale anchor (close 1111) resolves FIRST, fresh anchor (3000) second.
+    const STALE: KLineData[] = COMPARE.map((b) => ({ ...b, close: 1111 }));
+    await act(async () => {
+      deferred[0]!(STALE);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      deferred[1]!(COMPARE);
+      await Promise.resolve();
+    });
+
+    // With the old slot-presence guard the stale continuation would have
+    // registered first and the fresh one would have bailed (slot deleted).
+    expect(result.current.symbols).toHaveLength(1);
+    expect(result.current.symbols[0]?.basePrice).toBe(3000);
+  });
+});

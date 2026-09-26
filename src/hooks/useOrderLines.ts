@@ -19,7 +19,9 @@ export interface OrderLineOptions extends OrderLineExtendData {
 export interface UseOrderLinesReturn {
   /**
    * Creates an order line overlay at the given price level.
-   * Returns the line id, or null if the chart is not yet ready.
+   * Returns the line id, or null if the chart is not yet ready OR an overlay
+   * with the requested id already exists (klinecharts would otherwise accept
+   * the call and silently keep the old line).
    */
   createOrderLine: (options: OrderLineOptions) => string | null;
   /**
@@ -96,6 +98,12 @@ export function useOrderLines(): UseOrderLinesReturn {
       const id =
         options.id ??
         `order_line_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+      // klinecharts createOverlay silently no-ops (returning the id as if
+      // created) when an overlay with that id already exists — the caller
+      // would hold a "successful" id whose line never reflects the requested
+      // options. Report the collision instead.
+      if (state.chart.getOverlays({ id }).length > 0) return null;
 
       const stored: OrderLineOptions = { ...options, id };
       linesRef.current.set(id, stored);

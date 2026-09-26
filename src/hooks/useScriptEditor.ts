@@ -123,6 +123,19 @@ export function useScriptEditor(): UseScriptEditorReturn {
     activeRef.current = active;
   }, [active]);
   const hasActiveScript = active !== null && active.chart === state.chart;
+
+  // A running script indicator can vanish behind our back — loadLayout wipes
+  // every indicator via chart.removeIndicator without telling this hook —
+  // leaving hasActiveScript true with a Remove button that no-ops. Reconcile
+  // against the chart when the provider's indicator lists change (a layout
+  // load dispatches SET_MAIN/SUB_INDICATORS in the same commit).
+  useEffect(() => {
+    if (!active || active.chart !== state.chart || !active.id) return;
+    if (state.chart!.getIndicators({ id: active.id }).length === 0) {
+      setActive(null);
+      setStatus("Indicator removed.");
+    }
+  }, [active, state.chart, state.mainIndicators, state.subIndicators]);
   // Per-instance salt for the registered template name (same pattern as
   // useCompare). The klinecharts registry is global: two provider instances
   // (multi-chart workspace) sharing one template name would silently
