@@ -4,6 +4,76 @@ All notable changes to **react-klinecharts-ui** are documented in this file.
 
 ---
 
+## 2.3.1 — 2026-10-17
+
+Patch (dependency maintenance) release. No source code or public API changes;
+backs the klinecharts upstream releases (`10.0.3` → `10.1.0`) and the matching
+`react-klinecharts` wrapper (`1.0.1` → `1.0.2`). Typecheck, lint, the full test
+suite (360 tests), and the build pass against the bumped versions. Backwards
+compatible.
+
+### Changed
+
+- **klinecharts `^10.0.3` → `^10.1.0`** (dev dependency). `10.1.0` is strictly
+  additive on the public type surface — diffing the published `.d.ts` between
+  `10.0.3` and `10.1.0` shows zero removed symbols. New: the `Store` interface
+  (which `Chart` extends) gains `setLayoutOptions(DeepPartial<Layout>)` /
+  `getLayoutOptions(): DeepRequired<Layout>`; new exported types
+  `CompareColorCallback`, `CandleBarColorCallback` and
+  `CandleBarColorCallbackReturnStyle`; and the candle bar, indicator OHLC and
+  last-price-mark style fields widen to also accept per-bar color callbacks
+  (`CandleStyle.bar`, `IndicatorStyle.ohlc`, `CandleLastPriceMarkLineStyle.color`,
+  the last-price-mark text / extend-text `backgroundColor`). `DeepPartial<T>`
+  now passes function-typed fields through unchanged instead of mapping them
+  into partial objects — that is what makes the callback-typed style fields
+  assignable through `setStyles`, and it improves any consumer-held
+  `DeepPartial<Styles>` carrying functions. Nothing the library reads
+  (`getStyles().overlay.line`, tooltip styles) or writes (settings-built
+  `DeepPartial<Styles>`) is affected.
+
+- **react-klinecharts `1.0.1` → `1.0.2`** (dev dependency, and the same pin in
+  the `docs` / `examples` workspace packages). `1.0.2` raises its `klinecharts`
+  dependency to `^10.1.0` — bumping it here keeps a single `klinecharts@10.1.0`
+  copy in the dependency tree — and adds one small feature of its own: a
+  reactive `layoutOptions?: DeepPartial<Layout>` prop on `<KLineChart>` that
+  forwards to the new `chart.setLayoutOptions()`. The peer ranges
+  (`klinecharts >=10.0.0`, `react-klinecharts >=1.0.0`) are unchanged.
+
+### Notable upstream behaviour in klinecharts 10.0.4 / 10.1.0 (picked up automatically)
+
+These ship in klinecharts and apply through the chart instance — no library
+change is required to benefit:
+
+- 10.1.0: new `setLayoutOptions(options)` / `getLayoutOptions()` instance
+  methods update and read default layout options after initialization.
+- 10.1.0: candlestick colors, indicator OHLC bar colors and last-price
+  line/label colors can now be assigned dynamically per bar via callbacks,
+  instead of only the up/down compare rule.
+- 10.1.0: time-axis tick generation now selects and caches ticks by time
+  hierarchy — more stable tick labels and better scrolling performance.
+- 10.1.0: fixed `scrollByDistance` conflicting with an active fling-scroll
+  animation; axis scrolling/scaling stopping when the pointer left the axis
+  mid-drag; a rapid click far from the previous click not starting a new click
+  sequence; logarithmic y-axis labels and coordinate conversion for ranges
+  containing negative, zero or sub-1 prices; overlay y-axis labels rendered
+  repeatedly on non-default axes in multi-axis panes.
+- 10.0.4: consecutive realtime data updates in the same event loop now coalesce
+  indicator recalculations (the library's `updateBar` path benefits directly),
+  and pane heights are rounded after separator dragging, preventing subpixel
+  dimensions from causing continuous full repaints.
+- 10.0.4: fixed data-loader subscriptions not being removed when a chart is
+  destroyed; indicator update detection comparing `figures` only by reference;
+  `calcParams` / `figures` sharing references with external objects after
+  indicator overrides (and explicit `undefined` values replacing existing
+  options); a potential infinite loop when the y-axis tick interval is smaller
+  than floating-point precision (relevant to the sub-cent precision work in
+  2.3.0); y-axis width jitter from frequently changing realtime labels; drag,
+  zoom and crosshair state remaining active after a cancelled touch gesture;
+  and an exception when setting an unregistered locale (now falls back to
+  `en-US`).
+
+---
+
 ## 2.3.0 — 2026-09-26
 
 ### Fixed
